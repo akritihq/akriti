@@ -1,0 +1,245 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Ākriti — Certified Topological Data Analysis</title>
+  <meta name="description" content="Akriti is an Apache-2.0 Python library for certified topological data analysis: closed-form embeddings, per-prediction certificates, GPU-batched, sklearn and PyTorch Geometric compatible.">
+  <link rel="canonical" href="https://akriti.io/">
+  <meta name="color-scheme" content="light">
+  <style>
+    :root {
+      --primary: #0a2d8c;
+      --primary-soft: #e8edf8;
+      --accent: #b22222;
+      --ink: #14161a;
+      --muted: #5b6068;
+      --rule: #e2e4e8;
+      --bg: #ffffff;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg);
+      color: var(--ink);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Inter", "Helvetica Neue", Arial, sans-serif;
+      font-size: 17px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    main {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 88px 28px 72px;
+    }
+
+    header {
+      text-align: center;
+      margin-bottom: 56px;
+    }
+
+    .wordmark {
+      font-size: 56px;
+      font-weight: 700;
+      letter-spacing: 0.18em;
+      color: var(--primary);
+      margin: 0;
+    }
+
+    .devanagari {
+      font-family: "Noto Sans Devanagari", "Mangal", "Devanagari Sangam MN", sans-serif;
+      font-size: 22px;
+      color: var(--muted);
+      margin-top: 6px;
+      letter-spacing: 0.04em;
+    }
+
+    .tagline {
+      font-size: 18px;
+      color: var(--ink);
+      margin-top: 28px;
+      max-width: 480px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .accent-dot {
+      display: inline-block;
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: var(--accent);
+      vertical-align: middle;
+      margin: 0 2px 3px;
+    }
+
+    .status {
+      border: 1px solid var(--rule);
+      border-left: 3px solid var(--accent);
+      background: #fafbfc;
+      padding: 16px 20px;
+      margin: 0 0 56px;
+      font-size: 15px;
+      color: var(--muted);
+    }
+
+    .status strong { color: var(--ink); font-weight: 600; }
+
+    h2 {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--muted);
+      margin: 0 0 20px;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 18px;
+      margin-bottom: 56px;
+    }
+
+    .card {
+      border: 1px solid var(--rule);
+      padding: 18px 20px;
+      border-radius: 6px;
+    }
+
+    .card h3 {
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--primary);
+      margin: 0 0 8px;
+    }
+
+    .card p {
+      font-size: 14px;
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    .features {
+      list-style: none;
+      padding: 0;
+      margin: 0 0 56px;
+      font-size: 15px;
+      color: var(--ink);
+    }
+
+    .features li {
+      padding: 8px 0;
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .features li:last-child { border-bottom: 0; }
+
+    .features li::before {
+      content: "";
+      display: inline-block;
+      width: 5px;
+      height: 5px;
+      background: var(--accent);
+      margin-right: 12px;
+      vertical-align: middle;
+      margin-bottom: 2px;
+    }
+
+    footer {
+      border-top: 1px solid var(--rule);
+      padding-top: 24px;
+      font-size: 14px;
+      color: var(--muted);
+      text-align: center;
+    }
+
+    footer a {
+      color: var(--primary);
+      text-decoration: none;
+      border-bottom: 1px solid transparent;
+      transition: border-color 120ms;
+    }
+
+    footer a:hover { border-bottom-color: var(--primary); }
+
+    .dot { color: var(--rule); margin: 0 8px; }
+
+    .meta {
+      margin-top: 14px;
+      font-size: 12px;
+      color: var(--muted);
+      letter-spacing: 0.04em;
+    }
+
+    @media (max-width: 560px) {
+      main { padding: 56px 22px 56px; }
+      .wordmark { font-size: 42px; }
+      .grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <main>
+    <header>
+      <h1 class="wordmark">ĀKRITI</h1>
+      <div class="devanagari">आकृति</div>
+      <p class="tagline">
+        Certified topological data analysis<span class="accent-dot"></span>
+        with per-prediction guarantees.
+      </p>
+    </header>
+
+    <div class="status">
+      <strong>Library in development.</strong>
+      First public release expected late 2026. Underlying papers (PLACE, PALACE, CASTLE) under JMLR submission.
+    </div>
+
+    <h2>The four products</h2>
+    <div class="grid">
+      <div class="card">
+        <h3>akriti.place</h3>
+        <p>Closed-form persistence-landmark embedding with explicit bi-Lipschitz distortion bound. Tuning-free.</p>
+      </div>
+      <div class="card">
+        <h3>akriti.palace</h3>
+        <p>Adaptive-landmark RKHS lift with closed-form filtration selection and per-prediction kernel-margin certificates.</p>
+      </div>
+      <div class="card">
+        <h3>akriti.castle</h3>
+        <p>Applied-statistics toolkit: certified two-sample test, sample-size calculator, robustness certificate.</p>
+      </div>
+      <div class="card">
+        <h3>akriti.core</h3>
+        <p>Shared primitives: bottleneck distance, top-<em>N</em> filter, certificate radii, GPU-batched embedding ops.</p>
+      </div>
+    </div>
+
+    <h2>Why Akriti</h2>
+    <ul class="features">
+      <li>Per-prediction certificates &mdash; not just Lipschitz upper bounds.</li>
+      <li>Closed-form descriptor selectors. No grid search.</li>
+      <li>GPU-batched embeddings on CPU, CUDA, and Apple MPS.</li>
+      <li>sklearn estimators and PyTorch Geometric layers.</li>
+      <li>Apache-2.0 &mdash; permissive, industry-friendly.</li>
+    </ul>
+
+    <footer>
+      <p>
+        <a href="https://github.com/akritihq/akriti">GitHub</a>
+        <span class="dot">·</span>
+        <a href="mailto:hello@akriti.io">hello@akriti.io</a>
+        <span class="dot">·</span>
+        <a href="https://x.com/akritihq">@akritihq</a>
+      </p>
+      <p class="meta">Apache-2.0 &middot; Akriti HQ</p>
+    </footer>
+  </main>
+</body>
+</html>
