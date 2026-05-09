@@ -178,6 +178,29 @@ img, .figure-img, figure img {
   @media (max-width: 720px) { display: none; }
 }
 
+.nav-try {
+  display: inline-flex;
+  align-items: center;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: -0.005em;
+  color: var(--primary);
+  background: var(--primary-soft);
+  border: 1px solid rgba(123, 143, 255, 0.25);
+  text-decoration: none;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+
+  &:hover {
+    background: rgba(123, 143, 255, 0.18);
+    border-color: rgba(123, 143, 255, 0.4);
+    color: #a3b3ff;
+  }
+
+  span { font-size: 0.85em; opacity: 0.7; }
+}
+
 .nav-github {
   display: inline-flex;
   align-items: center;
