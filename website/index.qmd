@@ -22,6 +22,7 @@ format:
       <li><a href="#code">Code</a></li>
       <li><a href="#team">Team</a></li>
       <li><a href="#research">Research</a></li>
+      <li><a href="/teach/">Teach</a></li>
     </ul>
     <a href="https://huggingface.co/spaces/akritihq/try" class="nav-try" target="_blank" rel="noopener">
       Try&nbsp;<span aria-hidden="true">↗</span>
