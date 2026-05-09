@@ -1,107 +1,14 @@
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+---
+pagetitle: "Akriti — Modern topological data analysis for Python"
+description: "Akriti is an open-source Python library for topological data analysis. Compute persistence diagrams, vectorise them, classify, compare, and certify — in two lines of code. Built on GUDHI, integrates with scikit-learn and PyTorch Geometric. Apache-2.0."
+format:
+  html:
+    page-layout: full
+    toc: false
+    anchor-sections: false
+---
 
-<meta charset="utf-8">
-<meta name="generator" content="quarto-1.7.29">
-
-<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
-
-<meta name="description" content="Akriti is an open-source Python library for topological data analysis. Compute persistence diagrams, vectorise them, classify, compare, and certify — in two lines of code. Built on GUDHI, integrates with scikit-learn and PyTorch Geometric. Apache-2.0.">
-
-<title>Akriti — Modern topological data analysis for Python – Akriti</title>
-<style>
-code{white-space: pre-wrap;}
-span.smallcaps{font-variant: small-caps;}
-div.columns{display: flex; gap: min(4vw, 1.5em);}
-div.column{flex: auto; overflow-x: auto;}
-div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
-ul.task-list{list-style: none;}
-ul.task-list li input[type="checkbox"] {
-  width: 0.8em;
-  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
-  vertical-align: middle;
-}
-</style>
-
-
-<script src="site_libs/quarto-nav/quarto-nav.js"></script>
-<script src="site_libs/clipboard/clipboard.min.js"></script>
-<script src="site_libs/quarto-search/autocomplete.umd.js"></script>
-<script src="site_libs/quarto-search/fuse.min.js"></script>
-<script src="site_libs/quarto-search/quarto-search.js"></script>
-<meta name="quarto:offset" content="./">
-<link href="./branding/akriti-mark.svg" rel="icon" type="image/svg+xml">
-<script src="site_libs/quarto-html/quarto.js" type="module"></script>
-<script src="site_libs/quarto-html/tabsets/tabsets.js" type="module"></script>
-<script src="site_libs/quarto-html/popper.min.js"></script>
-<script src="site_libs/bootstrap/bootstrap.min.js"></script>
-<link href="site_libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
-<link href="site_libs/bootstrap/bootstrap-9d522afe69a56f3f48976e875daf5da0.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="dark">
-<script id="quarto-search-options" type="application/json">{
-  "location": "sidebar",
-  "copy-button": false,
-  "collapse-after": 3,
-  "panel-placement": "start",
-  "type": "textbox",
-  "limit": 50,
-  "keyboard-shortcut": [
-    "f",
-    "/",
-    "s"
-  ],
-  "show-item-context": false,
-  "language": {
-    "search-no-results-text": "No results",
-    "search-matching-documents-text": "matching documents",
-    "search-copy-link-title": "Copy link to search",
-    "search-hide-matches-text": "Hide additional matches",
-    "search-more-match-text": "more match in this document",
-    "search-more-matches-text": "more matches in this document",
-    "search-clear-button-title": "Clear",
-    "search-text-placeholder": "",
-    "search-detached-cancel-button-title": "Cancel",
-    "search-submit-button-title": "Submit",
-    "search-label": "Search"
-  }
-}</script>
-<meta name="color-scheme" content="dark">
-<meta name="theme-color" content="#0a0a0f">
-<link rel="preconnect" href="https://rsms.me/">
-<link rel="stylesheet" href="https://rsms.me/inter/inter.css">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin="">
-<link href="https://fonts.googleapis.com/css2?family=Eczar:wght@500;600;700;800&amp;display=swap" rel="stylesheet">
-<link rel="icon" type="image/svg+xml" href="branding/akriti-mark-dark.svg">
-
-
-<meta property="og:title" content="Akriti — Modern topological data analysis for Python">
-<meta property="og:description" content="Akriti is an open-source Python library for topological data analysis. Compute persistence diagrams, vectorise them, classify, compare, and certify — in two lines of code. Built on GUDHI, integrates with scikit-learn and PyTorch Geometric. Apache-2.0.">
-<meta property="og:image" content="https://akriti.io/branding/akriti-mark-dark.svg">
-<meta property="og:site_name" content="Akriti">
-<meta property="og:image:alt" content="">
-<meta name="twitter:title" content="Akriti — Modern topological data analysis for Python">
-<meta name="twitter:description" content="Akriti is an open-source Python library for topological data analysis. Compute persistence diagrams, vectorise them, classify, compare, and certify — in two lines of code. Built on GUDHI, integrates with scikit-learn and PyTorch Geometric. Apache-2.0.">
-<meta name="twitter:image" content="https://akriti.io/branding/akriti-mark-dark.svg">
-<meta name="twitter:creator" content="@akritihq">
-<meta name="twitter:site" content="@akritihq">
-<meta name="twitter:card" content="summary_large_image">
-<meta name="twitter:image:alt" content="">
-</head>
-
-<body class="quarto-light">
-
-<div id="quarto-search-results"></div>
-<!-- content -->
-<div id="quarto-content" class="quarto-container page-columns page-rows-contents page-layout-full">
-<!-- sidebar -->
-<!-- margin-sidebar -->
-    
-<!-- main -->
-<main class="content column-page" id="quarto-document-content"><header id="title-block-header" class="quarto-title-block"></header>
-
-
-
-
+```{=html}
 <nav class="akriti-nav" aria-label="Primary">
   <div class="nav-inner">
     <a href="#top" class="nav-brand" aria-label="Akriti — home">
@@ -117,8 +24,8 @@ ul.task-list li input[type="checkbox"] {
       <li><a href="#research">Research</a></li>
     </ul>
     <a href="https://github.com/akritihq" class="nav-github" aria-label="Akriti on GitHub" target="_blank" rel="noopener">
-      <svg viewbox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
-        <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.92.58.11.79-.25.79-.56 0-.28-.01-1.01-.02-1.99-3.2.69-3.87-1.54-3.87-1.54-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.18.91-.25 1.89-.38 2.86-.39.97.01 1.95.14 2.86.39 2.18-1.49 3.14-1.18 3.14-1.18.62 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"></path>
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor" aria-hidden="true">
+        <path d="M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.92.58.11.79-.25.79-.56 0-.28-.01-1.01-.02-1.99-3.2.69-3.87-1.54-3.87-1.54-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.75 2.69 1.25 3.34.96.1-.74.4-1.25.73-1.54-2.55-.29-5.24-1.28-5.24-5.69 0-1.26.45-2.29 1.18-3.1-.12-.29-.51-1.46.11-3.05 0 0 .96-.31 3.15 1.18.91-.25 1.89-.38 2.86-.39.97.01 1.95.14 2.86.39 2.18-1.49 3.14-1.18 3.14-1.18.62 1.59.23 2.76.11 3.05.74.81 1.18 1.84 1.18 3.1 0 4.42-2.69 5.39-5.26 5.68.41.36.78 1.06.78 2.14 0 1.55-.01 2.8-.01 3.18 0 .31.21.68.8.56C20.21 21.39 23.5 17.08 23.5 12 23.5 5.65 18.35.5 12 .5z"/>
       </svg>
     </a>
   </div>
@@ -137,6 +44,9 @@ ul.task-list li input[type="checkbox"] {
     <span class="badge">Built on GUDHI</span>
   </div>
 </section>
+```
+
+```{=html}
 <section class="akriti-section" id="about">
   <div class="akriti-container">
     <h3 class="section-heading">About</h3>
@@ -165,6 +75,9 @@ ul.task-list li input[type="checkbox"] {
     </div>
   </div>
 </section>
+```
+
+```{=html}
 <section class="akriti-section" id="capabilities">
   <div class="akriti-container">
     <h3 class="section-heading">What Akriti does</h3>
@@ -203,6 +116,9 @@ ul.task-list li input[type="checkbox"] {
     </div>
   </div>
 </section>
+```
+
+```{=html}
 <section class="akriti-section" id="compare">
   <div class="akriti-container">
     <h3 class="section-heading">Where Akriti fits</h3>
@@ -210,80 +126,78 @@ ul.task-list li input[type="checkbox"] {
     <p class="lede">Akriti doesn't replace <a href="https://gudhi.inria.fr/">GUDHI</a> — it sits on top of it. GUDHI computes the persistence diagrams; Akriti decides what to compute, vectorises the result, classifies it, certifies it, and ships it to scikit-learn or PyTorch Geometric. The relationship is the one pandas has with NumPy.</p>
 
     <div class="compare-table-wrap">
-      
-<table class="compare-table caption-top table" data-quarto-postprocess="true">
-<thead>
-<tr class="header">
-<th class="row-label" data-quarto-table-cell-role="th" scope="col"></th>
-<th class="us" data-quarto-table-cell-role="th" scope="col">Akriti</th>
-<th data-quarto-table-cell-role="th" scope="col">GUDHI</th>
-<th data-quarto-table-cell-role="th" scope="col">giotto-tda</th>
-</tr>
-</thead>
-<tbody>
-<tr class="odd">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">Role in the stack</td>
-<td class="us">High-level toolkit</td>
-<td>Persistence backend</td>
-<td>sklearn-style wrapper</td>
-</tr>
-<tr class="even">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">Persistence computation</td>
-<td class="us">delegates to GUDHI</td>
-<td>C++ canonical engine</td>
-<td>Python wrapper</td>
-</tr>
-<tr class="odd">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">Closed-form filtration &amp; scale selection</td>
-<td class="us yes" aria-label="yes">✓</td>
-<td class="no" aria-label="no">—</td>
-<td class="no" aria-label="no">—</td>
-</tr>
-<tr class="even">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">Per-prediction certificates</td>
-<td class="us yes" aria-label="yes">✓</td>
-<td class="no" aria-label="no">—</td>
-<td class="no" aria-label="no">—</td>
-</tr>
-<tr class="odd">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">Two-sample testing for diagrams</td>
-<td class="us yes" aria-label="yes">✓</td>
-<td class="no" aria-label="no">—</td>
-<td class="no" aria-label="no">—</td>
-</tr>
-<tr class="even">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">sklearn estimators</td>
-<td class="us yes" aria-label="yes">✓</td>
-<td class="no" aria-label="no">—</td>
-<td class="partial">partial</td>
-</tr>
-<tr class="odd">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">PyTorch Geometric layers</td>
-<td class="us yes" aria-label="yes">✓</td>
-<td class="no" aria-label="no">—</td>
-<td class="no" aria-label="no">—</td>
-</tr>
-<tr class="even">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">AnnData / scanpy interop</td>
-<td class="us yes" aria-label="yes">✓</td>
-<td class="no" aria-label="no">—</td>
-<td class="no" aria-label="no">—</td>
-</tr>
-<tr class="odd">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">GPU-batched embeddings</td>
-<td class="us yes" aria-label="yes">✓</td>
-<td class="no" aria-label="no">—</td>
-<td class="no" aria-label="no">—</td>
-</tr>
-<tr class="even">
-<td class="row-label" data-quarto-table-cell-role="th" scope="row">Licence</td>
-<td class="us">Apache-2.0</td>
-<td>GPL-3.0</td>
-<td>AGPL-3.0</td>
-</tr>
-</tbody>
-</table>
-
+      <table class="compare-table">
+        <thead>
+          <tr>
+            <th class="row-label" scope="col"></th>
+            <th scope="col" class="us">Akriti</th>
+            <th scope="col">GUDHI</th>
+            <th scope="col">giotto-tda</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <th scope="row" class="row-label">Role in the stack</th>
+            <td class="us">High-level toolkit</td>
+            <td>Persistence backend</td>
+            <td>sklearn-style wrapper</td>
+          </tr>
+          <tr>
+            <th scope="row" class="row-label">Persistence computation</th>
+            <td class="us">delegates to GUDHI</td>
+            <td>C++ canonical engine</td>
+            <td>Python wrapper</td>
+          </tr>
+          <tr>
+            <th scope="row" class="row-label">Closed-form filtration &amp; scale selection</th>
+            <td class="us yes" aria-label="yes">✓</td>
+            <td class="no" aria-label="no">—</td>
+            <td class="no" aria-label="no">—</td>
+          </tr>
+          <tr>
+            <th scope="row" class="row-label">Per-prediction certificates</th>
+            <td class="us yes" aria-label="yes">✓</td>
+            <td class="no" aria-label="no">—</td>
+            <td class="no" aria-label="no">—</td>
+          </tr>
+          <tr>
+            <th scope="row" class="row-label">Two-sample testing for diagrams</th>
+            <td class="us yes" aria-label="yes">✓</td>
+            <td class="no" aria-label="no">—</td>
+            <td class="no" aria-label="no">—</td>
+          </tr>
+          <tr>
+            <th scope="row" class="row-label">sklearn estimators</th>
+            <td class="us yes" aria-label="yes">✓</td>
+            <td class="no" aria-label="no">—</td>
+            <td class="partial">partial</td>
+          </tr>
+          <tr>
+            <th scope="row" class="row-label">PyTorch Geometric layers</th>
+            <td class="us yes" aria-label="yes">✓</td>
+            <td class="no" aria-label="no">—</td>
+            <td class="no" aria-label="no">—</td>
+          </tr>
+          <tr>
+            <th scope="row" class="row-label">AnnData / scanpy interop</th>
+            <td class="us yes" aria-label="yes">✓</td>
+            <td class="no" aria-label="no">—</td>
+            <td class="no" aria-label="no">—</td>
+          </tr>
+          <tr>
+            <th scope="row" class="row-label">GPU-batched embeddings</th>
+            <td class="us yes" aria-label="yes">✓</td>
+            <td class="no" aria-label="no">—</td>
+            <td class="no" aria-label="no">—</td>
+          </tr>
+          <tr>
+            <th scope="row" class="row-label">Licence</th>
+            <td class="us">Apache-2.0</td>
+            <td>GPL-3.0</td>
+            <td>AGPL-3.0</td>
+          </tr>
+        </tbody>
+      </table>
     </div>
 
     <div class="compare-closing">
@@ -297,6 +211,9 @@ ul.task-list li input[type="checkbox"] {
     </div>
   </div>
 </section>
+```
+
+```{=html}
 <section class="akriti-section" id="code">
   <div class="akriti-container">
     <h3 class="section-heading">In Python</h3>
@@ -317,6 +234,9 @@ ul.task-list li input[type="checkbox"] {
 <span class="n">preds</span> <span class="o">=</span> <span class="n">clf</span><span class="o">.</span><span class="n">predict</span><span class="o">(</span><span class="n">X_test</span><span class="o">)</span>  <span class="c"># per-prediction certificates included</span></pre>
   </div>
 </section>
+```
+
+```{=html}
 <section class="akriti-section" id="team">
   <div class="akriti-container">
     <h3 class="section-heading">Founding team</h3>
@@ -368,6 +288,9 @@ ul.task-list li input[type="checkbox"] {
     </div>
   </div>
 </section>
+```
+
+```{=html}
 <section class="akriti-section" id="research">
   <div class="akriti-container">
     <h3 class="section-heading">Founding research</h3>
@@ -402,6 +325,9 @@ ul.task-list li input[type="checkbox"] {
     </div>
   </div>
 </section>
+```
+
+```{=html}
 <footer class="akriti-footer">
   <div class="akriti-container">
     <div class="seal">
@@ -415,13 +341,4 @@ ul.task-list li input[type="checkbox"] {
     </div>
   </div>
 </footer>
-
-
-
-</main> <!-- /main -->
-</div> <!-- /content -->
-
-
-
-
-</body></html>
+```

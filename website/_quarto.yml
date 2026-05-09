@@ -1,0 +1,35 @@
+project:
+  type: website
+  output-dir: ../docs
+  render:
+    - "*.qmd"
+  post-render:
+    - "bash post-render.sh"
+
+website:
+  title: "Akriti"
+  description: "Modern topological data analysis for Python. Compute persistence diagrams, vectorise them, classify, compare, certify — in two lines of code. Built on GUDHI, Apache-2.0."
+  site-url: "https://akriti.io"
+  favicon: "branding/akriti-mark.svg"
+  open-graph: true
+  twitter-card:
+    creator: "@akritihq"
+    site: "@akritihq"
+    card-style: summary_large_image
+
+format:
+  html:
+    theme: [cosmo, styles.scss]
+    toc: false
+    page-layout: full
+    minimal: true
+    include-in-header:
+      text: |
+        <meta name="color-scheme" content="dark">
+        <meta name="theme-color" content="#0a0a0f">
+        <link rel="preconnect" href="https://rsms.me/">
+        <link rel="stylesheet" href="https://rsms.me/inter/inter.css">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Eczar:wght@500;600;700;800&display=swap" rel="stylesheet">
+        <link rel="icon" type="image/svg+xml" href="branding/akriti-mark-dark.svg">
