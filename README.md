@@ -102,6 +102,8 @@ Please read [CONTRIBUTING.md](CONTRIBUTING.md) and
 - **Pramita Bagchi** — biostatistics · practitioner statistics
 - **Atish Mitra** — Mathematics, Montana Tech · theoretical foundations
 - **Žiga Virk** — Mathematics, Ljubljana · theory advisor
+- **Alexander Silberman** — GW · library development
+- **Edward Bae** — GW · library development
 
 Built on [GUDHI](https://gudhi.inria.fr/) (INRIA),
 [Ripser](https://ripser.scikit-tda.org/), [Hera](https://github.com/anigmetov/hera)
