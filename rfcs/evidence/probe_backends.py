@@ -58,15 +58,17 @@ def patch_giotto() -> bool:
 
     sklearn.utils.check_array = shim
     gval.check_array = shim
-    print(f"  [shim] scikit-learn {sklearn.__version__}: "
-          "translated force_all_finite -> ensure_all_finite for giotto-tda")
+    print(
+        f"  [shim] scikit-learn {sklearn.__version__}: "
+        "translated force_all_finite -> ensure_all_finite for giotto-tda"
+    )
     return True
 
 
 def main() -> None:
     rng = np.random.default_rng(SEED)
-    A = sample_circle(N, NOISE, rng)          # noisy circle: one clear H1 class
-    B = rng.normal(0, 1, (N, 2))              # gaussian blob: many short H1 bars
+    A = sample_circle(N, NOISE, rng)  # noisy circle: one clear H1 class
+    B = rng.normal(0, 1, (N, 2))  # gaussian blob: many short H1 bars
 
     # ---------------------------------------------------------------- A.1
     rule("A.1  ESSENTIAL BARS — what each backend does with the infinite bar")
@@ -74,34 +76,40 @@ def main() -> None:
     import gudhi
 
     st = gudhi.RipsComplex(points=A, max_edge_length=4.0).create_simplex_tree(
-        max_dimension=2)
+        max_dimension=2
+    )
     st.persistence()
     g0 = st.persistence_intervals_in_dimension(0)
     g1 = st.persistence_intervals_in_dimension(1)
-    print(f"  gudhi   H0={len(g0):3d}  essential={int(np.isinf(g0[:, 1]).sum())}"
-          f"  H1={len(g1)}")
+    print(
+        f"  gudhi   H0={len(g0):3d}  essential={int(np.isinf(g0[:, 1]).sum())}"
+        f"  H1={len(g1)}"
+    )
     print(f"          persistence() entry form: {st.persistence()[:1]}")
 
     from ripser import ripser
 
     dgms = ripser(A, maxdim=1)["dgms"]
     r0, r1 = dgms[0], dgms[1]
-    print(f"  ripser  H0={len(r0):3d}  essential={int(np.isinf(r0[:, 1]).sum())}"
-          f"  H1={len(r1)}")
+    print(
+        f"  ripser  H0={len(r0):3d}  essential={int(np.isinf(r0[:, 1]).sum())}"
+        f"  H1={len(r1)}"
+    )
 
     have_giotto = patch_giotto()
     if have_giotto:
         from gtda.homology import VietorisRipsPersistence
 
         for iv in (None, np.inf, 99.0):
-            vr = VietorisRipsPersistence(homology_dimensions=(0, 1),
-                                         infinity_values=iv)
+            vr = VietorisRipsPersistence(homology_dimensions=(0, 1), infinity_values=iv)
             g = vr.fit_transform(A[None])[0]
             h0 = g[g[:, 2] == 0]
-            print(f"  giotto  H0={len(h0):3d}  essential="
-                  f"{int((~np.isfinite(g)).sum())}"
-                  f"  H1={int((g[:, 2] == 1).sum())}"
-                  f"   infinity_values={iv!r} -> {vr.infinity_values_}")
+            print(
+                f"  giotto  H0={len(h0):3d}  essential="
+                f"{int((~np.isfinite(g)).sum())}"
+                f"  H1={int((g[:, 2] == 1).sum())}"
+                f"   infinity_values={iv!r} -> {vr.infinity_values_}"
+            )
         print("  => giotto drops the essential class under every setting.")
 
     # ---------------------------------------------------------------- A.2
@@ -113,15 +121,19 @@ def main() -> None:
         batched = vr.fit_transform(np.stack([A, B]))
 
         for name, g in solo.items():
-            print(f"  {name} alone   rows={len(g):3d}  "
-                  f"H1={int((g[:, 2] == 1).sum()):3d}  "
-                  f"trivial={int(np.isclose(g[:, 0], g[:, 1]).sum())}")
+            print(
+                f"  {name} alone   rows={len(g):3d}  "
+                f"H1={int((g[:, 2] == 1).sum()):3d}  "
+                f"trivial={int(np.isclose(g[:, 0], g[:, 1]).sum())}"
+            )
         for i, name in enumerate("AB"):
             g = batched[i]
             triv = np.isclose(g[:, 0], g[:, 1])
-            print(f"  {name} batched rows={len(g):3d}  "
-                  f"H1={int((g[:, 2] == 1).sum()):3d}  "
-                  f"trivial={int(triv.sum())}")
+            print(
+                f"  {name} batched rows={len(g):3d}  "
+                f"H1={int((g[:, 2] == 1).sum()):3d}  "
+                f"trivial={int(triv.sum())}"
+            )
             if triv.sum():
                 print(f"     padding rows look like: {g[triv][0]}")
         print("  => A yields 2 H1 bars alone and 11 batched. Padding is written")

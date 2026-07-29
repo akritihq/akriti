@@ -1,0 +1,139 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege by default; jobs opt in to more.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  FORCE_COLOR: "1"
+  PIP_DISABLE_PIP_VERSION_CHECK: "1"
+
+jobs:
+  lint:
+    name: Lint and types
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[lint,test]"
+      - name: ruff check
+        run: ruff check --output-format=github .
+      - name: ruff format
+        run: ruff format --check .
+      - name: mypy (strict)
+        run: mypy
+
+  test:
+    name: ${{ matrix.os }} / py${{ matrix.python }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        python: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+
+      # The default install must work everywhere with no compiler and no
+      # backend. This is the install-quality commitment, tested rather than
+      # asserted.
+      - name: Install (default closure only)
+        run: pip install -e ".[test]"
+
+      - name: Import on a bare install
+        run: python -c "import akriti; print(akriti.__version__)"
+
+      - name: Test (no backend)
+        run: pytest -m "not backend"
+
+      # Backends are optional and some do not ship wheels everywhere. Install
+      # them where we can and run the marked tests; never let a backend
+      # packaging problem fail the core matrix.
+      - name: Install optional backends
+        id: backends
+        continue-on-error: true
+        run: pip install -e ".[rips,alpha,distances]"
+
+      - name: Test (with backends)
+        if: steps.backends.outcome == 'success'
+        run: pytest -m backend
+
+  closure:
+    name: Licence closure
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      # Deliberately a clean venv containing the DEFAULT install and nothing
+      # else. Checking the dev environment would pass trivially and prove
+      # nothing. See DEPENDENCIES.md.
+      - name: Build default-install environment
+        run: |
+          python -m venv .venv-closure
+          .venv-closure/bin/pip install --quiet .
+
+      - name: Enforce permissive-only default closure
+        run: .venv-closure/bin/python tools/check_license_closure.py
+
+      # Extras are expected to contain copyleft; report so a change is visible
+      # in the log, but do not fail on it.
+      - name: Audit extras (report only)
+        run: |
+          .venv-closure/bin/pip install --quiet ".[rips,alpha,distances]"
+          .venv-closure/bin/python tools/check_license_closure.py \
+            --profile extras --allow-copyleft
+
+  rfc-evidence:
+    name: RFC-0001 evidence still reproduces
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      # RFC-0001 makes specific claims about backend behaviour. If a backend
+      # release changes one of them, we want to find out from CI rather than
+      # from a reviewer.
+      - run: pip install -e ".[rips,alpha,distances]" scikit-learn giotto-tda
+        continue-on-error: true
+      - name: Reproduce appendix measurements
+        continue-on-error: true
+        run: python rfcs/evidence/probe_backends.py
+
+  build:
+    name: Build distribution
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install build twine
+      - run: python -m build
+      - run: twine check dist/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: dist/

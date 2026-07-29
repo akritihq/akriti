@@ -1,0 +1,151 @@
+[build-system]
+requires = ["hatchling>=1.31"]
+build-backend = "hatchling.build"
+
+[project]
+name = "akriti"
+version = "0.0.1.dev0"
+description = "The statistically grounded entry point to topological data analysis in Python"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Pramita Bagchi" },
+    { name = "Sushovan Majhi", email = "s.majhi@email.gwu.edu" },
+    { name = "Atish Mitra" },
+    { name = "Žiga Virk" },
+]
+keywords = [
+    "topological data analysis", "persistent homology", "persistence diagram",
+    "statistics", "hypothesis testing", "topology",
+]
+classifiers = [
+    "Development Status :: 2 - Pre-Alpha",
+    "Intended Audience :: Science/Research",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: Mathematics",
+    "Typing :: Typed",
+]
+
+# ---------------------------------------------------------------------------
+# DEFAULT CLOSURE — permissive only. numpy and nothing else.
+#
+# This is deliberately smaller than the onboarding document assumed, and the
+# reason is measured, not stylistic. See DEPENDENCIES.md for the full audit.
+#
+#   persim depends on hopcroftkarp, which is GPLv3 and was last released
+#   2019-10-11. ripser depends on persim. There is therefore NO arrangement in
+#   which `pip install akriti` pulls a persistence backend and keeps an
+#   MIT/BSD-only closure.
+#
+# So the backends move behind extras and the default install is the interchange
+# layer alone. That is not a compromise: akriti.diagrams needs no backend, the
+# "diagrams in" path is the primary one (onboarding §4), and a user who already
+# has diagrams now installs ~15 MB of permissively licensed code to work with
+# them. `tools/check_license_closure.py` enforces this in CI.
+# ---------------------------------------------------------------------------
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Vietoris-Rips via Ripser. MIT itself; pulls GPLv3 hopcroftkarp transitively
+# through persim, and matplotlib (PSF). Documented at the install boundary.
+rips = ["ripser>=0.6.4"]
+
+# GUDHI. Its own code is MIT, but modules depending on CGAL / Miniball / PyKeOps
+# are marked "MIT (GPL v3)" upstream, and the PyPI wheel bundles them --
+# gudhi.AlphaComplex is importable from a plain `pip install gudhi`. Treat the
+# whole wheel as GPLv3-encumbered. https://gudhi.inria.fr/licensing/
+alpha = ["gudhi>=3.9"]
+
+# Diagram distances and vectorisations. MIT; GPLv3 hopcroftkarp transitively.
+# NOTE: persim returns a finite bottleneck distance between diagrams that are
+# infinitely far apart. core/distances.py MUST partition on `essential` before
+# delegating -- see RFC-0001 §9.1.
+distances = ["persim>=0.3.1"]
+
+# Tensor backend for the neural-network path. Never a hard dependency: a
+# biologist who wants a p-value must not download a multi-gigabyte library.
+torch = ["torch>=2.0"]
+
+# Domain integration.
+bio = ["anndata>=0.10"]
+
+# giotto-tda is AGPLv3 and MUST NOT enter any user-facing extra. It is present
+# for compat-shim fixtures only, and it does not currently run on scikit-learn
+# >= 1.8 (RFC-0001 §9.2), so CI uses committed fixture arrays instead.
+test = [
+    "pytest>=8.0",
+    "pytest-cov>=5.0",
+    "hypothesis>=6.100",   # MPL-2.0, weak copyleft. Test-only, never shipped.
+]
+lint = [
+    "ruff>=0.6",
+    "mypy>=1.11",
+]
+dev = ["akriti[test,lint,rips,alpha,distances]"]
+
+[project.urls]
+Homepage = "https://akriti.io"
+Source = "https://github.com/akritihq/akriti"
+Issues = "https://github.com/akritihq/akriti/issues"
+RFCs = "https://github.com/akritihq/akriti/tree/main/rfcs"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/akriti"]
+
+[tool.hatch.build.targets.sdist]
+include = ["src/akriti", "tests", "rfcs", "README.md", "LICENSE", "DEPENDENCIES.md"]
+
+# ---------------------------------------------------------------------------
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra --strict-markers --strict-config"
+markers = [
+    "backend: requires an optional persistence backend to be installed",
+]
+filterwarnings = ["error"]
+
+[tool.ruff]
+line-length = 88
+src = ["src", "tests"]
+target-version = "py310"
+# ruff formats Python blocks inside Markdown, which collapses the aligned
+# comments in the RFCs. Those are specification documents published for public
+# comment; readability of the illustrative blocks wins over formatter
+# consistency, and they are not executed.
+extend-exclude = ["rfcs/**/*.md"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "N", "UP", "B", "A", "C4", "PT", "RET", "SIM", "NPY", "RUF"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S101"]
+# Capital single letters are the standard naming for data matrices and point
+# clouds throughout scientific Python. Renaming them to satisfy PEP 8 would make
+# the code harder to read for exactly the audience that reads it.
+"rfcs/evidence/*" = ["N806"]
+"src/akriti/**" = []
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/akriti"]
+strict = true
+warn_unreachable = true
+disallow_untyped_defs = true
+# Optional backends are absent in the default environment by design.
+[[tool.mypy.overrides]]
+module = ["gudhi.*", "ripser.*", "persim.*", "gtda.*", "anndata.*"]
+ignore_missing_imports = true
+
+[tool.coverage.run]
+source = ["src/akriti"]
+branch = true
