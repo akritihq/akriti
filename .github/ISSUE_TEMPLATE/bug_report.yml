@@ -1,0 +1,68 @@
+name: Bug report
+description: Something behaves incorrectly
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        **If this is a security vulnerability, do not file it here.** See
+        [SECURITY.md](https://github.com/akritihq/akriti/blob/main/SECURITY.md)
+        for private reporting.
+
+        **If this is a numerical or statistical incorrectness — a wrong p-value,
+        a wrong distance, a test with the wrong null — say so below.** That is
+        the highest-priority class of bug in this project and we will treat it
+        as urgent.
+
+  - type: checkboxes
+    id: severity
+    attributes:
+      label: Is this a correctness bug?
+      options:
+        - label: This produces a numerically or statistically **wrong answer**, not just an error or a crash
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: And what you expected instead.
+    validations:
+      required: true
+
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      description: |
+        The smallest code that shows the problem. If it needs data, a random
+        seed that generates it is ideal.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: |
+        Paste the output of:
+
+        ```
+        python -c "import sys, akriti; print(sys.version); print(akriti.__version__)"
+        pip list | grep -Ei 'akriti|numpy|gudhi|ripser|persim|gtda|giotto|scikit'
+        ```
+      render: shell
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install
+    attributes:
+      label: How did you install it?
+      options:
+        - "pip install akriti (default, no backend)"
+        - "pip install akriti[rips]"
+        - "pip install akriti[alpha]"
+        - "pip install akriti[distances]"
+        - "from source / editable"
+        - other

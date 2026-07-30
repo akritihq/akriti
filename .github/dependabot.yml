@@ -1,0 +1,27 @@
+# Automated dependency updates.
+#
+# Part of the supply-chain posture in SECURITY.md. Note that Dependabot tracks
+# *versions*, not licences and not maintenance status -- it would not have
+# caught either problem recorded in DEPENDENCIES.md. The licence gate in
+# tools/check_license_closure.py runs on every PR, including these.
+
+version: 2
+updates:
+  - package-ecosystem: pip
+    directory: "/"
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 5
+    labels: ["dependencies"]
+    groups:
+      # One PR for routine dev-tooling bumps rather than five.
+      dev-tooling:
+        patterns: ["pytest*", "ruff", "mypy", "hypothesis"]
+
+  # Actions are executable code in the release path. Pin and update them
+  # deliberately.
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    labels: ["dependencies", "ci"]

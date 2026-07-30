@@ -1,0 +1,75 @@
+name: RFC comment
+description: Comment on a specification. No installation required.
+title: "[RFC-0001] "
+labels: ["rfc", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you — this is the most useful contribution to the project right now.
+
+        Our specifications define how persistence diagrams are exchanged between
+        Python's TDA backends. They are meant to be useful whether or not you
+        ever install Akriti, and they are much cheaper to fix now than after
+        code is written against them.
+
+        If you maintain a TDA library, disagreement is especially welcome. We
+        would rather be corrected than consistent.
+
+  - type: dropdown
+    id: rfc
+    attributes:
+      label: Which RFC?
+      options:
+        - RFC-0001 — Persistence Diagram Interchange
+    validations:
+      required: true
+
+  - type: input
+    id: section
+    attributes:
+      label: Section
+      description: Which section, table or requirement? e.g. "§5, essential bars" or "§11.1"
+      placeholder: "§6.2"
+
+  - type: dropdown
+    id: kind
+    attributes:
+      label: What kind of comment?
+      options:
+        - This is wrong
+        - This is unimplementable, or expensive to implement
+        - This is ambiguous — two readings are possible
+        - This conflicts with my library's conventions
+        - Something is missing
+        - Question
+        - Support / agreement
+    validations:
+      required: true
+
+  - type: textarea
+    id: comment
+    attributes:
+      label: Your comment
+      description: |
+        Be as specific as you can. If you have a counterexample — a diagram, a
+        backend behaviour, a case the spec does not cover — it is worth more
+        than any amount of discussion.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you do instead?
+      description: Optional. A concrete alternative is easier to act on than a problem.
+
+  - type: input
+    id: affiliation
+    attributes:
+      label: Project or affiliation
+      description: |
+        Optional. If you maintain or work on a TDA library, say so — it helps us
+        weight interoperability concerns correctly, and we would like to credit
+        you when the RFC is revised.
+      placeholder: "e.g. GUDHI, scikit-tda, tdaverse, or a research group"
