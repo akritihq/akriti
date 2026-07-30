@@ -17,7 +17,13 @@ import warnings
 
 import numpy as np
 
-warnings.filterwarnings("ignore")
+# Deliberately NOT suppressed. An earlier version of this script began with
+# warnings.filterwarnings("ignore"), which hid the UserWarning persim raises in
+# A.4 and put a false claim into RFC-0001 §9.1 -- that persim failed silently.
+# It does not. Blanket-suppressing warnings in a script whose entire purpose is
+# to observe third-party behaviour is self-defeating. Warnings are captured and
+# reported explicitly below.
+warnings.simplefilter("always")
 
 SEED = 0
 N = 40
@@ -172,15 +178,28 @@ def main() -> None:
         ("empty vs empty", empty, empty, "0.0"),
         ("empty vs finite", empty, fin_d, "0.5"),
     ]
-    print(f"  {'case':<18}{'bottleneck':>12}{'wasserstein':>14}   correct bottleneck")
+    header = f"  {'case':<18}{'bottleneck':>12}{'wasserstein':>14}"
+    print(f"{header}{'warns':>7}   correct bottleneck")
     for name, a, b, expected in cases:
-        bn = persim.bottleneck(a, b)
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            bn = persim.bottleneck(a, b)
+        n_warn = len(caught)
         wn = persim.wasserstein(a, b)
         flag = "" if f"{bn}".startswith(expected[:3]) else "   <-- WRONG"
-        print(f"  {name:<18}{bn:>12.4f}{wn:>14.4f}   {expected}{flag}")
-    print("  => persim silently matches the essential bar away and returns a")
-    print("     plausible finite number. core/distances.py must partition on")
-    print("     `essential` before delegating (RFC-0001 §9.1).")
+        print(f"  {name:<18}{bn:>12.4f}{wn:>14.4f}{n_warn:>7}   {expected}{flag}")
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        persim.bottleneck(inf_d, fin_d)
+    print(f"\n  warning text: {caught[0].message}")
+    print("  => persim drops the essential bar and returns a plausible finite")
+    print("     number. It DOES warn -- but the warning names the mechanism, not")
+    print("     the consequence, and it fires twice on the case persim gets right")
+    print("     and once on the case it gets wrong. Presence or absence of the")
+    print("     warning cannot be used to detect the failure.")
+    print("     core/distances.py must partition on `essential` before")
+    print("     delegating (RFC-0001 §9.1).")
 
 
 if __name__ == "__main__":

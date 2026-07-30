@@ -87,7 +87,10 @@ Three findings you may want regardless of Akriti:
   point cloud yields 2 one-dimensional bars alone and 11 when batched with
   another; the padding is written with a genuine birth value.
 - **`persim.bottleneck` returns a finite distance between diagrams that are
-  infinitely far apart** — 0.5 where the answer is ∞. No warning.
+  infinitely far apart** — 0.5 where the answer is ∞. It does warn that it is
+  dropping the infinite bars, but the warning describes the mechanism rather
+  than the consequence, and it fires more often on the case it gets *right*
+  than on the case it gets wrong.
 
 ## Install
 

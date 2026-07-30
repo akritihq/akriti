@@ -351,10 +351,34 @@ bar cannot be matched to the diagonal. persim returns `0.5`, the cost of the
 unrelated finite bar. `persim.wasserstein` behaves comparably
 (`0.707` on the same input).
 
-**This is exactly the failure mode the project exists to prevent**: no
-exception, no warning, a number of entirely reasonable magnitude, and it is
-wrong. A user comparing a connected sample against a disconnected one gets a
-small distance and concludes they are similar.
+persim does **not** do this silently. It emits
+
+```
+UserWarning: dgm1 has points with non-finite death times;ignoring those points
+```
+
+and that changes how the problem should be described. It is not a
+silent-wrongness bug; it is a **severity-mismatch** bug. The warning states the
+mechanism accurately — points are being dropped — but not the consequence, which
+is that the returned value is not the bottleneck distance and that no finite
+value is. It reads as a routine preprocessing note rather than "this answer is
+wrong."
+
+It also travels badly. Being a `warnings` warning, it is shown once per location
+under the default filter, is absent from most logs, and is erased entirely by
+the `warnings.filterwarnings("ignore")` that sits near the top of a great many
+scientific Python scripts — including, until this was caught, our own evidence
+script.
+
+So a user comparing a connected sample against a disconnected one still receives
+a small distance and still concludes they are similar. They get one line on
+stderr first, if nothing upstream has turned warnings off.
+
+> **Correction, 2026-07-30.** The first draft of this section asserted that
+> persim gave no warning at all. That was wrong: the measurement behind it was
+> taken with warnings globally suppressed. The evidence script no longer
+> suppresses warnings, and `tests/test_rfc0001_backend_claims.py` now asserts
+> that the warning *is* raised, so this cannot drift again.
 
 **Requirement on `core/distances.py`.** Before delegating, it MUST partition
 both diagrams by `essential`. If the essential-bar counts differ **per
@@ -574,12 +598,24 @@ The difference is ~71× smaller than `float32` eps and ~7×10⁷ times larger th
 
 ### A.4 persim on essential and empty diagrams
 
-| Inputs | `bottleneck` | `wasserstein` | Correct? |
-|---|---|---|---|
-| `[[0,inf],[.1,.5]]` vs itself | 0.0 | 0.0 | yes |
-| `[[0,inf],[.1,.5]]` vs `[[0,1],[.1,.5]]` | **0.5** | **0.707** | **no — should be `inf`** |
-| empty vs empty | 0.0 | 0.0 | yes |
-| empty vs `[[0,1],[.1,.5]]` | 0.5 | 0.990 | yes |
+| Inputs | `bottleneck` | `wasserstein` | Correct? | Warnings |
+|---|---|---|---|---|
+| `[[0,inf],[.1,.5]]` vs itself | 0.0 | 0.0 | yes | **2** |
+| `[[0,inf],[.1,.5]]` vs `[[0,1],[.1,.5]]` | **0.5** | **0.707** | **no — should be `inf`** | **1** |
+| empty vs empty | 0.0 | 0.0 | yes | 0 |
+| empty vs `[[0,1],[.1,.5]]` | 0.5 | 0.990 | yes | 0 |
+
+The warning is
+`UserWarning: dgm<n> has points with non-finite death times;ignoring those points`,
+raised once per argument containing a non-finite death. `wasserstein` warns
+identically.
+
+Note what the counts imply: the **correct** row raises *two* warnings and the
+**wrong** row raises *one*. The warning tracks whether an argument contained an
+essential bar, not whether the result is meaningful. Row 1 is right only by
+accident — dropping matching essential bars from both diagrams happens to
+preserve a distance of zero. So the warning cannot be used to detect the failure,
+and neither can its absence be used to certify a result.
 
 ---
 
