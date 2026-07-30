@@ -1,0 +1,11 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/akritihq/akriti/security/advisories/new
+    about: Report privately. Please do not open a public issue for a vulnerability.
+  - name: Question or discussion
+    url: https://github.com/akritihq/akriti/discussions
+    about: Usage questions, ideas, and anything that is not yet a specific bug.
+  - name: Read RFC-0001 first
+    url: https://github.com/akritihq/akriti/blob/main/rfcs/0001-persistence-diagram-interchange.md
+    about: The diagram interchange specification. Comments on it are the most useful contribution right now.

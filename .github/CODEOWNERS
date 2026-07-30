@@ -1,0 +1,36 @@
+# Code owners — automatic reviewer assignment.
+#
+# Ownership follows the decision rights in the execution plan (§4.4). Add
+# individual handles as PIs and developers join; team handles work today and do
+# not need updating when membership changes.
+#
+# Last matching pattern wins, so order matters: general first, specific last.
+
+# Default: the lead reviews anything not otherwise claimed.
+*                       @sushovan4
+
+# Specifications. Changing a published contract is a project-level decision,
+# not a code review.
+/rfcs/                  @sushovan4
+
+# Correctness-critical statistical core. Every function here traces to an
+# equation in Papers I-IV, and someone has to defend it to a referee.
+# See CLAUDE.md, "AI assistance -- three tiers".
+/src/akriti/core/       @sushovan4
+/src/akriti/castle/     @sushovan4
+
+# Licensing and supply chain. A change here can silently widen the default
+# install closure -- the exact failure DEPENDENCIES.md exists to prevent.
+/pyproject.toml         @sushovan4
+/DEPENDENCIES.md        @sushovan4
+/tools/                 @sushovan4
+/SECURITY.md            @sushovan4
+
+# Release and CI configuration.
+/.github/               @sushovan4
+
+# The interchange layer and packaging are the students' to own. Both of them
+# review here, which is the arrangement in the onboarding document: they review
+# each other's PRs, and Majhi reviews both.
+/src/akriti/diagrams/   @akritihq/developers @sushovan4
+/tests/                 @akritihq/developers @sushovan4

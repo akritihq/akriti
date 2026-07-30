@@ -31,7 +31,7 @@ We would rather be accurate than impressive, so:
 
 | Module | What it is | State |
 |---|---|---|
-| `akriti.diagrams` | One persistence-diagram type, with adapters for GUDHI, Ripser, giotto-tda, persim and plain arrays | **building** |
+| `akriti.diagrams` | One persistence-diagram type, with adapters for GUDHI, Ripser, giotto-tda, persim and plain arrays — specified by [RFC-0001](rfcs/0001-persistence-diagram-interchange.md) | **building** |
 | `akriti.castle` | Two-sample test, sample-size calculator, per-region significance map, robustness certificate, reporting card | **building** |
 | `akriti.core` | Landmark embeddings (PLACE / PALACE), closed-form selectors, certificate radii | **building** |
 | `akriti.compute` | Diagrams from point clouds, images, time series and graphs — delegated, with defended defaults | planned |
@@ -64,14 +64,55 @@ Three gaps, stated as precisely as we can:
   it provably does not — the landmark budget, placement, bandwidth, and the
   concatenation rules — the library says so and points you at cross-validation
   instead of pretending.
-- **Permissive by default.** Apache-2.0, and the default install closure stays
-  MIT/BSD. Backends with copyleft dependencies live behind opt-in extras.
+- **Permissive by default.** Apache-2.0, and the default install closure is
+  permissive-only — verified in CI, not asserted. Every backend has a copyleft
+  dependency somewhere in its closure, so every backend is an opt-in extra.
+
+## Specifications
+
+Before the code, the contract. **[RFC-0001 — Persistence Diagram
+Interchange](rfcs/0001-persistence-diagram-interchange.md)** pins down what a
+persistence diagram *is* across Python's backends: infinite bars, ordering,
+precision, equality, metadata and serialization. It is open for comment, and it
+is useful whether or not you ever install this library — the R ecosystem solved
+interchange first, and Python has not.
+
+Every convention in it was measured against GUDHI, Ripser, persim and giotto-tda
+rather than recalled. `rfcs/evidence/probe_backends.py` reproduces every number.
+Three findings you may want regardless of Akriti:
+
+- **giotto-tda silently drops the essential H0 bar** — under every
+  `infinity_values` setting. 40 points, 40 components, 39 reported.
+- **giotto-tda's batch padding is indistinguishable from real bars.** The same
+  point cloud yields 2 one-dimensional bars alone and 11 when batched with
+  another; the padding is written with a genuine birth value.
+- **`persim.bottleneck` returns a finite distance between diagrams that are
+  infinitely far apart** — 0.5 where the answer is ∞. It does warn that it is
+  dropping the infinite bars, but the warning describes the mechanism rather
+  than the consequence, and it fires more often on the case it gets *right*
+  than on the case it gets wrong.
 
 ## Install
 
 ```bash
-pip install akriti          # placeholder release; real functionality is coming
+pip install akriti              # interchange layer — numpy only, permissive
+pip install akriti[rips]        # + Ripser    (MIT, GPLv3 transitively)
+pip install akriti[alpha]       # + GUDHI     (GPLv3)
+pip install akriti[distances]   # + persim    (MIT, GPLv3 transitively)
+pip install akriti[torch]       # + torch     (BSD-3; multi-gigabyte)
+pip install akriti[bio]         # + anndata   (BSD-3)
 ```
+
+> Currently a placeholder release; real functionality is coming.
+
+**No persistence backend is a required dependency.** `akriti.diagrams` needs
+only numpy, and "bring your own diagrams" is the primary path by design. The
+licence consequences above are stated here rather than in a footnote because
+they are real: `persim` depends on `hopcroftkarp`, which is GPLv3 and has had no
+release since 2019, and the `gudhi` wheel bundles CGAL-dependent modules and
+ships no licence metadata at all. See **[DEPENDENCIES.md](DEPENDENCIES.md)** for
+the verified closure, and `tools/check_license_closure.py` for the CI gate that
+keeps it honest.
 
 ## The research behind it
 

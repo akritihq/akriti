@@ -1,0 +1,54 @@
+name: Interoperability problem
+description: Akriti does not work cleanly with another TDA library
+labels: ["interop", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If you maintain a TDA library and something here does not interoperate
+        cleanly with yours, **that is a bug on our side** and we would like to
+        hear about it.
+
+        Interchange is the problem this project set out to solve first. A report
+        from a maintainer is worth a great deal to us.
+
+  - type: input
+    id: library
+    attributes:
+      label: Which library?
+      placeholder: "GUDHI / Ripser / persim / giotto-tda / scikit-tda / tdaverse / other"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: direction
+    attributes:
+      label: Which direction?
+      options:
+        - Their output will not load into Akriti
+        - Akriti's output will not load into theirs
+        - It loads, but something is silently changed or lost
+        - A convention conflict — we disagree about what the data means
+    validations:
+      required: true
+
+  - type: textarea
+    id: detail
+    attributes:
+      label: What goes wrong
+      description: |
+        Concrete beats abstract. A diagram that round-trips incorrectly, an
+        essential bar that disappears, an ordering assumption that breaks —
+        with the code that shows it.
+      render: python
+    validations:
+      required: true
+
+  - type: textarea
+    id: spec
+    attributes:
+      label: Does RFC-0001 cover this?
+      description: |
+        Optional. If the specification says something wrong or says nothing at
+        all about your case, that is useful to know — it means we need to fix
+        the contract, not just the code.
