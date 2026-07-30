@@ -64,5 +64,7 @@ body:
         - "pip install akriti[rips]"
         - "pip install akriti[alpha]"
         - "pip install akriti[distances]"
+        - "pip install akriti[torch]"
+        - "pip install akriti[bio]"
         - "from source / editable"
         - other

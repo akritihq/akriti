@@ -62,11 +62,23 @@ diagonal is implicit and MUST NOT be stored.
 
 ```python
 class PersistenceDiagram:
-    births: np.ndarray  # shape (n,), float64
-    deaths: np.ndarray  # shape (n,), float64, may contain +inf
-    dims:   np.ndarray  # shape (n,), int32
+    births: Array      # shape (n,), float64
+    deaths: Array      # shape (n,), float64, may contain +inf
+    dims:   Array      # shape (n,), int32
     meta:   DiagramMeta
 ```
+
+`Array` is **any object implementing `__array_namespace__`** — the Python array
+API standard — not `np.ndarray`. NumPy is the expected and default backend; it
+is not the required one.
+
+This was `np.ndarray` in the first draft, which was wrong. The onboarding
+document requires `core/` to be written against the array API rather than
+hard-coding NumPy, and `PersistenceDiagram` is the input to every function in
+`core/`. A container that pins NumPy makes a framework-agnostic `core/`
+unachievable no matter how `core/` itself is written, and retrofitting the
+container later is exactly the expensive case that requirement exists to avoid.
+§3.4 states what this does and does not promise.
 
 Three parallel arrays, one row per bar, all of length `n`. This is the
 representation chosen in the execution plan (§2.4) and it is the right one:
@@ -84,7 +96,8 @@ these at construction and MUST NOT permit an invalid instance to exist.
 | # | Invariant | Rationale |
 |---|---|---|
 | I1 | `len(births) == len(deaths) == len(dims)` | structural |
-| I2 | `births`, `deaths` are `float64`; `dims` is `int32` | §6 |
+| I2 | `births`, `deaths` are `float64`; `dims` is `int32` — tested with `xp.isdtype`, never against NumPy dtype objects | §6 |
+| I7 | all three arrays share one namespace — `births.__array_namespace__() is deaths.__array_namespace__() is dims.__array_namespace__()` | §3.4 |
 | I3 | `dims >= 0` | homological degree |
 | I4 | `births` are all finite and non-`NaN` | a class that is never born is not a class |
 | I5 | `deaths` are non-`NaN`; `+inf` permitted; `-inf` forbidden | §5 |
@@ -114,6 +127,47 @@ not going to be able to remove them later if we ship them unmarked.
 
 `d.dim(k)` for a `k` not present MUST return an empty diagram, not raise. Empty
 is a legitimate answer to "what are the 7-dimensional cycles".
+
+### 3.4 What array-API support does and does not promise
+
+Being namespace-agnostic is not free, and promising more than the standard
+delivers would be worse than promising nothing. Three limits, all measured
+against `array_api_strict` 2.6.1, the conformance reference:
+
+**`lexsort` is not in the standard.** NumPy has it, and because
+`np.ndarray.__array_namespace__()` returns the `numpy` module itself, a naive
+`hasattr(xp, "lexsort")` check passes and hides the problem. It is absent from
+`array_api_strict`. The canonical ordering in §7 MUST therefore be built from
+successive **stable** `argsort` passes on the least-significant key first
+(`death`, then `birth`, then `dim`), not from a single `lexsort`.
+
+**Filtering produces data-dependent shapes.** `d.finite`, `d.dim(k)` and any
+boolean-mask selection give an output shape that depends on the *values* in the
+array. The standard permits this on eager backends and explicitly does not
+guarantee it on lazy or JIT ones — under `jax.jit` these operations fail. They
+are therefore **eager-only accessors**, and MUST be documented as such. They are
+not available inside a traced or compiled region.
+
+This is a real constraint on the neural-network path, and it is better to know
+now: a topological layer inside a network cannot call `d.finite`. It must
+operate on the full arrays with a mask, which is why §5 keeps `essential` as a
+derivable mask rather than splitting the storage.
+
+**Serialization is NumPy-bound, deliberately.** `io.py` (§10) writes `.npz`, so
+it converts at the I/O boundary via `np.asarray` and returns NumPy-backed
+diagrams on load. Serialization is not a numerical kernel and there is nothing
+to gain from making it generic. The conversion MUST be at the boundary only —
+never in the constructor, and never in an adapter.
+
+**Adapters preserve the input namespace.** `from_*` MUST NOT force-convert to
+NumPy. A diagram built from torch tensors stays torch-backed. What adapters
+convert is *dtype* (§6.1), not namespace.
+
+**Conformance is tested, not intended.** CI runs the diagram test suite against
+`array_api_strict`, which rejects any NumPy-only call. A requirement of this kind
+that is merely written down decays within weeks; the first draft of this RFC
+hard-coded NumPy while the onboarding document forbade it, and nobody noticed
+until a reviewer read both.
 
 ---
 
@@ -215,8 +269,15 @@ birth value in general, and inventing one is worse than recording the loss.
 level: mixed-precision diagrams make cross-backend comparison undefined, and
 `int32` for a homological degree is already absurdly generous.
 
+Dtypes are the **namespace's own** `xp.float64` and `xp.int32`, not
+`np.float64` / `np.int32`. Checks MUST use `xp.isdtype(a.dtype, "real floating")`
+or equality against `xp.float64`; comparing against a NumPy dtype object breaks
+on every non-NumPy backend and is the most likely way for NumPy to creep back in
+unnoticed.
+
 Adapters MUST upcast `float32` input rather than reject it, and MUST record the
-input dtype in `meta.provenance["source_dtype"]`.
+input dtype in `meta.provenance["source_dtype"]`. Upcasting is a *dtype*
+conversion within the input's namespace, never a conversion to NumPy (§3.4).
 
 ### 6.2 Precision is not what it looks like
 
@@ -275,6 +336,26 @@ output:
 ```python
 d.canonical()   # sort by (dim, birth, death) ascending; stable
 ```
+
+**It MUST NOT be implemented with `lexsort`.** That function is not part of the
+array API standard (§3.4) — it exists in NumPy, and the `hasattr` check that
+would catch its absence passes spuriously because NumPy's `__array_namespace__`
+returns NumPy itself. Compose it instead from stable `argsort` passes, least
+significant key first:
+
+```python
+order = xp.argsort(deaths, stable=True)
+order = xp.take(order, xp.argsort(xp.take(births, order), stable=True))
+order = xp.take(order, xp.argsort(xp.take(dims,   order), stable=True))
+```
+
+Stability is what makes the composition correct; an unstable sort at any step
+loses the ordering established by the previous one. Use `xp.take` rather than
+integer-array indexing — both work under `array_api_strict`, but `take` is the
+form the standard specifies for gathering.
+
+Verified against `np.lexsort` on 200 bars with deliberate ties in every column:
+identical ordering, valid permutation.
 
 The on-disk format (§10) is written in canonical order, so byte-identical
 diagrams produce byte-identical files and a content hash is meaningful.
@@ -543,6 +624,7 @@ the decision is the lead's.
 | D3 | Do we accept `float32` storage behind a flag for large-scale work? | No, not in v0. Revisit when a real memory complaint exists. |
 | D4 | Should `from_giotto` default to `strip_padding=True`? | No. Defaulting to a lossy repair contradicts §5's whole argument. Warn and let the caller choose. |
 | D5 | Does the RFC published at M1 include §9's delegation hazards, or do we raise them upstream first? | Raise upstream first — file the persim issue and the giotto scikit-learn issue, then publish citing our own reports. Costs two weeks, buys enormous goodwill, and turns a criticism into a contribution. |
+| **D6** | Array-API support (§3.4) needs a NumPy that has it. Raise the floor to `numpy>=2.0`, or add `array-api-compat` and keep `numpy>=1.24`? | **Raise the floor to `numpy>=2.0`.** Main-namespace array API support landed in NumPy 2.0; `1.24` cannot satisfy §3.4 at all. NumPy 2.0 is over two years old and adding a dependency to support a version that old contradicts our own closure discipline. `array-api-compat` (MIT, zero dependencies — verified) is the right answer *later*, behind `[torch]`, where it is genuinely needed because torch is not natively conformant. |
 
 ---
 

@@ -50,7 +50,12 @@ classifiers = [
 # them. `tools/check_license_closure.py` enforces this in CI.
 # ---------------------------------------------------------------------------
 dependencies = [
-    "numpy>=1.24",
+    # >=2.0 for main-namespace array API support (__array_namespace__), which
+    # RFC-0001 §3.4 requires. 1.24 cannot satisfy it. array-api-compat would
+    # allow an older floor but adds a dependency to support a NumPy over two
+    # years old; it belongs behind [torch] later, where torch's non-conformance
+    # actually needs it.
+    "numpy>=2.0",
 ]
 
 [project.optional-dependencies]
@@ -84,6 +89,10 @@ test = [
     "pytest>=8.0",
     "pytest-cov>=5.0",
     "hypothesis>=6.100",   # MPL-2.0, weak copyleft. Test-only, never shipped.
+    # Conformance reference for RFC-0001 §3.4. Rejects NumPy-only calls that
+    # numpy's own __array_namespace__ silently permits (it returns numpy
+    # itself, so hasattr checks pass spuriously). BSD. Test-only.
+    "array_api_strict>=2.0",
 ]
 lint = [
     "ruff>=0.6",
