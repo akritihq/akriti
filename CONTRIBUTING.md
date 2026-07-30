@@ -66,7 +66,7 @@ These are short, and they are load-bearing.
   stability bounds and invariances are an unusually good fit and catch what
   example-based tests miss.
 - Public functions take a **leading batch dimension** and carry type hints.
-- CI must be green: tests on Linux, macOS and Windows across Python 3.10–3.13,
+- CI must be green: tests on Linux, macOS and Windows across Python 3.10–3.14,
   plus lint, types, and the licence-closure gate.
 - All commits are Apache-2.0 by implication. There is no CLA.
 

@@ -99,6 +99,8 @@ pip install akriti              # interchange layer — numpy only, permissive
 pip install akriti[rips]        # + Ripser    (MIT, GPLv3 transitively)
 pip install akriti[alpha]       # + GUDHI     (GPLv3)
 pip install akriti[distances]   # + persim    (MIT, GPLv3 transitively)
+pip install akriti[torch]       # + torch     (BSD-3; multi-gigabyte)
+pip install akriti[bio]         # + anndata   (BSD-3)
 ```
 
 > Currently a placeholder release; real functionality is coming.

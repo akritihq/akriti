@@ -14,6 +14,8 @@ numpy; install a backend when you need one::
     pip install akriti[rips]        # Ripser
     pip install akriti[alpha]       # GUDHI  (GPLv3 -- see DEPENDENCIES.md)
     pip install akriti[distances]   # persim
+    pip install akriti[torch]       # tensor backend, for the NN path
+    pip install akriti[bio]         # anndata interop
 
 See https://github.com/akritihq/akriti/tree/main/rfcs for the specifications
 the implementation is written against.

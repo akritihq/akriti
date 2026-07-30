@@ -26,8 +26,8 @@ longer.
 
 **Embargo.** We ask for 90 days from acknowledgement before public disclosure,
 or until a fix ships, whichever is sooner. If you need a different timeline, say
-so in your report and we will agree one. We will not take legal action against
-anyone acting in good faith under this policy.
+so in your report and we will come to an agreement. We will not take legal action
+against anyone acting in good faith under this policy.
 
 **Credit.** Reporters are credited in the advisory and release notes by default.
 Tell us if you would rather stay anonymous.
