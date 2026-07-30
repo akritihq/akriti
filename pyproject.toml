@@ -62,7 +62,7 @@ dependencies = [
 [project.optional-dependencies]
 # Vietoris-Rips via Ripser. MIT itself; pulls GPLv3 hopcroftkarp transitively
 # through persim, and matplotlib (PSF). Documented at the install boundary.
-rips = ["ripser>=0.6.4"]
+rips = ["ripser>=0.6.15"]
 
 # GUDHI. Its own code is MIT, but modules depending on CGAL / Miniball / PyKeOps
 # are marked "MIT (GPL v3)" upstream, and the PyPI wheel bundles them --
