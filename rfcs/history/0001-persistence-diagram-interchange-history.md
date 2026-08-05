@@ -912,6 +912,40 @@ entry carries an implementation section the earlier ones had no need for.
   of a SHOULD, and promoting it would be a normative change on its own merits
   rather than a consequence of this one, so it is recorded here and left as
   written.
+- **2026-08-05 (39)** — Takes the decision entry 38 deferred, on the lead's
+  instruction, and makes §3.1's I8 note the first SHOULD this document has
+  ever contained. Before it, the body carried 93 MUST and MUST NOT and two MAY
+  (§2's `death` MAY be `+inf`, §10.1's lazy-import exception); SHOULD and
+  SHOULD NOT were declared on the keyword line and used nowhere, so the
+  keyword line promised a vocabulary two-fifths of which the document never
+  exercised.
+
+  This is the right first one because it is the case the keyword exists for.
+  The MUST beside it fixes the behaviour — every mutation-shaped method
+  constructs and returns a new `PersistenceDiagram` — and what the old
+  lowercase "should" governed was the enforcement *mechanism*, for which the
+  sentence already named a legitimate alternative in its own second half. A
+  requirement whose author can name the circumstance that justifies deviating,
+  and does not want to close it off, is a SHOULD rather than a MUST that was
+  hedged.
+
+  The sentence is also restructured rather than merely capitalised, and that
+  half is a change entry 38 did not anticipate. As written, "or documented as
+  an equivalent guarantee if the array API standard's read-only view support
+  is used instead" was plainly obligatory in substance while being lowercase
+  prose — which entry 38's caps-only rule had just demoted to carrying no
+  force at all. Capitalising only the first clause would have produced a
+  SHOULD with an unenforced escape hatch: an implementation could take the
+  read-only-views route and document nothing, and the document would have no
+  words to object with. The clause is now a MUST attaching to the deviation.
+  This follows entry 35's reasoning on the cross-namespace `ValueError` —
+  a behaviour the next implementer has no reason to reproduce is one that
+  needs to be written down where they will meet it — and it is what makes the
+  deviation reviewable, documentation being checkable in a way that RFC 2119's
+  "carefully weighed" is not.
+
+  §12 is unaffected; no decision opened or closed.
+
 ---
 
 ## Original "Note on Dx" text

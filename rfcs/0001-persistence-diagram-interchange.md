@@ -126,10 +126,10 @@ returns a `PersistenceDiagram` whose arrays are views into the batch's shared
 buffer, not copies, and that is only safe if nothing can write through one
 view and corrupt a sibling diagram or the batch itself. Every method that
 looks like a mutation (`finitize`, anything in §3.2) MUST construct and return
-a new `PersistenceDiagram` rather than modify `self`. This should be enforced
-the same way `DiagramMeta` already is (`@dataclass(frozen=True)`, §8), or
-documented as an equivalent guarantee if the array API standard's read-only
-view support is used instead.
+a new `PersistenceDiagram` rather than modify `self`. This SHOULD be enforced
+the same way `DiagramMeta` already is (`@dataclass(frozen=True)`, §8); an
+implementation that relies on the array API standard's read-only view support
+instead MUST document that as an equivalent guarantee.
 
 ### 3.2 Accessors
 
@@ -1735,3 +1735,4 @@ absence can be used to certify a result.
 - **2026-08-05 (36)** — Linted §12.1 and §12.2, and reordered D15 correctly before D16. No normative content changed.
 - **2026-08-05 (37)** — Opened **D17**: §8's `coeff_field` comment asserts an obligation ("must be recorded") that no clause states and that the paragraph below it contradicts. §12's count moves to thirteen, six open. No normative content changed — §8 is untouched deliberately, the comment being the subject of the decision rather than a defect to fix ahead of it.
 - **2026-08-05 (38)** — Acts on what entry 37 left open. The keyword line now cites BCP 14 (RFC 2119 **and** RFC 8174) and binds the keywords to all-capital use only, and records the other six BCP 14 keywords as deliberately unused, "required" and "optional" being ordinary Python vocabulary throughout this document. **Not normative-content-neutral**: every lowercase "must", "should" and "may" in the body becomes formally non-normative rather than conventionally so. Audited before the change rather than after — §3.3's two, §4.2's B4 rationale cell and §11's `TypeError` consequence all either restate an uppercase clause or are descriptive; §8's `coeff_field` comment is the sole lowercase obligation without an uppercase counterpart, and is D17.
+- **2026-08-05 (39)** — Normative, and supersedes entry 38's decision to leave §3.1's I8 note as written. Its lowercase "should be enforced" is promoted, making it the only clause in the document to carry the weaker of the two obligation keywords: `@dataclass(frozen=True)`, as §8 already does for `DiagramMeta`, becomes the preferred enforcement of the no-mutation rule rather than an unmarked suggestion. The alternative the same sentence names — the array API standard's read-only view support — gains a full obligation to document itself as an equivalent guarantee, rather than sitting in prose that entry 38's caps-only rule had just drained of force. Preferred mechanism on the weaker keyword, the requirement attaching to the sanctioned deviation on the stronger one.
