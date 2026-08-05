@@ -53,11 +53,20 @@ jobs:
       # The default install must work everywhere with no compiler and no
       # backend. This is the install-quality commitment, tested rather than
       # asserted.
+      #
+      # Genuinely bare first, before anything test-only lands: the default
+      # closure is empty, numpy included (DEPENDENCIES.md), so `import akriti`
+      # has to work with nothing else installed at all. Doing this after
+      # `.[test]` would prove nothing -- that extra carries numpy, and the
+      # step would pass on an install that is not the one users get.
       - name: Install (default closure only)
-        run: pip install -e ".[test]"
+        run: pip install -e .
 
       - name: Import on a bare install
-        run: python -c "import akriti; print(akriti.__version__)"
+        run: python -c "import akriti, akriti.diagrams; print(akriti.__version__)"
+
+      - name: Install test dependencies
+        run: pip install -e ".[test]"
 
       - name: Test (no backend)
         run: pytest -m "not backend"

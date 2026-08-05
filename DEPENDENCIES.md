@@ -50,16 +50,37 @@ backend and keeps a permissive closure.** The original plan assumed a default
 install containing GUDHI; that assumption does not survive contact with the
 actual dependency graph.
 
-**Resolution.** The default install is the interchange layer and numpy, nothing
-else. Every backend moves behind an extra. This costs less than it sounds:
-`akriti.diagrams` needs no backend at all, and "diagrams in" is the primary
-user path by design.
+**Resolution.** The default install is the interchange layer and **nothing
+else** — no backend, and no numpy either. Every backend moves behind an extra.
+This costs less than it sounds: `akriti.diagrams` needs no backend at all, and
+"diagrams in" is the primary user path by design.
+
+numpy left the closure one step later than the backends did, and for a
+different reason. RFC-0001 §3.3 and §10.1 requirement 2 require
+`diagrams/core.py` and `diagrams/adapters.py` to import nothing beyond the
+standard library, working through `__array_namespace__` on whatever array the
+caller already holds. Declaring numpy contradicts that no matter how the
+modules are written: it installs numpy for a torch or JAX user who will never
+touch it, and it turns "zero third-party dependencies" into a claim about
+import statements rather than about what `pip install akriti` fetches. numpy
+is needed only inside `io.py`'s `save`/`load` for the `.npz` payload, where
+§3.3 requires a lazy, function-scoped import that raises a clear `ImportError`
+naming numpy if it is absent.
+
+**There is therefore no numpy version floor declared anywhere, deliberately.**
+A floor is a constraint on an installed dependency and there is no longer one
+to constrain. The baseline is a statement about the caller's environment
+instead: array-API code paths need a caller-supplied `numpy>=2.0` — older
+numpy has no main-namespace `__array_namespace__` — or another array-API-native
+library, and an older numpy fails at the caller's own `__array_namespace__()`
+call rather than inside akriti. `akriti[test]` is the only place numpy is
+declared, and it pins that same `>=2.0`.
 
 Measured cost of the split:
 
 | Install | Distributions | Closure |
 |---|---|---|
-| `pip install akriti` | **2** | permissive-only |
+| `pip install akriti` | **1** | akriti alone; nothing third-party |
 | `pip install akriti[rips]` | 22 | GPLv3 via `hopcroftkarp`; matplotlib (PSF) |
 
 ### 2. GUDHI ships no licence metadata at all
@@ -104,9 +125,20 @@ rather than live calls. See RFC-0001 §9.2.
 
 ### Default — `pip install akriti`
 
+**Empty.** No third-party distribution is installed, so there is no licence
+surface to audit and the table below has no rows. That is the point of
+`tools/check_license_closure.py` continuing to run against the default
+profile: an empty closure is a property that has to keep being true, and the
+cheapest way for it to stop being true is one convenience import.
+
 | Package | Licence | Verified |
 |---|---|---|
-| `numpy` | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 | metadata |
+| *(none)* | — | — |
+
+numpy appears in `akriti[test]` only. When `io.py` lands, `save`/`load` will
+import it lazily at call time (RFC-0001 §3.3); that is a runtime requirement
+on the caller's environment, not a declared dependency, and it does not
+change this table.
 
 ### Extras
 

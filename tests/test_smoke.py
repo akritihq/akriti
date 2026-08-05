@@ -8,6 +8,8 @@ default closure must not quietly acquire one.
 from __future__ import annotations
 
 import importlib.util
+import subprocess
+import sys
 
 import pytest
 
@@ -57,3 +59,38 @@ def test_no_backend_is_a_hard_dependency(backend: str) -> None:
         assert backend not in sys.modules, (
             f"importing akriti pulled in {backend}; it must stay optional"
         )
+
+
+@pytest.mark.parametrize("module", ["akriti", "akriti.diagrams"])
+def test_numpy_is_not_a_hard_dependency(module: str) -> None:
+    """numpy is not in the default closure either. RFC-0001 §3.3, §10.1 (2).
+
+    The declared-dependency half of this is checked by
+    `tools/check_license_closure.py` against a clean venv, which is the only
+    place `pip install akriti` can actually be observed. What that cannot
+    check is the half that makes the declaration honest: `diagrams/core.py`
+    and `diagrams/adapters.py` must import nothing beyond the standard library
+    and work through `__array_namespace__` on the caller's own arrays, so a
+    single convenience `import numpy` would make the empty closure a lie
+    without failing any dependency check.
+
+    Run in a subprocess rather than by clearing `sys.modules`, which is how
+    the backend test above manages it. numpy is imported by almost every other
+    module in this suite, so an in-process check would be skipped or vacuously
+    true depending on collection order -- the failure mode being that the test
+    passes for the wrong reason exactly when it matters.
+    """
+    code = (
+        "import importlib, sys; "
+        f"importlib.import_module({module!r}); "
+        "print('numpy' in sys.modules)"
+    )
+    result = subprocess.run(
+        [sys.executable, "-c", code], capture_output=True, text=True, check=True
+    )
+
+    assert result.stdout.strip() == "False", (
+        f"importing {module} pulled in numpy; the default install declares no "
+        "third-party dependency at all, and numpy belongs only inside "
+        "io.py's save/load as a lazy, function-scoped import"
+    )
