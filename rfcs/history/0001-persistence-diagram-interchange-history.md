@@ -859,6 +859,59 @@ entry carries an implementation section the earlier ones had no need for.
   direction when a bare "MUST" in a changelog line tripped the MUST-count
   check. Left for a separate pass, since it is a change to the document's
   interpretive frame rather than to a decision inside it.
+- **2026-08-05 (38)** — The separate pass entry 37 asked for. The main RFC's
+  keyword line cited RFC 2119 alone and said only that the five keywords "are
+  to be interpreted as in" it. It now cites BCP 14 — RFC 2119 together with
+  RFC 8174, which has been the other half of BCP 14 since 2017 — and carries
+  8174's operative clause, that the keywords have their special meaning "when,
+  and only when, they appear in all capitals". It also states that the
+  remaining six BCP 14 keywords are deliberately unused, and why: SHALL is a
+  bare synonym for MUST with no grammatical niche of its own, and REQUIRED,
+  RECOMMENDED and OPTIONAL collide with three vocabularies already live in
+  this document — Python parameter semantics (§11's required keyword-only
+  arguments), dependency optionality (§10.1, §10.3), and §12's "No
+  recommendation" decision status. Capitalising them would make every such use
+  ambiguous between its ordinary sense and a normative one, and would also
+  break the MUST-count verification this process relies on, which counts one
+  token rather than three.
+
+  **This entry is not normative-content-neutral**, in the same way entry 20
+  was not: no requirement changed, but the rule for reading the document did.
+  Before it, the body's 12 lowercase "must", 11 "should" and 11 "may" were
+  non-normative by convention and by a reader's charity; after it they are
+  non-normative by the document's own terms.
+
+  Because that demotes text wholesale, the lowercase uses were audited before
+  the line was changed rather than after. Nearly all of them are the same
+  deliberate idiom — an adjectival or explanatory lede naming the shape of a
+  rule, with an all-caps modal carrying the obligation nearby — and four
+  candidates that read most like orphaned requirements were checked
+  individually. §3.3's "a topological layer … must operate on the full arrays
+  with a mask" and "*every* mode must decide whether the diagram has any
+  essential bar" are both descriptive, of the caller's situation and of why
+  the eager-only rule holds, with §3.3's "MUST be documented as such" carrying
+  the requirement. §4.2's "row ranges must not overlap or invert" is the B4
+  table's Rationale cell, the invariant column beside it being the normative
+  one. §11's "omitting it must be a `TypeError` at the call site" looked like
+  the second orphan but is not: it is a consequence of the keyword-only
+  signature §11 already specifies normatively, and §5.1's "Omitting it MUST
+  raise" carries the obligation — the `TypeError` at §5 is `finitize`'s `at`
+  argument and unrelated. §8's `coeff_field` comment is the only genuine
+  exception, which is D17; entry 37's row is updated to say that the caps rule
+  settles the comment's normative status without touching the question it
+  raises.
+
+  One case is left deliberately unresolved rather than audited clean. §3.1's
+  I8 note says the no-mutation rule "should be enforced the same way
+  `DiagramMeta` already is (`@dataclass(frozen=True)`, §8), or documented as
+  an equivalent guarantee if the array API standard's read-only view support
+  is used instead". The MUST beside it carries the substance — every
+  mutation-shaped method constructs and returns a new `PersistenceDiagram` —
+  and what the lowercase "should" governs is the enforcement mechanism, for
+  which the sentence already offers an explicit alternative. That is the shape
+  of a SHOULD, and promoting it would be a normative change on its own merits
+  rather than a consequence of this one, so it is recorded here and left as
+  written.
 ---
 
 ## Original "Note on Dx" text
