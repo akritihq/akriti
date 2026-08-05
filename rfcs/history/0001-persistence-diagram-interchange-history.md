@@ -803,6 +803,8 @@ entry carries an implementation section the earlier ones had no need for.
   supported-baseline reframing D6's note proposed, now that the packaging
   decision it was waiting on has actually been made.
 
+- **2026-08-05 (36)** — Linted §12.1 and §12.2, and reordered D15 correctly before D16. No normative content changed.
+
 ---
 
 ## Original "Note on Dx" text
