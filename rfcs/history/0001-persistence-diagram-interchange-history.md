@@ -22,10 +22,10 @@ What is below, in order:
   preserved verbatim, with the reasoning for removing rather than resolving
   them.
 
-Seven passes have relocated or added material here, dated 2026-07-31 through
-2026-08-05; the changelog entries record which did what. The seventh (entry
-35) is the first to change `diagrams/core.py` as well as the RFC, so its
-entry carries an implementation section the earlier ones had no need for.
+Several passes have relocated or added material here; the changelog entries
+record which did what. Entry 35 is the first to change
+`diagrams/core.py` as well as the RFC, so its entry carries an implementation
+section the earlier ones had no need for.
 
 ---
 
@@ -945,6 +945,71 @@ entry carries an implementation section the earlier ones had no need for.
   "carefully weighed" is not.
 
   §12 is unaffected; no decision opened or closed.
+- **2026-08-05 (40)** — Formatting only, and the first pass to treat the
+  document's tables as a set. Entry 36 linted §12.1 and §12.2; the other ten
+  tables had never been touched together, and had drifted into two styles.
+  Nine were compact — one space either side of each cell, delimiter rows of
+  bare hyphens. Three were column-padded: the header block, §3.1's I1–I9, and
+  §4.2's B1–B7, every cell in a column padded out to the width of the widest.
+  All twelve are now compact.
+
+  Compact rather than aligned, which is the direction the three padded ones
+  make look natural, because §12.1 cannot be aligned to any useful end. Its
+  cells carry the open questions' full statements: D17's recommendation runs
+  to 1,659 characters on its own, so aligning that table would pad every row
+  out to 2,942 and leave the other five carrying hundreds to thousands of
+  trailing spaces apiece. §12.2 is the same shape at a fifth the size, its
+  widest row 619. Aligning the seven tractable tables and leaving those two
+  would have left the document with the same two styles it started with, drawn
+  along a different line.
+
+  The padded tables also carried a defect worth naming, since it removes the
+  only argument for the style. Their delimiter rows were one character wider
+  than the content cells beside them — `-` repeated to the full padded cell
+  width, then a `|` with no closing space, against content cells of the same
+  width that spent one of those characters on that space. The pipes therefore
+  did not line up in a monospace editor, which is the entire benefit column
+  padding is paid for. It was consistent across all three, so it was a habit
+  rather than a slip; that is why it is recorded rather than quietly fixed.
+
+  One visible consequence: the header block's first row is two empty cells —
+  a table with no headings, the field names living in its first column — and
+  compacting it leaves `| | |` where two runs of blank padding used to make the
+  emptiness look deliberate. It renders as it did before, an empty header row.
+  Giving that row real headings is a live option and not one a formatting pass
+  should take on its own.
+
+  The rewrite strips each cell and rejoins, which can only lose text if a row's
+  pipe count is wrong — a cell containing an unescaped `|` would split into
+  two. Checked first: all twelve tables have a constant pipe count across every
+  row, none contains an escaped `\|`, and no table lines sit inside a fenced
+  code block. Thirty lines differ; the pass added and removed none, leaving the
+  main document at the 1,739 lines it started at, before this entry's own
+  Appendix B line.
+
+  Two staleness fixes in *this* file went with the pass, both surfaced by
+  writing the entry above rather than by the lint, and neither has an
+  Appendix B counterpart: the main document is untouched by them. The intro's
+  "Seven passes have relocated or added material here" had been wrong since
+  entry 36 and is now count-free, taking with it the ordinal that depended on
+  it — "the seventh (entry 35)" now names entry 35 directly. "What did not
+  move here" had drifted further, in three ways at once. It claimed §5 through
+  §11 stayed, after entry 34 had relocated narrative out of §5, §6.1 and §6.3;
+  it listed D7, D10 and D11 among the cells that stayed, after entry 29
+  resolved the first and entry 26 removed the other two from the RFC's scope
+  entirely — a claim the section immediately below it contradicts; and it
+  named the invariants as I1–I8 and B1–B5, which entries 31 and 32 had already
+  extended to I1–I9 and B1–B7.
+
+  The repair is not only to the facts. The paragraph now leads with the rule
+  it exists to state, cites entries rather than pass ordinals, and refers to
+  "every invariant in §3.1 and §4.2" rather than to a range that a tenth
+  invariant would falsify — the same drift cannot recur through those. What
+  the fixes could not do is make the specifics durable; they are marked as
+  current-as-of instead. It also now says outright that it is scoped to
+  relocation rather than to amendment, which is the reading under which its
+  "unchanged in substance" had gone from imprecise to false: §5 and §8 have
+  both been amended in place since, by entry 32.
 
 ---
 
@@ -1228,23 +1293,34 @@ second copy: §8.1 states it in full as the reason for the normalisation, and
 
 ## What did not move here
 
-Sections 1, 2, 5 through 11 (less the §9.1 correction note above, and less
-one scoping sentence added to §10.1 in the fourth pass, entry 21), and the
-D3/D4/D5/D7/D10/D11 table cells in §12 stayed in the main document unchanged
-in substance across all four passes. D9's cell was trimmed in the third
-pass (2026-08-02, entry 16): its conclusion, status, and the still-live
-"not yet independently verified — see D11" flag all stayed, only the
-supporting license detail moved here. D12, added in the fourth pass, is not
-something that moved out of §12 the way D1/D2/D6/D8/D9's notes did; it has
-no prior location in the main RFC to have moved from, per the note above.
-What moved was always either
+The rule, which is the durable part: what moved here was always either
 meta-content about the RFC's own process (changelog prose, superseded
 recommendations, first-draft corrections, designs considered and rejected)
 or supporting detail for a conclusion the body already states in full.
-Measured evidence (Appendix A), invariants (I1-I8, B1-B5), and every MUST /
-MUST NOT / SHOULD requirement stayed in the main document, in full, across
-every pass — that content is what the RFC exists to carry, and condensing
-it would be cutting the document's purpose rather than its prose.
+Measured evidence (Appendix A), every invariant in §3.1 and §4.2, and every
+MUST / MUST NOT / SHOULD requirement stayed in the main document, in full,
+across every pass — that content is what the RFC exists to carry, and
+condensing it would be cutting the document's purpose rather than its prose.
+
+**This section is about relocation, not amendment**, and the two have come
+apart as the RFC has kept moving. A section listed below as having stayed is
+one no pass lifted narrative out of, not one that has never changed. §5 and
+§8 were amended in substance by entry 32, §10.1 and §11 by entry 35, §3.1 by
+entries 31 and 39. None of that is an exception to anything below.
+
+The specifics, which are not durable and are current as of entry 40.
+Sections 1, 2, and 7 through 11 stayed put, less the §9.1 correction note
+above and less one scoping sentence added to §10.1 by entry 21. §5, §6.1 and
+§6.3 belonged on that list until entry 34 relocated narrative out of all
+three, per the section above. In §12, the cells never relocated are D3's,
+D4's and D5's: D7's was rewritten when entry 29 resolved it, and D10 and D11
+left the RFC's scope altogether with entry 26, their rows preserved in the
+section below rather than condensed. D9's cell was trimmed by entry 16
+(2026-08-02) — its conclusion, status, and the still-live "not yet
+independently verified — see D11" flag all stayed, only the supporting
+license detail moved here. D12, added by entry 21, is not something that
+moved out of §12 the way D1/D2/D6/D8/D9's notes did; it has no prior location
+in the main RFC to have moved from, per the note above.
 
 ---
 

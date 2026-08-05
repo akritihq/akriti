@@ -1,14 +1,14 @@
 # RFC-0001 — Persistence Diagram Interchange
 
-|                 |                                                                 |
-| -----------------| -----------------------------------------------------------------|
-| **Status**      | Draft — not yet open for public comment                         |
-| **Author**      | Sushovan Majhi                                                  |
-| **Edited By**   | A. D. Silberman                                                 |
-| **Created**     | 2026-07-29                                                      |
-| **Last Edited** | 2026-08-05                                                      |
-| **Target**      | M0 (2026-08-01) drafted · M1 (2026-09-15) published for comment |
-| **Implements**  | `akriti.diagrams`                                               |
+| | |
+|---|---|
+| **Status** | Draft — not yet open for public comment |
+| **Author** | Sushovan Majhi |
+| **Edited By** | A. D. Silberman |
+| **Created** | 2026-07-29 |
+| **Last Edited** | 2026-08-05 |
+| **Target** | M0 (2026-08-01) drafted · M1 (2026-09-15) published for comment |
+| **Implements** | `akriti.diagrams` |
 
 Key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, **MAY** are to be
 interpreted as described in BCP 14 (RFC 2119, RFC 8174) when, and only when,
@@ -103,17 +103,17 @@ representation chosen in the execution plan (§2.4) and it is the right one:
 An instance is **valid** iff all of the following hold. `core.py` MUST enforce
 these at construction and MUST NOT permit an invalid instance to exist.
 
-| #   | Invariant                                                                                                                                      | Rationale                                 |
-| -----| ------------------------------------------------------------------------------------------------------------------------------------------------| -------------------------------------------|
-| I1  | `len(births) == len(deaths) == len(dims)`                                                                                                      | structural                                |
-| I2  | `births`, `deaths` are `float64`; `dims` is `int32` — tested by equality against the namespace's own `xp.float64` / `xp.int32`                 | §6.1                                      |
-| I3  | `dims >= 0`                                                                                                                                    | homological degree                        |
-| I4  | `births` are all finite and non-`NaN`                                                                                                          | a class that is never born is not a class |
-| I5  | `deaths` are non-`NaN`; `+inf` permitted; `-inf` forbidden                                                                                     | §5                                        |
-| I6  | `deaths >= births` elementwise                                                                                                                 | definitional                              |
-| I7  | all three arrays share one namespace — `births.__array_namespace__() is deaths.__array_namespace__() is dims.__array_namespace__()`            | §3.3; the `is` is D16                     |
-| I8  | `PersistenceDiagram` is immutable after construction — no method may write to `dims`, `births`, or `deaths` in place, and none may rebind them | §4.2                                      |
-| I9  | `dims`, `births`, `deaths` are each rank-1 (`ndim == 1`)                                                                                       | §3, shape `(n,)`                          |
+| # | Invariant | Rationale |
+|---|---|---|
+| I1 | `len(births) == len(deaths) == len(dims)` | structural |
+| I2 | `births`, `deaths` are `float64`; `dims` is `int32` — tested by equality against the namespace's own `xp.float64` / `xp.int32` | §6.1 |
+| I3 | `dims >= 0` | homological degree |
+| I4 | `births` are all finite and non-`NaN` | a class that is never born is not a class |
+| I5 | `deaths` are non-`NaN`; `+inf` permitted; `-inf` forbidden | §5 |
+| I6 | `deaths >= births` elementwise | definitional |
+| I7 | all three arrays share one namespace — `births.__array_namespace__() is deaths.__array_namespace__() is dims.__array_namespace__()` | §3.3; the `is` is D16 |
+| I8 | `PersistenceDiagram` is immutable after construction — no method may write to `dims`, `births`, or `deaths` in place, and none may rebind them | §4.2 |
+| I9 | `dims`, `births`, `deaths` are each rank-1 (`ndim == 1`) | §3, shape `(n,)` |
 
 **I6 is checked exactly, not within tolerance.** A backend that returns
 `death < birth` has a bug (excluding extended persistence), and we surface it
@@ -346,15 +346,15 @@ to after construction.
 `DiagramBatch` construction, the same way §3.1 enforces I1 through I9 for a
 single diagram:**
 
-| #   | Invariant                                                          | Rationale                                                                                                     |
-| -----| --------------------------------------------------------------------| ---------------------------------------------------------------------------------------------------------------|
-| B1  | `len(offsets) == len(batch) + 1`                                   | fencepost: `n` diagrams need `n+1` boundaries                                                                 |
-| B2  | `offsets[0] == 0`                                                  | buffer has no unowned leading bars                                                                            |
-| B3  | `offsets[-1] == total_bars` (i.e. `len(dims)`)                     | buffer has no unowned trailing bars; bounds the last diagram's slice                                          |
-| B4  | `offsets` is non-decreasing                                        | row ranges must not overlap or invert                                                                         |
-| B5  | `offsets.__array_namespace__()` matches `dims`, `births`, `deaths` | §3.3; "matches" is identity, and that is D16                                                                  |
-| B6  | `offsets` is rank-1 (`ndim == 1`)                                  | I9's rationale, applied to `offsets`: a wrong-rank array of the right length passes B1 unnoticed              |
-| B7  | `offsets.dtype` is the namespace's own `int64`                     | the class body above already says `int64`; stated as an invariant so it is enforced and citable like the rest |
+| # | Invariant | Rationale |
+|---|---|---|
+| B1 | `len(offsets) == len(batch) + 1` | fencepost: `n` diagrams need `n+1` boundaries |
+| B2 | `offsets[0] == 0` | buffer has no unowned leading bars |
+| B3 | `offsets[-1] == total_bars` (i.e. `len(dims)`) | buffer has no unowned trailing bars; bounds the last diagram's slice |
+| B4 | `offsets` is non-decreasing | row ranges must not overlap or invert |
+| B5 | `offsets.__array_namespace__()` matches `dims`, `births`, `deaths` | §3.3; "matches" is identity, and that is D16 |
+| B6 | `offsets` is rank-1 (`ndim == 1`) | I9's rationale, applied to `offsets`: a wrong-rank array of the right length passes B1 unnoticed |
+| B7 | `offsets.dtype` is the namespace's own `int64` | the class body above already says `int64`; stated as an invariant so it is enforced and citable like the rest |
 
 B6 and B7 were implicit before: the class body declares `offsets` `int64` of
 shape `(len(batch)+1,)`, and B1 through B5 then quietly assume both. B1's
@@ -1600,7 +1600,7 @@ sequence.
 | D2 | Is `DiagramBatch` in scope for M1, or does M1 ship the single-diagram type only? | **In scope.** Retrofitting a batch container after `core/` is written against scalars is the expensive order, and onboarding §9.3 commits us to batch-shaped signatures. §4.2's CSR storage is chosen deliberately ahead of the neural-network path that needs it, a committed direction, not a hypothetical one; see §4.1 (why not dense-padded) and §4.2 (the CSR design itself). |
 | D3 | Do we accept `float32` storage behind a flag for large-scale work? | No, not in v0. Revisit when a real memory complaint exists. |
 | D4 | Should `from_giotto` default to `strip_padding=True`? | No. Defaulting to a lossy repair contradicts §5's whole argument. Warn and let the caller choose. |
-| D5 | Does the RFC published at M1 include §9's delegation hazards, or do we raise them upstream first?    | Raise upstream first — file the persim issue and the giotto scikit-learn issue, then publish citing our own reports. Costs two weeks, buys enormous goodwill, and turns a criticism into a contribution. |
+| D5 | Does the RFC published at M1 include §9's delegation hazards, or do we raise them upstream first? | Raise upstream first — file the persim issue and the giotto scikit-learn issue, then publish citing our own reports. Costs two weeks, buys enormous goodwill, and turns a criticism into a contribution. |
 | **D7** | Does `DiagramBatch` need its own `content_hash`, and if so, defined how? | §8.2 defines `DiagramBatch.content_hash`: composed from member `PersistenceDiagram.content_hash`es in batch order, not re-serialized from the raw buffer; domain-separated from `PersistenceDiagram.content_hash` by a type tag, so a one-element batch cannot collide with the diagram it wraps; and exact-equality only, no approximate form, per §6.3's exact/approximate split. §4.2's and §4.3's cross-references updated to point at §8.2 rather than flag the gap. |
 | **D8** | Should Parquet be offered anywhere, given §10.1 rules it out as the default (`.akd`) storage format? | §10.3's `to_parquet()` (`akriti[parquet]`, Apache 2.0, lazy-imported per §10.1's pattern). Previously logged as resting on D9/D11; those rows are now out of this RFC's scope entirely (see above), and this row no longer depends on them. Whatever the project's actual license-family policy turns out to be is a packaging-level check against `tools/check_license_closure.py`, not something this RFC re-litigates. `tools/check_license_closure.py` and `DEPENDENCIES.md` still need updating for the new extra. |
 
@@ -1736,3 +1736,4 @@ absence can be used to certify a result.
 - **2026-08-05 (37)** — Opened **D17**: §8's `coeff_field` comment asserts an obligation ("must be recorded") that no clause states and that the paragraph below it contradicts. §12's count moves to thirteen, six open. No normative content changed — §8 is untouched deliberately, the comment being the subject of the decision rather than a defect to fix ahead of it.
 - **2026-08-05 (38)** — Acts on what entry 37 left open. The keyword line now cites BCP 14 (RFC 2119 **and** RFC 8174) and binds the keywords to all-capital use only, and records the other six BCP 14 keywords as deliberately unused, "required" and "optional" being ordinary Python vocabulary throughout this document. **Not normative-content-neutral**: every lowercase "must", "should" and "may" in the body becomes formally non-normative rather than conventionally so. Audited before the change rather than after — §3.3's two, §4.2's B4 rationale cell and §11's `TypeError` consequence all either restate an uppercase clause or are descriptive; §8's `coeff_field` comment is the sole lowercase obligation without an uppercase counterpart, and is D17.
 - **2026-08-05 (39)** — Normative, and supersedes entry 38's decision to leave §3.1's I8 note as written. Its lowercase "should be enforced" is promoted, making it the only clause in the document to carry the weaker of the two obligation keywords: `@dataclass(frozen=True)`, as §8 already does for `DiagramMeta`, becomes the preferred enforcement of the no-mutation rule rather than an unmarked suggestion. The alternative the same sentence names — the array API standard's read-only view support — gains a full obligation to document itself as an equivalent guarantee, rather than sitting in prose that entry 38's caps-only rule had just drained of force. Preferred mechanism on the weaker keyword, the requirement attaching to the sanctioned deviation on the stronger one.
+- **2026-08-05 (40)** — Linted all twelve tables into one compact form, completing what entry 36 began on §12.1 and §12.2. Cell text is untouched. No normative content changed.
