@@ -1,21 +1,31 @@
 # RFC-0001 — Process History
 
 Non-normative. This document holds the full narrative that the main RFC
-(`0001-persistence-diagram-interchange.md`) now only points to. Five passes
-have relocated or added material here: the original, un-condensed changelog
-entries and the "Note on Dx" explanations that used to sit below the §12
-decision table (2026-07-31); process narrative from §3, §4.1, §4.2, and
-§9.1 — first-draft corrections, superseded designs, and precedent
-discussion (2026-08-02); a second §12 trim, D6/D8/D9's fuller reasoning,
-including a new Note on D9 that has no earlier counterpart (2026-08-02);
-a new Note on D12, authored directly here rather than relocated from
-anywhere in the main RFC, alongside the corresponding full changelog entry
-(2026-08-02); and the fuller reasoning behind entry 22's requirement-4
-rationale and §7 rewrite, again with no earlier main-RFC location to have
-moved from (2026-08-03). Nothing here changes or adds to any MUST / SHOULD
-/ MAY requirement; every requirement lives in the main document. This file
-exists so the audit trail survives being pruned out of the RFC before
-publication, per the M1 target.
+(`0001-persistence-diagram-interchange.md`) now only points to. Nothing here
+changes or adds to any requirement; every MUST, SHOULD and MAY lives in the
+main document. This file exists so the audit trail survives being pruned out
+of the RFC before publication, per the M1 target.
+
+What is below, in order:
+
+- **Full changelog** — every entry in full. The main RFC's Appendix B carries
+  one line each.
+- **Original "Note on Dx" text** — the explanations that used to sit below the
+  §12 decision table (D1, D2, D6, D8), plus D9's and D12's, which were written
+  here directly once that convention was retired.
+- **Body narrative relocated in the 2026-08-02 pass** — superseded designs and
+  first-draft corrections from §3, §4.1, §4.2 and §9.1.
+- **Body narrative relocated in the 2026-08-05 pass** — the same, from §5,
+  §6.1 and §6.3.
+- **What did not move here** — the standing rule for what stays in the RFC.
+- **D6, D9, D10, D11** — removed from RFC-0001's scope, their §12 table rows
+  preserved verbatim, with the reasoning for removing rather than resolving
+  them.
+
+Seven passes have relocated or added material here, dated 2026-07-31 through
+2026-08-05; the changelog entries record which did what. The seventh (entry
+35) is the first to change `diagrams/core.py` as well as the RFC, so its
+entry carries an implementation section the earlier ones had no need for.
 
 ---
 
@@ -355,6 +365,443 @@ publication, per the M1 target.
   file; the main RFC's MUST/MUST NOT/SHOULD/MAY count is 55 before and
   after, matching entry 20's baseline, confirmed by direct recount rather
   than trusted from memory.
+- **2026-08-03 (23)** — Added a disclosure paragraph and cross-reference list
+  of every accessor to §3.2. `d.finitize()` is named explicitly as a
+  deliberate exclusion, not an oversight, consistent with I8's existing
+  rationale sentence, which already treats it separately from §3.2. No
+  normative content changed.
+- **2026-08-03 (24)** — Added §4.3, the `DiagramBatch` counterpart to §3.2.
+  Core, self-contained list: `len(b)` and `b[i]`, everything specifiable from
+  §4.2 alone. Cross-referenced, not restated: `b.canonical()` (§7) and
+  `b1 == b2`/`b1.allclose()` (§6.3). Named `from_diagrams` as a deliberate
+  exclusion (constructor, not accessor). Flagged two genuine gaps rather than
+  papering over them: no batch-level `content_hash` (D7's open question, not a
+  placement choice), and no `xp` or batch-level
+  `dim(k)`/`dimensions`/`essential`/`finite`/`persistence`. Updated §3.2 to
+  reflect the new section. No normative content changed.
+- **2026-08-03 (25)** — Added four safe accessors to §4.3: `essential`,
+  `persistence`, `bar_counts`, and `xp`. Left `dim(k)`, `finite`, and
+  `dimensions` flagged-open rather than added, and `content_hash` pointing at
+  D7, matching entry 24's existing (now trimmed) gap list. Added
+  `b1.same_provenance(b2)` to §8, order-sensitive the same way `==` and
+  `allclose` already are (§6.3), fixing an omission entry 24 itself had.
+  Sharpened §4.1's claim ("DiagramBatch owns no invariant or numerical code of
+  its own... persistence... written once, against PersistenceDiagram") to
+  protect against any `DiagramBatch` accessor needing its own new rule, true of
+  the four additions (mechanical consequences of I4, I5, B4, B5) and not true
+  of `canonical()` or equality (each needed one, §7, §6.3). `bar_counts` was
+  deliberately not named `n_bars`, since `PersistenceDiagram.n_bars` is a
+  scalar and this is an array; reusing a name across a shape change is the same
+  silent-wrongness class §9 targets elsewhere. No normative content changed.
+- **2026-08-03 (26)** — Design-review pass. Normative changes: **(1)** §11's
+  `from_giotto` now always returns `DiagramBatch`, length 1 when
+  `n_samples == 1`; a return type that depends on the input's own batch
+  dimension is the adapter-surface version of the
+  shape-depends-on-what-else-was-there hazard §4/A.2 already rules out inside
+  diagrams, and it's ruled out here the same way. Updated the §5.1 signature
+  block and the §11 adapter table to match; added a paragraph to §11 explaining
+  the change. **(2)** `finitize(at="drop")` (§5) now records
+  `provenance["essential_bars"] = "finitized_dropped"` plus a new
+  `provenance["essential_bars_dropped"]` count, rather than being silently
+  unrepresentable in the `"finitized_at:<value>"` form that only fits the two
+  substituting modes; added both to §8's reserved-key table. **(3)** §11.2's
+  real-backend-output requirement now states explicitly that a frozen fixture
+  captured from an actual backend call counts as real backend output,
+  reconciling it with §9.2's stored-fixture requirement for giotto rather than
+  leaving the two sections in unstated tension. **(4)** §10.2 now separates the
+  container format (zip archive, JSON metadata split from binary array data —
+  settled, MUST-level, does not wait on D12) from the `bars.npz` array-payload
+  choice (now explicitly provisional pending D12, not MUST-level); no prior
+  MUST-level text is weakened, this makes explicit what D12's own existence
+  already implied. **(5)** §9.2 adds a status paragraph: `from_giotto` is a
+  best-effort compatibility shim, not a peer of `from_gudhi`/`from_ripser`,
+  justified by the audit's install-rate evidence for a stranded giotto userbase
+  (roughly 6,391/month against zero commits in 52 weeks). This changes
+  priority, not scope — §4/A.2, §5.1, §9.2, and §11.1's full
+  giotto-interoperability spec are unchanged. §12: **removed D6, D9, D10, and
+  D11** —
+  dependency-and-licensing policy, out of this RFC's scope on review; full
+  prior table text preserved below, along with a note on why removal rather
+  than resolution. Updated D8 to no longer depend on the removed D9/D11.
+  **Added D13** (multiparameter persistence representability). D-numbers are
+  not renumbered to close the gap left by the four removals, consistent with
+  D-numbers being stable identifiers rather than a dense sequence (already
+  established when entry 17 reordered rows without renumbering them).
+- **2026-08-03 (27)** — Added a Rationale column to §4.2's B1-B5 table,
+  matching §3.1's I1-I8 table. No normative content changed.
+- **2026-08-03 (28)** — Removed all references to specific papers, as this
+  repository is meant to be universal.
+- **2026-08-04 (29)** — Resolved D7 on the lead's guidance. Added §8.2
+  (defining `DiagramBatch.content_hash`), referencing §10.1 requirement 4.
+- **2026-08-04 (30)** — Trimmed changelog to avoid restatements. No normative
+  content changed.
+- **2026-08-04 (31)** — Added I9 (`dims`, `births`, `deaths` each rank-1) to
+  §3.1's invariant table, closing a gap where a same-length-but-wrong-rank
+  array could pass I1 unnoticed. Updated §4.2's cross-reference from "I1
+  through I8" to "I1 through I9".
+- **2026-08-05 (32)** — Normative changes: **(1)** §6.1 and I2 disagreed about
+  how a dtype is checked, and the version I2 named was wrong —
+  `xp.isdtype(a.dtype, "real floating")` is true of `float32`, which D3 rejects
+  outright, so as a check on I2 it is no check at all. Both now require
+  equality against the namespace's own `xp.float64` / `xp.int32`; `xp.isdtype`
+  keeps its place for genuine kind-level questions, which I2 is not. **(2)**
+  Added **B6** (`offsets` rank-1) and **B7** (`offsets` is `int64`), both
+  already implied by the class body, and B1's `len(offsets)` reads `shape[0]`,
+  which answers happily for a rank-2 array — entry 31's gap, one field over.
+  Stated, not new. **(3)** §4.2's `from_diagrams` now checks that every input
+  diagram shares one namespace (I7 constrains a single diagram's three arrays
+  and says nothing across diagrams, and `concat` erases the evidence), and
+  gains an `xp=` keyword required for, and only for, an empty `diagrams` — an
+  empty batch is valid everywhere else in this document, so refusing to
+  construct one left the private path as its only constructor. **(4)** §5:
+  `finitize` on a diagram with no essential bars MUST return it unchanged,
+  provenance included; recording `"finitized_dropped"` with a count of zero
+  asserts a cardinality change that did not happen, and either mode's record
+  would overwrite a `"lost_upstream"` with a claim about work the call did not
+  do. The mode argument is still validated first, so a typo does not depend on
+  the data to be caught. **(5)** §5, §5.1, §8 and §11: added reserved key
+  `essential_bars_source`, `essential_bars` as the adapter recorded it, written
+  by `from_*` at construction and by nothing afterwards. `essential_bars` is a
+  single slot describing the bars as they now stand; a giotto-sourced
+  diagram's `"lost_upstream"` is a claim about how they were *computed*, which
+  no later transformation makes untrue, and one overwritable key cannot answer
+  both questions, which is what a lossy diagram that is then finitized exposes.
+  Having `finitize` copy the current value forward on its first call was the
+  first form of this and is rejected in §5: only the adapter knows the answer,
+  a copy-forward admits `"finitized_*"` values the key cannot legitimately hold
+  (reachable through `load`, since §10.1 requirement 1 round-trips provenance),
+  and it makes the key's absence ambiguous between "no adapter recorded one"
+  and "never finitized". The key shares `essential_bars`' string vocabulary
+  rather than being a boolean, so that then-versus-now is one question asked of
+  two keys, and because the fifth backend §8 anticipates extends a string enum
+  and cannot extend a boolean. **(6)** §8: keys qualifying `essential_bars` are
+  kept consistent with it, not merely written alongside it — a substitution
+  after a drop clears `essential_bars_dropped`, whose "present iff" the obvious
+  merge-into-existing-provenance implementation breaks on the second call.
+  **(7)** §8.1 now specifies the hashed message — domain tag, bar count, then
+  the three canonical-ordered columns big-endian — rather than leaving the
+  layout to the implementation, and requires `-0.0` to be normalised to `+0.0`
+  before hashing. The normalisation is a correctness fix, not a formatting one:
+  `-0.0 == 0.0`, so §6.3 calls two such diagrams equal and §7's stable sort
+  cannot separate them, while their IEEE 754 bytes differ, which made the
+  digest depend on backend row order and `d1 == d2` with differing hashes
+  reachable. The tag and length give §8.1 the two properties §8.2 already
+  required of the batch hash; §8.2's domain-separation paragraph is updated to
+  note that separation now holds from both sides. **(8)** Opened **D14** in
+  §12.1: §6.3 requires `allclose` to be approximate and order-insensitive but
+  never says how bars are paired, and the obvious implementation — canonical
+  sort, then pairwise comparison — is exact in the sort and approximate in the
+  comparison, which do not compose. Bars whose births lie within tolerance of
+  each other can canonicalise into different orders on two backends, and the
+  comparison then fails for diagrams that do have a partner for every bar
+  within `rtol`, at the `2.7e-8` magnitude Appendix A.3 measures, on exactly
+  the cross-backend case §6.2 defines `allclose` for. D14 carries both that and
+  whether the tolerance is symmetric. §6.3 gains a paragraph stating the gap
+  and pointing at the row. Left open rather than resolved here because the
+  error is conservative — a spurious `False`, never a spurious `True` — so
+  nothing downstream is silently wrong while the lead decides between a real
+  matching and an accepted-and-documented false negative. §12's count moves
+  from nine decisions to ten, three of them open. **(9)** §3.3: `finitize` is
+  eager-only in **every** mode, not only `at="drop"`. Each mode must decide
+  whether the diagram has any essential bar, since item (4) above requires one
+  answer when it does and another when it does not, and that branch
+  concretizes a traced array whatever mode was asked for;
+  `at="max_finite_death"` additionally masks before reducing. The substituting
+  modes preserve the output *shape*, which is a claim about the result and not
+  about traceability — the two were conflated in the first implementation of
+  item (4), which documented the modes as shape-preserving and left a reader to
+  conclude they were available under `jax.jit`. §3.3 now states the distinction
+  and names the other eager-only operations that are not filtering ones (`==`,
+  `allclose`, `same_provenance`, `content_hash`), with `n_bars` called out as
+  the exception that reads a shape rather than values. **(10)** §5: the
+  "validated first" rule of item (4) now covers the whole `at` argument rather
+  than the two mode names alone, and `at=<float>` MUST be finite. Both close
+  data-dependent holes in the same check: `at=None` raised on a diagram with
+  essential bars and returned the diagram silently on one without — item (4)'s
+  own failure mode, one argument domain over — and `at=+inf` substituted an
+  infinity for an infinity, leaving every essential bar essential while
+  `provenance["essential_bars"]` recorded `"finitized_at:inf"`. The second is
+  the mirror of item (4): there the record described work that reached no bar,
+  here it describes work that reached every essential bar and changed none of
+  them, so a diagram's `essential` mask and its own provenance contradict each
+  other, and §9.1's partitioning reader and §8's human auditor reach opposite
+  conclusions from the same diagram without either misreading what it looked
+  at. `at=nan` was already excluded by I5, but incidentally and with an error
+  naming death times; it now raises on the argument. §5 also fixes which
+  exception each case raises, since two checks were being added and the answer
+  should not be whichever one caught it: `TypeError` for an `at` that is
+  neither a mode name nor convertible to a float, no diagram making such a call
+  meaningful, matching the `TypeError` §6.3's `allclose` and §8's
+  `same_provenance` already raise on a wrong-typed argument; `ValueError` for a
+  right-typed `at` carrying an unusable value — an unrecognised mode name, a
+  non-finite float, `at="max_finite_death"` with no finite death, or an
+  `at=<float>` below some essential bar's birth. **(11)** §6.3: "bit-identical
+  coordinates" in the `==`/`allclose` block was false, and is corrected to
+  "compared without tolerance". `-0.0 == 0.0` in IEEE 754, so diagrams
+  differing only in the sign of a zero are equal under `==` while their bytes
+  differ — which is not a defect in `==`, whose IEEE semantics match §7's sort
+  and every backend's own comparisons, but is the reason item (7)'s hash-side
+  normalisation is required. Items (7) and (11) are the same fact stated from
+  the two ends; only §8.1 previously carried it, leaving §6.3 asserting
+  something §8.1 already contradicted. Items (9) through (11) were all found by
+  reviewing `diagrams/core.py` against this document, entry 26's design-review
+  pass run in the other direction. **(12)** §5: recorded a second
+  considered-and-rejected alternative alongside the copy-forward one — having a
+  substitution keep the *smaller* of the previously recorded
+  `"finitized_at:<value>"` and the new one, on the intuition that the more
+  aggressive finitization is worth remembering. It is unreachable (a finite
+  substitution leaves no essential bar, so item (4)'s return-unchanged rule
+  makes the next call a no-op in either direction), it would misdescribe the
+  bars if it were reachable (a minimum keeps `"finitized_at:3.0"` on a diagram
+  whose essential bars now die at `7.0`, item (10)'s failure with the numbers
+  swapped), and it has no ordering to apply to the slot's three non-numeric
+  values. Recorded rather than left implicit because the intuition behind it is
+  correct — an earlier verdict should survive a later call — and this
+  document's answer to it is item (5)'s `essential_bars_source`, a second key
+  with a single writer rather than an ordering imposed on the first. No
+  behaviour changes; nothing implemented this and nothing should.
+- **2026-08-05 (33)** — Entry 32's items (9) through (11) continued. Normative changes:
+  **(1)** §3.3 and §4.3: `DiagramBatch.__getitem__` is eager-only, and so is
+  every batch operation routed through it — `canonical()`, `==`, `allclose`,
+  `same_provenance`, `content_hash`. It is neither a filtering operation nor a
+  `bool`-returning one, the two categories §3.3 already named, but its slice
+  bounds are `int(offsets[i])` and `int(offsets[i + 1])`, which concretize a
+  traced array for the same reason §5's essential-bar branch does.
+  `b.canonical()` is stated outright because `d.canonical()` genuinely is
+  traceable and the batch version looks like the same operation: the sort is
+  shape-preserving at both levels and only one is available under `jax.jit`.
+  This is item (9)'s shape-preserving-is-not-traceable conflation at a second
+  site, which item (9) closed for `finitize` without noticing generalised.
+  `len(b)` and `bar_counts` do not index and stay available. **(2)** Opened
+  **D15** in §12.1: §8 reserves `provenance["order"]` with two values and names
+  a writer for only one of them. §7 forbids adapters from sorting, so
+  `"backend"` is all any `from_*` can record, and `d.canonical()` — the
+  operation that makes `"canonical"` true — carries `meta` through unchanged,
+  so a sorted diagram still reports `"backend"` and nothing writes the other
+  value at all. §7 and §8 both gain a paragraph stating the gap and pointing at
+  the row. It is `essential_bars`' then-versus-now problem at a key nobody
+  noticed it applied to, but it does not resolve the same way — `order` has no
+  adapter-time verdict worth a second key — so it is opened rather than
+  answered by analogy. `core.py` leaves the key untouched pending the call.
+  **(3)** §4.2: `len(...)` of an array is shorthand for `shape[0]` and MUST be
+  implemented as such; §4.2's `__len__` snippet and §4.3's batch total, which
+  read `len(self.offsets)` and `len(b.dims)`, are corrected. The array API
+  standard does not require an array object to implement `__len__`, so the
+  snippets were NumPy habits inside the section arguing against exactly that;
+  `core.py` had already been reading `.shape[0]` throughout, making this the
+  one item in this entry where the document, not the implementation, was the
+  thing that was wrong. I1, B1 and B3 keep their `len(...)` phrasing, now
+  covered by the stated shorthand. Non-normative in `core.py`, also from this
+  pass and recorded here only so the review's scope is on file: an unstated
+  `ValueError` on comparing two diagrams backed by different array namespaces
+  (§6.3 is silent, `xp.equal` would otherwise raise whatever the backend
+  raises, and returning `False` would assert bars differ that may not — the
+  argument §4.2 already makes for `from_diagrams`); the same `int(...)` reads
+  by which `finitize(at="max_finite_death")` can reach I6, when the largest
+  finite death falls below an essential bar's birth, added to §5's enumeration
+  of what raises `ValueError`; and two elementwise calls narrowed from
+  `xp.equal(a, scalar)` to `a == scalar`, scalar arguments to two-array
+  elementwise functions being a 2024.12 addition while the operator form has
+  been guaranteed since 2021.12.
+- **2026-08-05 (34)** — Readability pass on the main RFC, the sixth of the
+  kind entries 13, 14, 15, 16 and 17 record, and the first to treat the
+  changelog itself as the primary offender: entries 32 and 33 had each grown
+  to roughly two thousand words in a single bullet, which is a history
+  document's job done in the wrong file. Entries 23 through 33 are now
+  reproduced above in full — they had never been mirrored here at all, so the
+  main RFC was the only copy — and the main RFC's Appendix B carries a single
+  bullet each. ("One line each", as this entry originally read, was an
+  overstatement: entries 26, 32 and 33 still run several sentences apiece. The
+  condensation was real — entry 32 went from roughly two thousand words to
+  about two hundred and fifty — but the summary claimed a finish line it did
+  not reach. Corrected in entry 35, in both files.) Four further relocations, each replaced in the main RFC by its
+  conclusion plus a pointer: §5's "keep the smaller of the two recorded
+  values" rejected alternative (below, reproduced in full — it is a design
+  that was never reachable and never implemented, which is exactly the
+  category entry 14 established belongs here); §6.1's account of what an
+  earlier revision of I2 said about `xp.isdtype`; §6.3's account of what an
+  earlier revision said about "bit-identical"; and §12's account of *why* D6,
+  D9, D10 and D11 were removed, which this document already carried in full
+  under its own heading below, meaning the main RFC was restating it a second
+  time. Three single-sourcing fixes with nothing relocated: §4.3's restatement
+  of the `__getitem__` eager-only argument now points at §3.3, which states it
+  once and in full; §8's second D15 paragraph is dropped in favour of D15's
+  own §12.1 cell, which already carried the same three options verbatim; and
+  §4.1's "no duplicated logic" claim now points at §4.3 rather than
+  re-deriving the accessor-by-accessor case for it. §10.1's argument
+  paragraphs were reflowed and given code formatting — the one stretch of
+  unwrapped, un-backticked prose left in the document — with no claim altered.
+  Also dropped: D15's cell reference to "entry 32's items (9) through (11)",
+  which became unresolvable the moment the entry it named was condensed.
+
+  **Entry 26's item (6) is removed, on the lead's confirmation that the change
+  it described was never made.** It had claimed §9.1 resolves the cost of
+  essential-to-essential matching left open by "delegate on the finite parts
+  only"; §9.1 still reads "delegate on the finite parts only, handle +inf bars
+  internally, and combine responsibly", which is the unresolved version. The
+  removal is recorded here rather than made silently because a changelog
+  asserting work that was never done is the same clean-plausible-wrong signal
+  §9 exists to catch, pointed at this document instead of at a backend — and
+  because the false claim, left standing, would have told a future reader that
+  a genuine open question in §9.1 had already been answered. No text in the
+  main RFC changes: entry 26's condensed one-line summary there never carried
+  item (6), and §9.1 itself is untouched. What §9.1 does about that cost
+  remains unspecified and unrecorded as a decision; it is not opened as a
+  D-number here, since that is the lead's call and not this pass's business.
+
+  No requirement changed. The main RFC's body (§1 through §12 plus Appendix A,
+  excluding the changelog) counts 92 MUST / MUST NOT / SHOULD / SHOULD NOT /
+  MAY tokens before this pass and 91 after, and the single difference is not a
+  requirement: it is §8's *quotation* of §7's "every consumer MUST treat row
+  order as arbitrary", removed with the duplicated paragraph around it. §7
+  still states it, and D15's cell still reaches the same conclusion from it.
+  Verified by extracting and diffing every keyword-bearing sentence in the
+  body, which shows each surviving requirement matched one-to-one; separately,
+  all 27 I1-I9, B1-B7 and D-row table rows and all four Appendix A tables are
+  byte-identical across the pass, save D15's dropped entry reference.
+
+- **2026-08-05 (35)** — Review of `diagrams/core.py` against this document,
+  run in the direction entry 33 established, plus the first pass to change
+  `core.py` as well as the RFC. Normative changes: **(1)** §10.1 requirement 1
+  gains a second clause, `load(dump(d)).same_provenance(d)`. The first clause
+  is stated in terms of `==`, and §8 requires `meta` to take no part in `==`,
+  so a `load` that discarded every byte of `params` and `provenance` satisfied
+  requirement 1 completely. §5 nonetheless cites requirement 1 for the
+  opposite — its argument against `finitize` copying `essential_bars` forward
+  turns on a diagram arriving from `load` already carrying a `"finitized_*"`
+  value, which is unreachable unless `load` preserves provenance. One of the
+  two sections was wrong about the other; requirement 1 was the one missing a
+  clause. §11.2 now tests both. **(2)** §8 requires `params` and `provenance`
+  values to be JSON-representable. §10.2 stores both as UTF-8 JSON, and
+  nothing previously constrained the `Mapping[str, Any]`, so a diagram holding
+  a NumPy scalar or a dtype object under `source_dtype` satisfied §3.1 and §8
+  and could not be saved — the type admitting instances requirement 1 cannot
+  round-trip, with the failure surfacing at `save()`, arbitrarily far from the
+  adapter that wrote the value. **(3)** §8 makes `DiagramMeta` enforce the
+  `essential_bars` qualifier rules at construction. They were stated as
+  obligations on writers, and `finitize` was the only writer honouring them;
+  every `from_*` adapter (§11) sets the same keys through the constructor and
+  none passes through `finitize`'s code path, so the rule with the most
+  writers had the fewest checks. This is §3.1's "an invalid instance MUST NOT
+  be constructible" applied to the one part of the type it had not reached.
+  Deliberately narrow: the two stated rules only, since §8 reserves names
+  inside an open mapping rather than closing it. **(4)** §6.3 makes the
+  cross-namespace `ValueError` normative, at both levels and in both methods.
+  Entry 33 recorded it as a non-normative `core.py` addition on the grounds
+  that §6.3 was silent; a behaviour that only the implementation carries is
+  one the next implementer has no reason to reproduce, and this one is
+  observable to every caller. §6.3 now also records the third alternative the
+  original reasoning missed — returning `NotImplemented`, which is what Python
+  itself would reach for — and states what raising costs, namely that `==` is
+  no longer total and `d in [d1, d2]` raises rather than answering. The
+  behaviour is unchanged; what changed is that the cost is now written down
+  where a reader meets the method. **(5)** §11.2 requires `content_hash` to be
+  tested against §8.1's byte layout across **both** paths an implementation
+  may take to produce it. This is the finding with the widest blast radius and
+  the least visible cause: an implementation that reinterprets a backend's
+  buffer where one exists and falls back to per-element packing where it does
+  not has two paths that must agree, and `array_api_strict` exposes no buffer,
+  so a suite exercising the hash only under the conformance backend tests the
+  fallback and never the path every NumPy-backed diagram takes. `core.py` had
+  exactly this shape and `content_hash` had no test of any kind, so the value
+  a paper pins was computed by a code path CI structurally could not reach.
+
+  Corrections, none of them changing a requirement: §3.3's "Two limits" is
+  three — entries 32 and 33 each added a bolded limit paragraph without
+  touching the count, which is precisely the error entry 20 spent a pass
+  fixing, recurring at the same sentence. §8's reserved-key table was broken
+  markdown: a five-column header with three unnamed columns, and
+  `essential_bars`' enum split across them by unescaped pipes, so the
+  normative key table rendered as garbage in any viewer. Appendix A.1's bare
+  `TODO` is replaced by a statement of what the table does not measure — it
+  varies `infinity_values` and holds `reduced_homology` fixed, so it rules the
+  first out and leaves the second an inference — and why the row is blocked,
+  giotto being unrunnable per §9.2, which makes it a frozen-fixture capture
+  under §11.2 rather than a live run.
+
+  Opened **D16**: I7, B5 and §4.2's `from_diagrams` check are written as `is`
+  on `__array_namespace__()`, and the standard does not require that method to
+  return the same object on every call. It is §4.2's `len(...)`-versus-
+  `shape[0]` finding one method over — a NumPy habit inside the section
+  arguing against exactly that, invisible because NumPy and `array_api_strict`
+  both return the module itself. Unlike that one it cannot be fixed by
+  rewording, the standard offering nothing to compare namespaces with, so it
+  is opened rather than answered. §12's count moves to twelve, five open.
+
+  Entry 34's "one line each" is corrected to "a single bullet each" in both
+  files; see the parenthetical in that entry.
+
+  **Changes to `diagrams/core.py` in the same pass**, recorded here because
+  this document is where the review's scope belongs on file. Behavioural:
+  `DiagramBatch.__getitem__` normalised a negative index before the bounds
+  check and then raised with the normalised value, so `batch[-5]` on a
+  length-2 batch reported `IndexError(-3)` — an index the caller never passed;
+  it now names the original index and the batch length. `DiagramMeta` set no
+  `__hash__`, so `@dataclass(frozen=True, eq=True)` generated one: the class
+  satisfied `isinstance(m, Hashable)` and then raised `TypeError: unhashable
+  type: 'dict'` from inside the generated tuple hash, naming neither the class
+  nor the field: `__hash__ = None` makes the documented intent true.
+  `finitize(at=True)` was accepted and substituted a death time of `1.0`,
+  `bool` being an `int` and satisfying the numeric-protocol gate that exists
+  to reject `b"2.0"`; it now raises `TypeError`, the same non-numeric-literal
+  hole one type over. Non-behavioural: `DiagramBatch` now reads `offsets` into
+  Python ints once and caches them, where `__getitem__` previously read two
+  elements per call and five batch operations each drive a loop over every
+  diagram — 2N device synchronisations per operation on a torch- or
+  JAX-backed batch, unbounded, and the same cost `_big_endian_block`'s fast
+  path exists to avoid one level down where it is bounded. Validation reuses
+  that read for B2-B4. The six §3.1 error messages now name the offending
+  value; §3.1 anticipates I6 violations at the 1e-16 level, where the
+  magnitude is what decides between an adapter clamp and a backend bug, and
+  the validator was withholding it. Docstrings: the module docstring's four
+  paragraphs re-deriving §3.3's eager-only argument, `canonical()`'s paragraph
+  re-deriving D15, and `finitize`'s re-derivations of §5 are replaced by
+  pointers, leaving one copy of each fact in the document that owns it. The
+  same fact had five drift sites; §3.2's "one place to update beats two that
+  can drift apart" is the principle, and the implementation had been violating
+  it against the RFC itself. Tests added:
+  `tests/test_rfc0001_content_hash.py` (§8.1/§8.2, including the two-path
+  agreement, which deliberately does not `importorskip` anything so it runs in
+  the default environment) and `tests/test_rfc0001_diagram_contract.py` (the
+  enforcement points above). Also fixed: four stale `§3.4` references in
+  `tests/` and `pyproject.toml`, left over from entry 11's renumbering.
+
+  **Packaging: `pyproject.toml` was the side that was wrong, confirmed by the
+  lead and corrected.** It declared `numpy>=2.0` in `dependencies` under a
+  header reading "DEFAULT CLOSURE — permissive only. numpy and nothing else",
+  against §10.1 requirement 2 and §3.3, which both say in MUST language that
+  the default install carries no third-party dependency at all and that
+  `numpy` is a lazy, function-scoped import inside `save`/`load` only. The
+  declaration was a survival from the closure as it stood before entry 7's
+  correction, which is the entry that removed `numpy` from the default install
+  in this document and which `pyproject.toml` never followed. No RFC text
+  changed: the specification was already right, and this is the implementation
+  catching up to it. `dependencies` is now empty, `numpy>=2.0` moved to
+  `akriti[test]` as the only place it is declared, and `pip install .` into a
+  clean venv fetches exactly one distribution — `akriti` itself — with
+  `import akriti.diagrams` succeeding and `numpy` absent from `sys.modules`.
+
+  Three supporting changes, since a closure claim that nothing checks is the
+  kind that decays: `tools/check_license_closure.py` now fails the `default`
+  profile on a *non-empty* closure rather than only on a non-permissive one,
+  the two having stopped being the same test the moment numpy left — a
+  permissive but non-empty default would otherwise pass every check the tool
+  ran while being exactly what the policy forbids. `tests/test_smoke.py` gains
+  a check that importing `akriti` and `akriti.diagrams` does not pull in
+  `numpy`, run in a subprocess because almost every other module in the suite
+  imports it and an in-process check would pass for the wrong reason precisely
+  when it mattered. `DEPENDENCIES.md`, `README.md` and the package docstring
+  are corrected; the default-closure table now has no rows.
+
+  The version floor is the one thing that had nowhere to go, which is the
+  question the removed D6 raised and left open. A floor constrains a declared
+  dependency and there is no longer one to constrain, so it is recorded in
+  `DEPENDENCIES.md` as a statement about the caller's environment instead:
+  array-API code paths need a caller-supplied `numpy>=2.0` or another
+  array-API-native library, and an older numpy fails at the caller's own
+  `__array_namespace__()` call rather than inside akriti. That is the
+  supported-baseline reframing D6's note proposed, now that the packaging
+  decision it was waiting on has actually been made.
 
 ---
 
@@ -582,6 +1029,57 @@ replacement (conclusion plus a pointer to this section).
 > taken with warnings globally suppressed. The evidence script no longer
 > suppresses warnings, and `tests/test_rfc0001_backend_claims.py` now asserts
 > that the warning *is* raised, so this cannot drift again.
+
+---
+
+## Body narrative relocated in the 2026-08-05 pass (entry 34)
+
+Each passage is reproduced verbatim; the current main-RFC text is the
+condensed replacement, conclusion plus a pointer to here.
+
+**§5, the "keep the smaller recorded value" alternative, in full.**
+
+> **Also considered and rejected: having a substitution keep the smaller of the
+> previously recorded `"finitized_at:<value>"` and the new one**, on the
+> intuition that the more aggressive finitization is the one worth remembering.
+> It is the copy-forward idea aimed at the state slot rather than the history
+> slot, and it fails three times over.
+>
+> - **It is unreachable.** A finite substitution leaves no essential bar
+>   behind — every `+inf` death becomes `at`, so `essential` is empty
+>   afterwards and the return-unchanged rule above makes the next `finitize`
+>   a no-op whichever direction its `at` points. `at="drop"` removes the bars
+>   and `at="max_finite_death"` substitutes a finite death, so neither reaches
+>   a second substitution either. There are never two values to compare.
+> - **It would misdescribe the bars if it were reachable.** `essential_bars`
+>   is one slot and §8 requires it to describe the diagram's current state. A
+>   minimum keeps `"finitized_at:3.0"` on a diagram whose essential bars now
+>   all die at `7.0` — a record naming a value no bar carries, the same
+>   clean-plausible-wrong signal this section already rules out for
+>   `"finitized_dropped"` with a count of zero and for the `at=+inf` case
+>   above.
+> - **It has no ordering to apply.** The slot's other legal values are
+>   `"faithful"`, `"lost_upstream"`, and `"finitized_dropped"`. None of them
+>   is greater or less than a float, so the rule would fall back to plain
+>   overwrite for three of the four cases and buy a special case for the
+>   fourth.
+
+**§6.1, on what an earlier revision of I2 said.**
+
+> An earlier revision of I2 and of this paragraph offered
+> `xp.isdtype(a.dtype, "real floating")` as an equally acceptable form. It is
+> not [...]. Both this paragraph and I2's own table row now say equality, and
+> the two no longer disagree about it.
+
+**§6.3, on what an earlier revision of the `==`/`allclose` block said.**
+
+> An earlier revision of the block above said bit-identical, and that is false
+> in one reachable case [...]. Without that normalisation, `d1 == d2` with
+> differing `content_hash`es is reachable.
+
+The reachability claim itself was not dropped from the main RFC, only its
+second copy: §8.1 states it in full as the reason for the normalisation, and
+§6.3 now points there instead of asserting it a second time.
 
 ---
 
