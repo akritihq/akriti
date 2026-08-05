@@ -804,7 +804,61 @@ entry carries an implementation section the earlier ones had no need for.
   decision it was waiting on has actually been made.
 
 - **2026-08-05 (36)** — Linted §12.1 and §12.2, and reordered D15 correctly before D16. No normative content changed.
+- **2026-08-05 (37)** — Opened **D17**, found by auditing the main RFC's
+  RFC-2119 keyword use rather than by review against `diagrams/core.py`, which
+  is what entries 33 and 35 ran. The audit was prompted by a question about
+  where the keyword definitions ought to live and turned up a distribution
+  worth recording: 97 uppercase MUST against 12 lowercase "must", 2 SHOULD
+  against 11 "should", 3 MAY against 11 "may", and 5 lowercase "required".
+  Nearly all of the lowercase uses are a settled and good idiom — an
+  adjectival lede naming the shape of a rule, followed by an all-caps modal
+  carrying the obligation, as at §4.2's `xp`-for-empty-batches, §11's
+  `reduced_homology`, and §8's own "All fields are optional … but `from_*`
+  adapters MUST populate". Exactly one is not: §8's `DiagramMeta` block
+  comments `coeff_field` with "affects the diagram, must be recorded", an
+  obligation with no uppercase counterpart anywhere in the document.
 
+  Three facts make it a decision rather than a typo. `coeff_field` occurs
+  exactly once in 1731 lines, in that comment — no section, no MUST clause and
+  no test requirement mentions it. The prose seven lines below it says the
+  opposite, "All fields are optional", and the MUST-populate list names three
+  fields that deliberately exclude it. §8.1's `content_hash` covers bars and
+  never metadata, so nothing downstream depends on the value being present;
+  `core.py` implements `coeff_field: int | None = None`, having followed the
+  prose. The comment is therefore a requirement that no clause states, no test
+  can check, and the implementation does not honour — but its claim is
+  correct, since homology over ℤ/2 and ℤ/3 genuinely differ where there is
+  torsion, which is the same criterion §8's opening sentence uses to justify
+  recording `filtration` at all.
+
+  What blocks resolving it here is that the three fields §8 does require are
+  all derivable from the adapter itself, and this one is not. §11's five
+  adapters take a computed result plus `**meta`, never the call that produced
+  it, so whether an adapter can record a coefficient field depends on whether
+  the backend's returned object carries it — a per-backend fact this RFC does
+  not state, Appendix A does not measure, and `rfcs/evidence/probe_backends.py`
+  does not probe. Two adapters are out of reach regardless: `from_array` has
+  no backend, and `from_persim` consumes diagrams rather than computing them.
+  If the value turns out to be unrecoverable from the returned objects, the
+  only remaining route is the one §5.1 took for `reduced_homology` — put it in
+  the signature and make omission raise — which is a signature change on up to
+  three adapters and the lead's call, not this document's.
+
+  §8 is left untouched on purpose. Both available edits, adding `coeff_field`
+  to the MUST-populate list or striking the comment's normative clause, are
+  the two answers to D17, so making either one pre-empts the decision; this
+  follows D15 and D16, which likewise left the text as it stood. §12's count
+  moves to thirteen, six open.
+
+  One matter the audit raised and this pass did not act on: the keyword line
+  at the top of the RFC cites RFC 2119 alone, without RFC 8174's "when, and
+  only when, they appear in all capitals". BCP 14 has consisted of both since
+  2017, and it is the caps rule that makes the lowercase idiom above formally
+  non-normative rather than merely conventional — the distinction this entry's
+  finding turns on, and the one entry 15 recorded hitting from the other
+  direction when a bare "MUST" in a changelog line tripped the MUST-count
+  check. Left for a separate pass, since it is a change to the document's
+  interpretive frame rather than to a decision inside it.
 ---
 
 ## Original "Note on Dx" text
