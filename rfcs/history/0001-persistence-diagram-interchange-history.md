@@ -20,7 +20,11 @@ What is below, in order:
 - **What did not move here** — the standing rule for what stays in the RFC.
 - **D6, D9, D10, D11** — removed from RFC-0001's scope, their §12 table rows
   preserved verbatim, with the reasoning for removing rather than resolving
-  them.
+  them. D6 has since been reinstated in RFC-0001 §12.2 as superseded; that
+  section carries the removal, entry 41 carries the reinstatement.
+- **D14 — why no sort key rescues the pairwise form** — the argument RFC-0001
+  §6.3 points at for rejecting sorted-pairwise `allclose` outright rather than
+  repairing it.
 
 Several passes have relocated or added material here; the changelog entries
 record which did what. Entry 35 is the first to change
@@ -979,6 +983,12 @@ section the earlier ones had no need for.
   Giving that row real headings is a live option and not one a formatting pass
   should take on its own.
 
+  One invariant this entry established is broken deliberately by entry 41.
+  "None contains an escaped `\|`" was true when written; §12.2's new D14 cell
+  states a tolerance formula, and rather than escape the absolute-value bars
+  it is written `max(abs(a), abs(b))`. The invariant holds because the cell
+  was written to keep it, not because nothing needed one.
+
   The rewrite strips each cell and rejoins, which can only lose text if a row's
   pipe count is wrong — a cell containing an unescaped `|` would split into
   two. Checked first: all twelve tables have a constant pipe count across every
@@ -1010,6 +1020,202 @@ section the earlier ones had no need for.
   relocation rather than to amendment, which is the reading under which its
   "unchanged in substance" had gone from imprecise to false: §5 and §8 have
   both been amended in place since, by entry 32.
+- **2026-08-06 (41)** — Review pass on PR #10. Resolves D13 and D14 on the
+  lead's call, reinstates D6 as superseded, records what a coefficient-field
+  probe measured for D17, and completes the keyword sweep entry 38 began.
+  Normative in five places; the detail for each is below and, for D14's sort
+  key, in its own section further down.
+
+  **The keyword sweep, third reader.** Entry 38 audited the body's lowercase
+  modals before binding the keywords to all-capital use, and found one genuine
+  orphan (§8's `coeff_field` comment, D17). An independent sweep by the lead
+  found three more, and a third sweep run for this entry found two beyond
+  those. That is the fact worth recording rather than the individual fixes:
+  one reader auditing their own change caught one of six. The sweep is cheap,
+  it does not converge on the first pass, and "audited before the change" is
+  necessary rather than sufficient.
+
+  The lead's three: §11's "omitting it must be a `TypeError`", which entry 38
+  had explicitly checked and cleared on the grounds that §5.1's "Omitting it
+  MUST raise" carries it — that reasoning was wrong, because §5.1 fixes *that*
+  omission raises and §11 fixes *what* it raises and where, so under a
+  caps-only reading an implementer could give `reduced_homology` a default and
+  satisfy the letter of the RFC, which is precisely the §5.1 outcome the
+  parameter exists to prevent; §3's array-API rule, which asserted its own
+  normativity ("This is a hard requirement, not a preference") and then stated
+  the obligation in lowercase, entry 38 having treated §3.3's stdlib-only MUST
+  as covering it when the two are different requirements — importing nothing
+  third-party forbids calling NumPy, while writing against the array API also
+  rules out NumPy-shaped idioms on an array the caller handed in, which is
+  what §7's `lexsort` prohibition and §4.2's `len()`-versus-`shape[0]` rule
+  are instances of, and §3 now says so; and §10.1's five numbered
+  requirements, which carried no BCP 14 keyword at all, leaving the section
+  that chooses the on-disk format formally non-normative while the argument
+  below it treated all five as binding. Requirement 2's body contains a MAY,
+  which is what makes the omission legible as accidental rather than
+  deliberate.
+
+  The two the third sweep added: §8's "nothing may write it afterwards", the
+  second half of the `essential_bars_source` single-writer rule, whose first
+  half is an uppercase MUST — §11's "`finitize` MUST NOT write it" covers one
+  writer, not the general prohibition the sentence states, and §5's whole
+  copy-forward argument rests on the general one; and §9.2's clean-room note,
+  "no giotto source has been read, and none may be read while implementing
+  `compat/`", which is an AGPLv3 prohibition carrying legal rather than
+  merely editorial weight and was sitting in an italicised aside in lowercase.
+
+  Requirements 3, 4 and 5 were rewritten to one sentence each carrying an
+  explicit MUST, and requirement 4's mechanism paragraph — the only statement
+  anywhere of *how* determinism is achieved, "metadata … that must be pinned
+  explicitly" — takes a MUST as well. The requirements list is kept terse
+  deliberately: other sections point back at it by number rather than it
+  pointing outward, so §10.2's format version is cited as satisfying
+  requirement 3 rather than requirement 3 naming §10.2.
+
+  Three sites were considered and left as written. §3.1's I8 row states its
+  invariant as a lowercase prohibition, but §3.1's preamble MUST covers
+  enforcement and the I8 note below the table carries an explicit MUST for
+  every mutation-shaped method. §4.2's "`xp` is required for, and only for, an
+  empty `diagrams`" is the ordinary Python sense with a MUST four lines below
+  it. §6.3's "`core.py` may not convert either one" is explanatory of why a
+  cross-namespace comparison has no answer, with §3.3's stdlib-only MUST
+  carrying it.
+
+  **D14 — `allclose` becomes a matching.** §6.3 now requires a bijection under
+  which every matched pair shares a `dim` exactly and agrees on both
+  coordinates within tolerance, with equal bar counts necessary and not
+  sufficient. The decisive argument against the alternative was not that the
+  false negative is rare but that its remedy is worse than the defect: a
+  caller hitting a spurious failure widens `rtol` until the comparison passes,
+  which is the silent loosening §6.3 exists to prevent, relocated into user
+  code where nobody reviews it. Paying for a matching is cheaper than
+  exporting that.
+
+  Three further constraints came with it. The implementation MUST NOT
+  introduce a dependency — `scipy.sparse.csgraph.maximum_bipartite_matching`
+  is unavailable to a module §3.3 gives the standard library and the caller's
+  namespace, and a lazy import on a *comparison* path is a worse trade than
+  §10.1 requirement 2's narrow one at the `save`/`load` boundary; an
+  augmenting-path matching suffices at these sizes and Hopcroft–Karp's
+  asymptotics are not needed. The tolerance MUST be symmetric,
+  `atol + rtol * max(abs(a), abs(b))`, diverging from `numpy.allclose`, which
+  scales `rtol` by its second argument alone and so lets `d1.allclose(d2)` and
+  `d2.allclose(d1)` disagree at the boundary; the divergence MUST be
+  documented in the method's own docstring, since a reader's prior is NumPy's
+  behaviour. And `allclose` MUST be documented as not an equivalence relation:
+  it is reflexive and symmetric but not transitive, `==` is one, and callers
+  will assume the parity holds.
+
+  The adjacency to bottleneck distance is stated in the RFC rather than left
+  to be noticed. "Does a perfect matching within threshold `t` exist" is the
+  decision problem a bottleneck binary search calls repeatedly, so §9's
+  delegation rule will look implicated. It is not, in either direction:
+  `allclose` admits no diagonal projection and optimises nothing, so this
+  section implements no distance — and `core/distances.py` MUST NOT be built
+  on this method.
+
+  §11.2 gains the test that motivated the change: two diagrams within
+  tolerance of each other whose canonical orders differ *because* of that
+  tolerance, asserting `True`. Without it a suite passes identically against
+  either implementation, which is what let the sorted-pairwise form stand as
+  long as it did.
+
+  **D13 — multiparameter persistence is an explicit non-goal.** Stated in §1
+  rather than §3, so it is normative scope rather than an aside. It was not a
+  close call: multiparameter persistence modules do not decompose into
+  intervals and admit no complete discrete invariant, so a multiparameter
+  "diagram" is not this type with an extra column — it is a rank invariant, a
+  fibered or signed barcode, a different object. There is no widening of
+  `PersistenceDiagram` that reaches it, and an extension point designed now
+  would be designed against a shape nobody can specify yet. That is the
+  expensive kind of speculative generality: a case in every adapter, accessor
+  and invariant check, serving a module not on the roadmap through M4. If it
+  is ever built it takes a parallel type and the two coexist; this is not a
+  deprecation path. The forward-compatibility cost was already paid by §10.1
+  requirement 3's format version, which is the whole of the version boundary
+  this needs.
+
+  Two corrections went with it. D13's own cell claimed §3.2 *and* §5.1 both
+  gesture at the multiparameter case; only §3.2 does, at the `d.h0`/`d.h1`
+  note, and §5.1 is clean. And that note has lost its multiparameter clause
+  now that §1 carries the non-goal: the argument for not shipping `d.h0`/`d.h1`
+  unmarked stands on its own — `d.dim(k)` is canonical and an alias you cannot
+  withdraw is a permanent liability — and leaning it on a case just declared
+  out of scope made it read as conditional when it is not.
+
+  **D6 — reinstated as superseded, not deleted.** Entry 26 removed D6 with
+  D9, D10 and D11 as dependency-and-licensing policy. Its resolution has since
+  been reversed, and a reversed decision that has been deleted is worse than
+  either the original or the reversal: an outside reviewer of a published RFC
+  who finds one absence stops trusting the document's silences generally. The
+  row is restored to §12.2 carrying both resolutions.
+
+  The process point is the more important half, and it is recorded here
+  because it is about how this branch was worked rather than about the
+  interchange format. The zero-dependency MUST language in §3.3 and §10.1
+  requirement 2 exists on the revisions branch, in the same revision that
+  deleted D6. On `main` — the RFC merged in PR #1 — there is no
+  zero-dependency requirement anywhere; what is there is D6, resolved the
+  other way, raising the floor to `numpy>=2.0` because main-namespace array
+  API support landed in NumPy 2.0. `pyproject.toml` declaring `numpy>=2.0`
+  was therefore not a survival from an older closure. It was correct, and it
+  matched the merged spec. A merged decision reversed on an unmerged branch
+  and then cited back as settled is a pattern that is very hard to catch on a
+  subtler question. **A decision already merged is overturned explicitly and
+  signed off, not superseded in passing by the branch that depends on it.**
+
+  On the merits the reversal mostly stands: an empty default closure is a
+  better story than "numpy and nothing else", install quality is a stated
+  objective, and `core.py` genuinely does not need `numpy` — it works on
+  whatever the caller brings. What it gave up is D6's actual purpose.
+  Undeclared, a user on `numpy` 1.24 no longer gets a resolver error at
+  install time; they get an `AttributeError` at run time, because a lazy
+  `ImportError` fires only when `numpy` is *absent*, never when it is merely
+  too old. That moves a failure from install to runtime, which is what D6
+  existed to prevent. The upside was also thinner than it read: nearly
+  everyone using a TDA library already has `numpy`, so the torch user who
+  never touches it is close to hypothetical.
+
+  The resolution keeps both. `numpy` stays out of required dependencies, so
+  the empty default closure is intact; it moves to `akriti[io]` at
+  `numpy>=2.0`, so the floor is declared and resolvable at install time; and
+  the lazy import checks the version rather than presence alone, with both
+  failure paths naming the extra — "install `akriti[io]`", not "install
+  `numpy`", which is an instruction a user who already has `numpy` 1.24 can
+  act on. §10.1 requirement 2 now carries the general obligation (a
+  lazily-imported library MUST also be a declared extra with a floor) and §3.3
+  carries `numpy`'s specific version check and its two failure paths.
+
+  **D17 — probed, narrowed, still open.** On the lead's instruction not to
+  wait on a judgement call for a measurable fact, `probe_backends.py` gained
+  an A.5 section asking whether a backend's returned object carries the
+  coefficient field it was computed with. It does not, on any of them: GUDHI's
+  `persistence(homology_coeff_field=...)` returns `list[(dim, (b, d))]` and
+  `SimplexTree` exposes no attribute naming the field; Ripser's returned dict
+  is `cocycles`, `dgms`, `dperm2all`, `idx_perm`, `num_edges`, `r_cover`;
+  giotto's value sits on the estimator while `from_giotto` receives the array.
+  The value exists only in the caller's own call.
+
+  That kills D17's middle option — require it only where the returned object
+  exposes it — which applies to nothing. It does not choose between the other
+  two, because what remains is whether the obligation should exist at the cost
+  of a signature change on up to three adapters, which is a judgment rather
+  than a further fact. One measurement sharpens it: the defaults disagree,
+  GUDHI over ℤ/11 and Ripser over ℤ/2, so an unrecorded `coeff_field` is not
+  conventionally ℤ/2 — it is unknown, and two diagrams of the same data from
+  those two backends differ wherever the data has torsion.
+
+  A.5 was measured on 2026-08-06 against `gudhi 3.13.0`, `ripser 0.6.15`,
+  `persim 0.3.8`, `numpy 2.5.1`, `scikit-learn 1.9.0` — not the 2026-07-29
+  environment Appendix A's preamble names, and its own caption says so.
+  giotto-tda is not installed in this environment and its row is unmeasured,
+  the same §9.2 reason A.1's `reduced_homology=False` row is still blocked.
+
+  **What did not change.** D12, D15 and D16 are untouched and still carry no
+  recommendation. `core.py` is not in this branch, and §6.3's new matching
+  requirement is a specification the implementation branch has yet to meet —
+  its `allclose` is still the sorted-pairwise form this entry rejects, with
+  the D14 assumptions documented in its docstring.
 
 ---
 
@@ -1354,3 +1560,70 @@ makes it. The normative content these rows were protecting is untouched:
 §3.3 and §10.1 already state the zero-dependency-by-default requirement and
 `numpy`'s lazy-import behavior directly, in MUST language, and D8 (kept, see
 RFC-0001 §12.2) no longer cites D9 or D11 for its own justification.
+
+**Update (entry 41).** D6 is reinstated in RFC-0001 §12.2 as *superseded*
+rather than left removed; the section above stands as the record of why it was
+removed, and is now one half of a two-part history rather than the whole of it.
+The rows for D9, D10 and D11 are unaffected and remain out of scope. Note that
+D10's row above — "lazy import, not a formal extra" — is the resolution entry
+41 reverses on D6's behalf: the extra is what makes the version floor
+declarable, which a presence-only lazy import cannot do. That D10 sits here
+recommending the opposite is not an inconsistency to repair; it is what the
+record looked like at the time, which is the point of preserving it.
+
+---
+
+## D14 — why no sort key rescues the pairwise form
+
+RFC-0001 §6.3 rejects the sorted-pairwise implementation of `allclose` and
+requires a matching. The reason it is rejected outright, rather than repaired,
+is that the defect is in the *shape* of the approach and not in the particular
+sort key §7 happens to specify. This section carries that argument; §6.3 states
+the conclusion and points here.
+
+The composition failure is between an exact operation and an approximate one.
+Canonical order (§7) sorts on `(dim, birth, death)` with exact comparisons.
+`allclose` compares within a tolerance. When two bars' births lie within the
+tolerance *of each other*, their relative order under the exact sort is decided
+by a difference smaller than the tolerance the comparison is willing to ignore,
+so two backends computing the same diagram can canonicalise them into opposite
+orders. The pairwise comparison then walks two sequences that are each
+correctly sorted and pairs bar `i` against the wrong partner. Appendix A.3
+measures GUDHI/Ripser disagreement at `2.7e-8`, which is the magnitude that
+flips such a tie, so this is not a constructed case — it is reachable on
+exactly the cross-backend comparison `allclose` exists to serve.
+
+**Reordering the key does not fix it; it relocates the case.** Sorting on
+`(dim, death, birth)` makes the near-tied-births case robust, because the ties
+that used to decide the order are now broken by a `death` coordinate the two
+sides agree on to well within tolerance. It simultaneously makes the mirror
+case reachable: two bars whose *deaths* are tied to within the tolerance and
+whose births are far apart now sort ambiguously where they previously did not.
+Every key ordering has this property. The primary coordinate is whichever one
+the tie can hide in, and there is always a diagram whose tie is in that
+coordinate.
+
+**Quantizing does not fix it either; it relocates the case a second time.**
+Rounding coordinates to an `rtol`-sized grid before sorting removes ties within
+a bucket, which is the failure above, and creates a new one at the bucket
+boundary: two values within tolerance of each other that fall on opposite sides
+of a grid line quantize to different buckets and sort deterministically apart.
+The tie has moved from "values too close to order reliably" to "values too
+close to bucket reliably", and the second is not an improvement — it is the
+same predicate evaluated against a grid offset nobody chose on purpose.
+
+**The general statement is that no total order on bars is stable under
+perturbation.** A total order is a function of exact coordinate values; a
+tolerance is a declaration that differences below some threshold carry no
+information. Any sort key reads a difference the comparison has agreed to
+ignore, and so admits an input where an ignorable difference decides a
+non-ignorable outcome. Choosing a better key changes which input, never whether
+one exists.
+
+This is why the question was never "which sort key" and why the resolution is
+structural. A matching asks the question the tolerance actually poses — does a
+bijection within tolerance exist — rather than asking an exact question first
+and hoping its answer survives the approximate one. It also explains why the
+false negative was tempting: the failure is conservative, never a spurious
+`True`, so a suite that never exercises a tie passes identically against both
+implementations. RFC-0001 §11.2 now requires the case that separates them.
