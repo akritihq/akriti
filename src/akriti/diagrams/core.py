@@ -315,6 +315,129 @@ def _require_shared_namespace(a: Any, b: Any, op: str) -> None:
         )
 
 
+def _close_within(a: Array, b: Array, rtol: float, atol: float, xp: Any) -> Array:
+    """Symmetric elementwise tolerance, broadcast to a pair matrix. §6.3.
+
+    `|a - b| <= atol + rtol * max(|a|, |b|)`.
+
+    **This deliberately diverges from `numpy.allclose`**, which computes
+    `atol + rtol * |b|` -- scaling by its second argument alone, so that
+    swapping the arguments can change the answer at the boundary. Two
+    diagrams either agree to a tolerance or they do not; which one was
+    written first is not part of the question, and an `allclose` whose
+    result depends on it cannot be relied on by a caller who did not think
+    about argument order. §6.3 requires the symmetric form.
+
+    Purely elementwise, so it serves both shapes `allclose` needs: 1-D
+    against 1-D for the paired check, and `(n, 1)` against `(1, m)` for the
+    full pair matrix.
+    """
+    return xp.abs(a - b) <= (atol + rtol * xp.maximum(xp.abs(a), xp.abs(b)))
+
+
+def _deaths_within(
+    deaths_a: Array,
+    inf_a: Array,
+    deaths_b: Array,
+    inf_b: Array,
+    rtol: float,
+    atol: float,
+    xp: Any,
+) -> Array:
+    """`_close_within` for a death column, where `inf` is reachable. §5, §6.3.
+
+    Two disjoint cases, and the tolerance formula runs in neither of them for
+    an essential bar. `inf` matches `inf` exactly; a pair with an `inf` on
+    exactly one side is incompatible whatever the formula would have said;
+    everything else goes through the tolerance. That masking is what decides
+    essential bars.
+
+    The zeros substituted below decide nothing. They exist only to keep
+    `inf - inf` -> `nan` and `inf - x` -> `inf` out of the arithmetic in
+    cells the masks discard anyway. Any finite value would do, and the result
+    does not depend on which -- relying instead on `nan` comparing False
+    would reach the same answer by an accident of IEEE 754 that a reader has
+    to verify rather than read.
+
+    Elementwise, so it broadcasts the same two ways `_close_within` does.
+    """
+    both_inf = inf_a & inf_b
+    both_finite = (~inf_a) & (~inf_b)
+    finite_a = xp.where(inf_a, xp.zeros_like(deaths_a), deaths_a)
+    finite_b = xp.where(inf_b, xp.zeros_like(deaths_b), deaths_b)
+    return both_inf | (both_finite & _close_within(finite_a, finite_b, rtol, atol, xp))
+
+
+def _perfect_matching_exists(neighbours: list[list[int]], n: int) -> bool:
+    """Does a perfect matching exist in a bipartite graph on `n + n` vertices?
+
+    Kuhn's augmenting-path algorithm, iterative. `neighbours[u]` lists the
+    right-hand vertices `u` may be matched to.
+
+    **Standard library only, deliberately (§6.3).** `scipy.sparse.csgraph.
+    maximum_bipartite_matching` would do this, and §3.3 gives this module the
+    standard library and the caller's namespace and nothing else. A lazy
+    import on a *comparison* path is a worse trade than §10.1 requirement 2's
+    narrow one at the `save`/`load` boundary: serialization is a boundary a
+    caller crosses deliberately, while `allclose` is called from inside test
+    suites and assertions where an ImportError is pure obstruction.
+
+    Augmenting paths rather than Hopcroft-Karp: O(V*E) against O(E*sqrt(V)),
+    on diagrams whose bar counts are in the hundreds to thousands, reached
+    only after an O(n^2) edge construction that dominates anyway. `allclose`
+    is a verification surface, not a numerical inner loop (§6.3).
+
+    Iterative rather than recursive because the augmenting path can be as
+    long as `n`, and a diagram with more bars than the recursion limit is an
+    ordinary diagram, not a pathological one.
+
+    **Deliberately no special case for a forced matching**, where every bar
+    has exactly one candidate partner. It looks like the fast path worth
+    adding and it buys nothing: with single-element adjacency lists, each
+    root here either takes its one free partner or fails on the spot, so the
+    loop is already linear and a separate path would only add a branch and a
+    second thing to keep correct. The cases that *do* pay are upstream in
+    `allclose`, where they can be answered with array reductions before any
+    of this is built.
+    """
+    # For each right-hand vertex, the left-hand vertex holding it, or -1.
+    held_by = [-1] * n
+    for root in range(n):
+        seen = bytearray(n)
+        # Each frame is a left vertex and its unexplored neighbours. `path`
+        # holds the tentative edges from `root` down to the current frame.
+        stack: list[tuple[int, Any]] = [(root, iter(neighbours[root]))]
+        path: list[tuple[int, int]] = []
+        augmented = False
+        while stack and not augmented:
+            u, candidates = stack[-1]
+            for v in candidates:
+                if seen[v]:
+                    continue
+                seen[v] = 1
+                path.append((u, v))
+                if held_by[v] == -1:
+                    # Free vertex: flip every edge along the path we came by.
+                    for left, right in path:
+                        held_by[right] = left
+                    augmented = True
+                else:
+                    # Taken: recurse into its current holder to displace it.
+                    stack.append((held_by[v], iter(neighbours[held_by[v]])))
+                break
+            else:
+                # No candidate left for `u`; back out of the edge that led here.
+                stack.pop()
+                if path:
+                    path.pop()
+        if not augmented:
+            # `root` cannot be matched even after exhausting every
+            # alternating path, so no perfect matching exists. Halting here
+            # is what makes the common "these diagrams differ" case cheap.
+            return False
+    return True
+
+
 def _big_endian_block(values: Array, typecode: str) -> bytes:
     """One canonical-ordered column as big-endian machine values. §8.1.
 
@@ -617,42 +740,134 @@ class PersistenceDiagram:
         meaningful, the second a well-typed call this module cannot answer
         (`_require_shared_namespace`).
 
-        Two assumptions worth stating, neither of them fixed here:
+        **This is a matching, not a sorted pairwise comparison (§6.3).** Two
+        diagrams are `allclose` iff there is a bijection between their bars
+        under which every matched pair shares a `dim` exactly and agrees on
+        both coordinates within tolerance. Equal bar counts are necessary and
+        not sufficient.
 
-        - **The tolerance is asymmetric.** `rtol` scales `other`'s
-          coordinates, following `numpy.allclose`, so at the boundary
-          `d1.allclose(d2)` and `d2.allclose(d1)` can disagree.
-        - **Bars are matched by canonical position, not by a matching.** Both
-          sides are sorted exactly and then compared pairwise. When two bars'
-          births lie within tolerance *of each other*, two backends can sort
-          them into different canonical orders and this returns `False` for
-          diagrams that do have a bar-for-bar partner within `rtol`. The
-          failure is conservative (never a spurious `True`), but it is real at
-          exactly the magnitude §6.2 measures. Proper approximate multiset
-          equality needs a matching.
+        Sorting both sides canonically and comparing pairwise -- the obvious
+        implementation, and the one this replaced -- is exact in the sort and
+        approximate in the comparison, and the two do not compose. When two
+        bars' births lie within tolerance *of each other*, two backends can
+        canonicalise them into opposite orders, and the pairwise comparison
+        then pairs each bar against the other's partner and reports `False`
+        for diagrams that do have a bar-for-bar partner within `rtol`. §6.2
+        measures GUDHI/Ripser disagreement at the magnitude that flips such a
+        tie, so this is reachable on exactly the cross-backend comparison this
+        method exists to serve. No sort key repairs it: the RFC's history
+        document carries the argument that no total order is stable under
+        perturbation.
+
+        **The tolerance is symmetric**, `atol + rtol * max(|a|, |b|)`,
+        diverging from `numpy.allclose` -- see `_close_within`.
+
+        **This is not an equivalence relation.** It is reflexive and
+        symmetric, but *not transitive*: `a.allclose(b)` and `b.allclose(c)`
+        do not imply `a.allclose(c)`, since two tolerance-width steps span
+        twice the tolerance. `==` is an equivalence relation and callers will
+        reasonably assume the parity holds, so it is stated here. In
+        particular, do not use `allclose` to deduplicate or to group
+        diagrams: the result depends on the order they are visited in.
+
+        **This is not bottleneck distance and MUST NOT be refactored into
+        it** (§6.3, §9). "Does a perfect matching within threshold `t` exist"
+        is the decision problem a bottleneck binary search calls repeatedly,
+        so the two are adjacent by construction and this method will look like
+        a starting point for one. It is not: `allclose` admits no diagonal
+        projection and optimises nothing. `core/distances.py` delegates
+        bottleneck distance and is not built on this method.
         """
         if not isinstance(other, PersistenceDiagram):
             raise TypeError(
                 f"allclose expects a PersistenceDiagram, got {type(other)!r}"
             )
         _require_shared_namespace(self, other, "allclose")
-        if self.n_bars != other.n_bars:
+        n = self.n_bars
+        if n != other.n_bars:
             return False
+        if n == 0:
+            # The empty bijection is a bijection.
+            return True
+
+        xp = self.xp
         a, b = self.canonical(), other.canonical()
-        xp = a.xp
-        if not bool(xp.all(xp.equal(a.dims, b.dims))):
+        inf_a, inf_b = xp.isinf(a.deaths), xp.isinf(b.deaths)
+
+        # Fast path, and it is a *witness* rather than a decision. If the two
+        # canonically sorted sequences agree bar for bar, then pairing them by
+        # position is itself a bijection satisfying the definition, so `True`
+        # here is `True` there. The converse does not hold -- that is the
+        # whole of D14 -- so a failure falls through to the matching rather
+        # than being reported. Nothing below may be skipped on its account.
+        #
+        # It earns its place because it is the common case: a round-trip, a
+        # diagram against itself, or two backends with no near-tie all land
+        # here in O(n log n) instead of building an O(n^2) pair matrix.
+        if (
+            bool(xp.all(xp.equal(a.dims, b.dims)))
+            and bool(xp.all(_close_within(a.births, b.births, rtol, atol, xp)))
+            and bool(
+                xp.all(_deaths_within(a.deaths, inf_a, b.deaths, inf_b, rtol, atol, xp))
+            )
+        ):
+            return True
+
+        # Pair matrix: entry (i, j) asks whether a's bar i could be partnered
+        # with b's bar j. Built with array operations, so the O(n^2) work
+        # stays in the caller's namespace where it is vectorised.
+        compatible = xp.equal(
+            xp.expand_dims(a.dims, axis=1), xp.expand_dims(b.dims, axis=0)
+        )
+        compatible = compatible & _close_within(
+            xp.expand_dims(a.births, axis=1),
+            xp.expand_dims(b.births, axis=0),
+            rtol,
+            atol,
+            xp,
+        )
+        compatible = compatible & _deaths_within(
+            xp.expand_dims(a.deaths, axis=1),
+            xp.expand_dims(inf_a, axis=1),
+            xp.expand_dims(b.deaths, axis=0),
+            xp.expand_dims(inf_b, axis=0),
+            rtol,
+            atol,
+            xp,
+        )
+
+        # An unmatchable bar on either side rules out a bijection, and both
+        # directions have to be asked: a row of `False` says one of a's bars
+        # has no candidate, a column of `False` says one of b's does, and
+        # neither implies the other. Two O(n^2) reductions inside the
+        # namespace, taken before anything crosses into Python, so the common
+        # "these diagrams differ" case never materialises an edge list.
+        if not bool(xp.all(xp.any(compatible, axis=1))):
             return False
-        births_close = xp.abs(a.births - b.births) <= (atol + rtol * xp.abs(b.births))
-        if not bool(xp.all(births_close)):
+        if not bool(xp.all(xp.any(compatible, axis=0))):
             return False
 
-        inf_a, inf_b = xp.isinf(a.deaths), xp.isinf(b.deaths)
-        if not bool(xp.all(xp.equal(inf_a, inf_b))):
-            return False
-        finite = ~inf_a
-        finite_a, finite_b = a.deaths[finite], b.deaths[finite]
-        deaths_close = xp.abs(finite_a - finite_b) <= (atol + rtol * xp.abs(finite_b))
-        return bool(xp.all(deaths_close))
+        # The search itself cannot stay in the namespace: an augmenting path
+        # is a sequential, data-dependent walk that rebinds one edge at a
+        # time, which array operations do not express. So the graph crosses
+        # into Python once, here.
+        #
+        # `nonzero` over the whole matrix rather than per row: one
+        # data-dependent-shape call instead of `n` of them, and only the
+        # surviving edges cross rather than all n^2 cells. The array API
+        # offers no bulk conversion to Python objects, so per-edge `int()` is
+        # the portable floor. Adjacency costs O(edges), bounded by the
+        # O(n^2) `compatible` already built above, so it adds no order of
+        # memory that the pair matrix had not already paid for.
+        row_index, col_index = xp.nonzero(compatible)
+        neighbours: list[list[int]] = [[] for _ in range(n)]
+        # Indexed by position rather than iterated: the standard specifies
+        # `__getitem__` on a 1-D array, not the iteration protocol, and
+        # falling back to `__iter__` would be relying on something no backend
+        # is required to provide (§3.3).
+        for k in range(row_index.shape[0]):
+            neighbours[int(row_index[k])].append(int(col_index[k]))
+        return _perfect_matching_exists(neighbours, n)
 
     def same_provenance(self, other: PersistenceDiagram) -> bool:
         """Metadata comparison, excluded from `==`/`allclose` (§8).
@@ -1204,10 +1419,18 @@ class DiagramBatch:
         """Approximate, elementwise over batch positions. §6.3.
 
         The same order-sensitivity as `==`, with each pair compared by
-        `PersistenceDiagram.allclose`; its documented assumptions about
-        tolerance asymmetry and canonical-position matching apply here too,
-        as does its `ValueError` on a cross-namespace comparison, hoisted
-        here for the reason `==` gives.
+        `PersistenceDiagram.allclose`: bar order within a diagram is not
+        meaningful and diagram order within a batch is (§6.3, §7), so this is
+        an order-sensitive comparison over an order-insensitive one. Its
+        `ValueError` on a cross-namespace comparison is hoisted here for the
+        reason `==` gives.
+
+        Everything that method documents about itself carries over
+        unchanged -- the matching semantics, the symmetric tolerance
+        diverging from `numpy.allclose`, and that it is **not an equivalence
+        relation**. The last is worth repeating at this level rather than
+        left to a cross-reference: a batch of batches is exactly where
+        someone would reach for transitivity.
         """
         if not isinstance(other, DiagramBatch):
             raise TypeError(f"allclose expects a DiagramBatch, got {type(other)!r}")

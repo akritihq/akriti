@@ -102,6 +102,17 @@ jobs:
       - name: Enforce permissive-only default closure
         run: .venv-closure/bin/python tools/check_license_closure.py
 
+      # akriti[io] is the one user-facing extra that is expected to stay
+      # permissive: it resolves to akriti[numpy], and numpy is BSD-3-Clause.
+      # Enforced strictly rather than audited, so that a future change adding
+      # a copyleft dependency to serialization fails here instead of being
+      # reported into a log nobody reads. Runs before the copyleft extras go
+      # into this venv, since afterwards it could not pass.
+      - name: Enforce permissive-only akriti[io] closure
+        run: |
+          .venv-closure/bin/pip install --quiet ".[io]"
+          .venv-closure/bin/python tools/check_license_closure.py --profile io
+
       # Extras are expected to contain copyleft; report so a change is visible
       # in the log, but do not fail on it.
       - name: Audit extras (report only)

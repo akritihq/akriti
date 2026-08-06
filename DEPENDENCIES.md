@@ -64,17 +64,38 @@ modules are written: it installs numpy for a torch or JAX user who will never
 touch it, and it turns "zero third-party dependencies" into a claim about
 import statements rather than about what `pip install akriti` fetches. numpy
 is needed only inside `io.py`'s `save`/`load` for the `.npz` payload, where
-§3.3 requires a lazy, function-scoped import that raises a clear `ImportError`
-naming numpy if it is absent.
+§3.3 requires a lazy, function-scoped import.
 
-**There is therefore no numpy version floor declared anywhere, deliberately.**
-A floor is a constraint on an installed dependency and there is no longer one
-to constrain. The baseline is a statement about the caller's environment
-instead: array-API code paths need a caller-supplied `numpy>=2.0` — older
-numpy has no main-namespace `__array_namespace__` — or another array-API-native
-library, and an older numpy fails at the caller's own `__array_namespace__()`
-call rather than inside akriti. `akriti[test]` is the only place numpy is
-declared, and it pins that same `>=2.0`.
+**The floor is nevertheless declared, and this reverses what an earlier
+revision of this document said.** That revision concluded there was nowhere
+to put a numpy version floor once numpy left the required closure. RFC-0001
+D6 reverses it: leaving the *required* closure and being undeclared are
+different things, and only the first is wanted. numpy is declared by two
+extras at `numpy>=2.0`, the floor D6 established for main-namespace
+`__array_namespace__`:
+
+| Extra | For |
+|---|---|
+| `akriti[numpy]` | numpy as the array namespace, for a caller who wants one and has no opinion about which |
+| `akriti[io]` | `.akd` `save`/`load` (RFC-0001 §10); resolves to `akriti[numpy]`, so the floor has one home |
+
+They are separate because the wants are separate: a user who wants numpy as
+their array backend should not have to install under the name of
+serialization. `akriti[test]` also resolves to `akriti[numpy]` rather than
+pinning its own copy.
+
+**What the floor buys is an install-time failure instead of a runtime one.**
+Undeclared, a user on numpy 1.24 gets an `AttributeError` from the first
+array-API call, because a lazy import guarded on *presence* fires when numpy
+is absent and stays silent when it is merely too old. Declared, `pip install
+akriti[io]` fails to resolve, which is where a version problem belongs. §3.3
+consequently requires the lazy import to check the version rather than
+presence alone, and requires both failure paths to name the extra —
+"install `akriti[io]`", not "install numpy", which is not an instruction a
+user who already has numpy 1.24 can act on.
+
+None of this touches the default closure: `pip install akriti` still fetches
+nothing third-party.
 
 Measured cost of the split:
 
@@ -135,10 +156,11 @@ cheapest way for it to stop being true is one convenience import.
 |---|---|---|
 | *(none)* | — | — |
 
-numpy appears in `akriti[test]` only. When `io.py` lands, `save`/`load` will
-import it lazily at call time (RFC-0001 §3.3); that is a runtime requirement
-on the caller's environment, not a declared dependency, and it does not
-change this table.
+numpy is absent from the default closure and reachable only through
+`akriti[numpy]`, `akriti[io]` and `akriti[test]`, so it does not change this
+table. When `io.py` lands, `save`/`load` will import it lazily at call time
+(RFC-0001 §3.3), checking the version rather than presence alone and naming
+`akriti[io]` on both failure paths.
 
 ### Extras
 
@@ -147,9 +169,11 @@ change this table.
 | `rips` | `ripser` | MIT, **but GPLv3 transitively** via `persim` → `hopcroftkarp`; adds matplotlib |
 | `alpha` | `gudhi` | **GPLv3** — CGAL/Miniball modules bundled in the wheel |
 | `distances` | `persim` | MIT, **but GPLv3 transitively** via `hopcroftkarp` |
+| `numpy` | `numpy>=2.0` | BSD-3-Clause; the array namespace, not required by the default install |
+| `io` | → `akriti[numpy]` | BSD-3-Clause; `.akd` `save`/`load` only (RFC-0001 §10) |
 | `torch` | `torch` | BSD-3-Clause; multi-gigabyte, never a hard dependency |
 | `bio` | `anndata` | BSD-3-Clause |
-| `test` | `pytest`, `pytest-cov`, `hypothesis` | `hypothesis` is **MPL-2.0** — weak, file-level, test-only, never shipped |
+| `test` | `pytest`, `pytest-cov`, `hypothesis`, `array_api_strict`, → `akriti[numpy]` | `hypothesis` is **MPL-2.0** — weak, file-level, test-only, never shipped |
 | `lint` | `ruff`, `mypy` | MIT |
 
 `hypothesis` is the one reviewed exception in the checker. MPL-2.0 obligations
