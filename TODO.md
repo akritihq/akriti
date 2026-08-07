@@ -9,8 +9,8 @@ where it is written down, and what would close it.
 
 ## Closed
 
-Both entries this file opened are now closed; kept for one revision so the
-claim they made can be checked against what actually landed, then delete.
+Kept for one revision each, so the claim an entry made can be checked against
+what actually landed, then deleted.
 
 **`diagrams/core.py` is never exercised under `array_api_strict`.**
 `tests/test_array_api_conformance.py` now builds a `PersistenceDiagram` and a
@@ -32,6 +32,23 @@ one `array_api_strict` structurally cannot reach and skipping it there would
 restore exactly the hole this entry described. RFC-0001 §11.2 now requires
 both paths to be tested, so the obligation lives in the spec rather than here.
 
+**`allclose`'s matching has no test.** Closed by
+`tests/test_rfc0001_allclose.py`, in a separate session from the commit that
+wrote the matching and derived from §6.3 and §11.2 rather than from `core.py`:
+the relation is checked against a brute-force `itertools.permutations` oracle
+transcribed from §6.3's own sentence, so the test agrees with the definition
+rather than with the optimisation of it. The check this entry asked to be
+built is there — §11.2's motivating case asserts that the two canonical orders
+genuinely differ before asserting `True`, so a later change to §7's sort key
+fails it rather than leaving it green and empty. §6.3's three properties each
+have their own coverage: the bijection, including the case where every bar on
+both sides has a candidate and no matching exists; the symmetric tolerance, on
+a pair where `numpy.allclose` contradicts itself under argument order; and
+non-transitivity. The generator behind the property tests was tuned by
+mutating `core.py` until each mutation was caught, and the measurements that
+drove that are recorded in the file, since the tuning is what makes those
+tests worth their runtime.
+
 ## The conformance module still skips as one unit
 
 *`tests/test_array_api_conformance.py` — needs a CI guarantee, not a test.*
@@ -49,37 +66,6 @@ conformance module skips — a `--strict-markers`-style guard, an explicit
 `-p no:cacheprovider` run that asserts a nonzero collected count, or simply
 importing `array_api_strict` unconditionally in a CI-only conftest so its
 absence is an error rather than a skip.
-
-## `allclose`'s matching has no test, and must not get one from this session
-
-*`src/akriti/diagrams/core.py` — RFC-0001 §6.3, D14, §11.2.*
-
-`PersistenceDiagram.allclose` was rewritten from a sorted pairwise comparison
-into a matching over the multiset in the same commit that opened this entry.
-**It is untested.** The existing suite exercises `allclose` only through
-`tests/test_array_api_conformance.py`'s single `a.allclose(b)`, which passes
-identically against both implementations and therefore tests none of what
-changed.
-
-Unwritten deliberately, not overlooked: CLAUDE.md forbids writing a numerical
-function and its test in the same session, because a test written by whoever
-just wrote the function blesses the function's bugs. That applies with unusual
-force here — the rejected implementation was plausible enough to ship and
-survive review, so a test author reasoning from the same assumptions as the
-implementer would very likely write assertions both versions satisfy.
-
-The requirement is in the specification rather than here: §11.2 requires a
-case where two diagrams are within tolerance of each other but their canonical
-orders differ *because* of that tolerance, asserting `True`. §6.3 carries the
-three properties that need separate coverage — the bijection, the symmetric
-tolerance diverging from `numpy.allclose`, and that the relation is reflexive
-and symmetric but **not transitive**, so not an equivalence relation.
-
-To close: a separate session, deriving the cases from §6.3 and §11.2 rather
-than from `core.py`. One check worth building in whatever gets written — the
-motivating case is only a test of anything while the two canonical orders
-genuinely differ, so that premise should be asserted rather than assumed, or
-a later change to §7's sort key would leave it green and empty.
 
 ## `probe_backends.py` has no `reduced_homology=False` row
 
