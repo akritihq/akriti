@@ -1217,6 +1217,173 @@ section the earlier ones had no need for.
   its `allclose` is still the sorted-pairwise form this entry rejects, with
   the D14 assumptions documented in its docstring.
 
+- **2026-08-07 (42)** — Second review pass on PR #10, acting on the lead's
+  three replies. Resolves D12, D15 and D16, adds §9.3 and Appendix A.6, and
+  leaves §12.1 carrying D17 alone.
+
+  **D12 — `bars.npz` stays, and the payload stops being provisional.** The row
+  said the decision turned on a per-diagram and per-batch bar-count figure this
+  RFC did not state. The lead measured it, and Appendix A.6 now carries it.
+  Alpha complex over two `classify` datasets, recomputed from the point clouds
+  because the cached diagrams there are truncated to `top_n=50` and
+  diagonal-padded and therefore saturate: orbit5k at 500 points gives a median
+  936 bars per diagram, synthetic single-cell at 150 points gives 499. The
+  structural finding matters more than either median — **H0 equals the point
+  count exactly**, so bar count is linear in cloud size, and both clouds are
+  small relative to what users will bring. At batch scale it compounds:
+  `orbit5k_full` is 5,000 samples, so one `DiagramBatch` is around 4.7 million
+  bars. At 1M bars the three candidate payloads measure 20.0 MB / 0.02 s for
+  `.npz`, 41.1 MB / 1.19 s for CSV, and 26.5 MB / 0.65 s for sqlite3 — 78× and
+  42× on load against the binary payload.
+
+  **Correctness does not discriminate, which is what makes this a cost
+  decision.** CSV round-trips `float64` exactly through `repr` and `inf`
+  survives as the literal, so all three clear requirement 1. And the earlier
+  suspicion was right on its own terms: CSV *does* beat `.npz` on requirement
+  5, being readable without even `numpy.load`. What retires it is that
+  requirement 5 is already satisfied twice without it — by `meta.json` sitting
+  in the archive as literal UTF-8 text, and by §10.3's `to_csv()`, which exists
+  precisely to be the human-readable surface. Requirement 5 does not need
+  satisfying a third time, and paying 2.1× size and 78× load on every `load()`
+  to duplicate an escape hatch already shipped is the wrong trade.
+
+  **One argument for CSV survives, and §12.2 records it rather than waving it
+  away.** A stdlib payload would let the `[io]` extra be dropped altogether,
+  `meta.json` being stdlib `json` already, and "zero dependencies, including
+  serialization" is a materially stronger claim than the one this document
+  makes. It is not worth 78× at four-million-bar scale — but that ratio, or a
+  use case where batches are small and dependency-freedom outweighs load time,
+  is the condition to reopen D12 against, and A.6 is the number to reopen it
+  against. Recording the losing argument with its trigger is the same instinct
+  that reinstated D6 as superseded rather than deleting it.
+
+  **sqlite3 is closed out** rather than left as a third option: larger than
+  `.npz`, 42× slower, not inspectable without a separate tool, and its files
+  carry internal page state that makes requirement 4's byte-determinism harder
+  rather than easier — a loss on every axis including the one it was proposed
+  for.
+
+  **The caveat travels with the figures.** Two datasets, both alpha-complex,
+  both low-dimensional, both the lead's own; they fix an order of magnitude and
+  the linear-in-point-count scaling, not a distribution over what users will
+  store. The decision is robust to that in one specific direction: every way
+  the bar count moves from here makes CSV worse, so the caveat cannot flip the
+  outcome, only the margin.
+
+  **D15 — `provenance["order"]` is removed, and the argument is about
+  derivability rather than about the missing writer.** The row had framed it as
+  a key with one reachable value, which is true but not decisive; a key could
+  earn its place by having a second writer added. What decides it is a property
+  every other reserved key has and this one does not: **the rest record facts
+  that vanish if unrecorded.** `source_dtype` is lost the moment the array is
+  upcast, `clamped_rows` the moment the rows are repaired, `padding_removed`
+  the moment they are stripped, `essential_bars_source` a then-versus-now
+  distinction no later inspection recovers. Whether rows are in canonical order
+  is recoverable from the arrays themselves, exactly, in one pass, forever. So
+  `order` is a cached answer to an always-computable question — and a cache
+  that can go stale, since anything reordering rows while carrying `meta`
+  through unchanged leaves a diagram reporting `"canonical"` while not being
+  canonical. Clean, plausible and wrong: §9's own category, arrived at by our
+  hand rather than a dependency's.
+
+  Having `save` write it is worse rather than better, which retires the second
+  of the row's three options. §10.2 emits `bars.npz` in canonical order
+  unconditionally, so the key would be a constant in every file on disk: no
+  information, and a claim about the in-memory diagram it came from that may be
+  false. The third option dies on §7 — every consumer MUST treat row order as
+  arbitrary, so a reader who sees `"canonical"` is forbidden to act on it.
+
+  **The genuine order fact is a different key, and §8 keeps a note about it so
+  this is not reopened.** Whether the *backend's own output* was already
+  canonical is not derivable: it is exactly the GUDHI-versus-Ripser
+  disagreement §7 documents and A.3 measures, and it is unrecoverable once
+  anything sorts. `order` as specified never captured it — every adapter
+  records `"backend"` regardless of what the backend actually did, so the value
+  names the ordering's source rather than the ordering. If order provenance is
+  ever wanted, that is a key to build at adapter time, and building it does not
+  reopen this decision. The note is deliberately short and lives in §8 at the
+  lead's request; the reasoning above is what §12.2 and this entry carry
+  instead, since a removed key should not leave a long obituary in the body.
+
+  **D16 — require identity, say so as a supported-backend constraint, verify it
+  in CI.** The row was right that the standard does not guarantee identity and
+  right that no portable surrogate exists, and it treated that as a deadlock.
+  It is not one, because the two options fail in opposite directions. `is`
+  fails by raising `ValueError` on arrays that legitimately share a namespace:
+  conservative, loud, immediately diagnosable, impossible to mistake for a
+  correct answer. Every surrogate the standard leaves — `__name__`, a sentinel
+  dtype, anything else — is a weaker test that can match across genuinely
+  different namespaces, admitting a torch/NumPy mix into one diagram. That is
+  the silent direction, and it defeats exactly what I7 exists to prevent. Given
+  a conservative check with a documented constraint against a clever one that
+  fails open, take the first.
+
+  So §3.3 now states plainly that akriti requires `__array_namespace__()` to
+  return a consistent object for a given backend — a constraint on supported
+  backends, not a property claimed of the standard, which is the honest form of
+  the same sentence. **And it is verified rather than assumed:** a CI test MUST
+  assert identity for each supported backend. That is §3.3's own "conformance
+  is tested, not intended" applied to a promise the standard does not make, and
+  it follows entry 20's precedent, where the `hasattr(xp, "lexsort")` trap
+  became a standing regression test rather than prose. The failure mode the
+  test exists for is a backend appearing that returns a fresh wrapper per call:
+  it then fails CI and reopens D16 as a real decision, rather than breaking
+  silently in someone's pipeline. I7, B5 and §4.2's `from_diagrams` check are
+  unchanged in substance; only their rationale cells move from citing an open
+  question to citing a requirement.
+
+  **§9.3 is new, and it is not a D17 answer.** The lead's point is that the
+  coefficient-field finding belongs in §9 regardless of how D17 lands. A.5
+  measured that GUDHI defaults to ℤ/11 and Ripser to ℤ/2 and that neither
+  returns the field it used, so two diagrams of the same point cloud from our
+  two primary backends are computing different homology theories and agree only
+  where the data is torsion-free. §9.3 records that as a delegation hazard on
+  the same footing as §9.1 and §9.2, with one difference stated outright:
+  **neither backend is wrong.** The hazard is ours, and it arrives when we call
+  both and compare. §9's preamble now counts three hazards rather than two and
+  says which kind the third is.
+
+  The consequence lands on §6.3, which is why it could not be left to D17.
+  Cross-backend agreement is what `allclose` exists for — §6.2 sets its
+  tolerance against Ripser's single precision, §11.2 requires a GUDHI-vs-Ripser
+  comparison at `rtol=1e-6` — and under default settings that comparison can be
+  carefully matching bars between objects that are not comparable, returning
+  `True` because test data is usually torsion-free.
+
+  **One addition beyond what the lead asked for, flagged so it can be struck.**
+  §9.3 puts a MUST on §11.2's cross-backend test to pin the coefficient field
+  explicitly on both sides. The lead's instruction was that §9 record the fact
+  and D17 decide what we do about it, and this is arguably doing something
+  about it. The case for including it: it constrains a test this RFC already
+  requires rather than the adapter signatures D17 is about, pinning is a call
+  parameter on both backends so it costs nothing, and §11.2 is the one place in
+  this document's own suite where the hazard is otherwise live and green. The
+  case against is that it is new normative text nobody requested. It is written
+  as its own paragraph so removing it removes nothing else.
+
+  **Appendix A.6 carries measurements this project did not run**, and says so
+  in its first line. The bar-count script is the lead's, committed as
+  `rfcs/evidence/bar_counts.py` with behaviour unchanged and only formatting
+  adjusted for `ruff`; it does not run from this repository, since `lib.datasets`
+  lives in `classify`, and its docstring says that rather than leaving a reader
+  to discover it. The format-benchmark numbers were reported without their
+  script, which the lead offered; until it lands, A.6's second table is the one
+  claim in the appendix that cannot be re-run from this repository, and the
+  appendix says which. A.6 also records that the 78× and 42× ratios are taken
+  against the unrounded `.npz` time, so dividing the displayed 0.02 s column
+  does not quite reproduce them — a reader checking the arithmetic should not
+  have to wonder whether the table contradicts itself.
+
+  **What did not change.** D17 is untouched and still carries no
+  recommendation; §8's `coeff_field` comment is left exactly as it stands,
+  since rewording it in either direction answers the question. §9.3 sharpens
+  the case for one of D17's two remaining options without choosing between
+  them. `core.py` is not in this branch, so D15's removal of `order` and D16's
+  identity requirement both land as specification only; the implementation
+  branch carries two `provenance["order"]` docstring references and a `D15`
+  citation that go stale the moment this merges, and the CI identity test D16
+  now requires does not exist yet.
+
 ---
 
 ## Original "Note on Dx" text
