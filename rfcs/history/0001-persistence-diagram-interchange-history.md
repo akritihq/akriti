@@ -1681,6 +1681,21 @@ section the earlier ones had no need for.
   would: resolving through one function in one place and the method in another
   yields two namespace objects for one backend.
 
+  **Corrected within this entry, and the correction is the point.** The first
+  version of §3.3's paragraph below argued that the operator divergence has
+  nothing to act on here, because I2 and §6.1 fix every operand's dtype and no
+  mixed-dtype arithmetic occurs anywhere in this document. That argument is
+  plausible and it is unverified. `array-api-compat`'s `torch-xfails.txt` — its
+  own record of what still fails the standard's conformance suite with the
+  wrapper installed — lists the operator failures under the heading "We cannot
+  wrap the tensor object", which makes them structural rather than
+  dtype-specific, and this project has run none of it. Asserting that a known
+  non-conformance happens to miss us, on reasoning rather than a measurement,
+  is §9's category applied to ourselves. The paragraph now states the argument,
+  states that it is unverified, and puts the answer in the test. A settled
+  claim became an open one on evidence, which is the direction that should be
+  cheap.
+
   **What the resolver does not fix.** `array-api-compat` does not wrap the
   array object — it returns the backend's own `torch.Tensor` — and its
   documentation states that torch's operators are left unmodified, that 0-d
@@ -1693,31 +1708,37 @@ section the earlier ones had no need for.
   followed from it. On a backend whose operator semantics deviate, the same
   fact is about correctness.
 
-  They are nonetheless safe, and the reason is worth recording because it is
-  not the resolver: I2 and §6.1 fix every operand's dtype, so this document
-  contains no mixed-dtype arithmetic and the divergence has nothing to act on.
-  That is the `stable=True` situation exactly — correct by construction of a
-  different rule, invisible to the conformance suite, and one accessor away
-  from silently stopping being true. §3.3 therefore requires a cross-namespace
-  test of `essential`, `persistence`, `bar_counts` and `dim(k)`. New normative
-  text nobody asked for, flagged in the row for the lead to strike, and written
-  as its own sentence so that striking it removes nothing else.
+  `torch-xfails.txt` names the specific failures, and they are this document's
+  accessor surface rather than a corner of it: `__eq__` is `d.essential` and
+  `d.dim(k)`, `__sub__` is `d.persistence` and `b.bar_counts`, `__getitem__`
+  and masked `__getitem__` are `b[i]` and `d.finite`. §3.3 states the argument
+  that this misses us, states that it is unverified, and puts the answer in a
+  cross-namespace test of the five accessors — the `stable=True` treatment,
+  arrived at from the opposite direction, since there the discipline was known
+  to work and here it is only expected to. Until that test runs against torch,
+  a torch-backed diagram is namespace-correct and not established as
+  object-correct, and §3.3 says so. New normative text nobody asked for,
+  flagged in the row for the lead to strike, and written so that striking it
+  removes nothing else.
 
-  The other documented torch gaps do not reach this document: `unique_all` is
-  unavailable and unused, `d.dimensions` needing `unique_values`, which is
-  present; `x.size` is a method rather than an attribute on torch, and §4.2
-  already requires `shape[0]`; negative slice steps, `std`/`var` corrections
-  and unsigned integers beyond `uint8` are all outside what the diagram layer
-  does.
+  The other torch gaps do not reach this document, and are named so the list is
+  not read as exhaustive: `unique_all` is unimplementable on torch's `unique`
+  and unused here; `unique_values` and `unique_counts` are xfailed for complex
+  dtypes only, which I2 and §6.1 exclude, so `d.dimensions` is unaffected;
+  `x.size` is a method rather than an attribute on torch, and §4.2 already
+  requires `shape[0]`; negative slice steps, `std`/`var` corrections and
+  unsigned integers beyond `uint8` are outside what the diagram layer does.
 
-  **A.7 now says what it did not measure.** Nothing in that appendix was run
+  **A.7.6 now says what the appendix did not measure.** Nothing in it was run
   against torch — A.7.1's coverage and A.7.2's timings are NumPy's, A.7.3 is
-  asserted from JAX's dispatch, and every torch finding is from
-  array-api-compat's and PyTorch's documentation. That is weaker evidence than
-  the rest of the appendix carries, and on this document's own standard it is
-  stated rather than left to be inferred from a missing table. Probing it needs
+  asserted from JAX's dispatch, and every torch finding is documentary. A.7.6
+  tabulates the `torch-xfails.txt` headings this document reaches, which is
+  better evidence than prose documentation — it is the output of a test run,
+  and checkable by anyone — while still not being a run of ours against the
+  operations specified here. On this document's own standard the difference is
+  stated rather than left to be inferred from a missing table. Closing it needs
   torch installed, which the default and `dev` environments deliberately do not
-  have.
+  have, so it belongs in the `@pytest.mark.backend` suite.
 
   **D16's test scope narrowed, as the lead asked.** The identity test now runs
   against backends implementing the method natively. A backend reached through
