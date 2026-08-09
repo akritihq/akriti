@@ -1671,6 +1671,54 @@ section the earlier ones had no need for.
   as D16's identity assertion and §9.3's coefficient-field defaults, and the
   same reasoning.
 
+  **I7 and B5 were written as direct method calls and had to move too.** Both
+  spelled the comparison `births.__array_namespace__() is
+  deaths.__array_namespace__()`, which on a torch tensor raises
+  `AttributeError` before reaching the identity question — the same defect D18
+  found in D16's CI test, sitting in the invariants themselves rather than in a
+  test, and absent from the open row's list of affected sites. They now read
+  `namespace_of(...)`. This is A.7.5's constraint biting where it said it
+  would: resolving through one function in one place and the method in another
+  yields two namespace objects for one backend.
+
+  **What the resolver does not fix.** `array-api-compat` does not wrap the
+  array object — it returns the backend's own `torch.Tensor` — and its
+  documentation states that torch's operators are left unmodified, that 0-d
+  type promotion diverges from the standard, and that the functional spellings
+  are the workaround. So resolving a namespace corrects namespace calls and
+  nothing else, and §3.2's and §4.3's accessors are almost all operators:
+  `deaths - births`, `deaths == xp.inf`, `dims == k`,
+  `offsets[1:] - offsets[:-1]`. A.7.2 had already recorded that operators never
+  reach a namespace, but as an observation about cost — on NumPy nothing
+  followed from it. On a backend whose operator semantics deviate, the same
+  fact is about correctness.
+
+  They are nonetheless safe, and the reason is worth recording because it is
+  not the resolver: I2 and §6.1 fix every operand's dtype, so this document
+  contains no mixed-dtype arithmetic and the divergence has nothing to act on.
+  That is the `stable=True` situation exactly — correct by construction of a
+  different rule, invisible to the conformance suite, and one accessor away
+  from silently stopping being true. §3.3 therefore requires a cross-namespace
+  test of `essential`, `persistence`, `bar_counts` and `dim(k)`. New normative
+  text nobody asked for, flagged in the row for the lead to strike, and written
+  as its own sentence so that striking it removes nothing else.
+
+  The other documented torch gaps do not reach this document: `unique_all` is
+  unavailable and unused, `d.dimensions` needing `unique_values`, which is
+  present; `x.size` is a method rather than an attribute on torch, and §4.2
+  already requires `shape[0]`; negative slice steps, `std`/`var` corrections
+  and unsigned integers beyond `uint8` are all outside what the diagram layer
+  does.
+
+  **A.7 now says what it did not measure.** Nothing in that appendix was run
+  against torch — A.7.1's coverage and A.7.2's timings are NumPy's, A.7.3 is
+  asserted from JAX's dispatch, and every torch finding is from
+  array-api-compat's and PyTorch's documentation. That is weaker evidence than
+  the rest of the appendix carries, and on this document's own standard it is
+  stated rather than left to be inferred from a missing table. Probing it needs
+  torch installed, which the default and `dev` environments deliberately do not
+  have.
+
   **D16's test scope narrowed, as the lead asked.** The identity test now runs
   against backends implementing the method natively. A backend reached through
   the fallback has no method to call, and its namespace is a module — identical
