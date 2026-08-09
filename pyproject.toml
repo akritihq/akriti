@@ -34,7 +34,7 @@ classifiers = [
 ]
 
 # ---------------------------------------------------------------------------
-# DEFAULT CLOSURE — permissive only. numpy and nothing else.
+# DEFAULT CLOSURE — EMPTY. Not "permissive only": empty. Not even numpy.
 #
 # This is deliberately smaller than the project's original plan assumed, and the
 # reason is measured, not stylistic. See DEPENDENCIES.md for the full audit.
@@ -44,21 +44,31 @@ classifiers = [
 #   which `pip install akriti` pulls a persistence backend and keeps an
 #   permissive-only closure.
 #
-# So the backends move behind extras and the default install is the interchange
-# layer alone. That is not a compromise: akriti.diagrams needs no backend, the
-# "diagrams in" path is the primary one -- users arriving with diagrams a
-# backend already computed, rather than computing them here -- and one who
-# has diagrams now installs ~15 MB of permissively licensed code to work with
-# them. `tools/check_license_closure.py` enforces this in CI.
+# So the backends move behind extras. numpy then went the same way, one step
+# later and for a different reason: RFC-0001 §3.3 and §10.1 requirement 2
+# require `diagrams/core.py` and `diagrams/adapters.py` to import nothing
+# beyond the standard library, operating entirely through
+# `__array_namespace__` on whatever array the caller already has. A package
+# that *declares* numpy contradicts that however carefully the modules
+# themselves are written: it installs numpy for a torch user who will never
+# touch it, and it makes "zero third-party dependencies" a claim about import
+# statements rather than about what `pip install akriti` actually fetches.
+# numpy is needed only inside io.py's save/load for `.npz`, where §3.3
+# requires it to be a lazy, function-scoped import.
+#
+# It does NOT follow that the version floor has nowhere to go. An earlier
+# revision of this note concluded that it did, and RFC-0001 D6 reverses it:
+# an empty default closure and an undeclared runtime dependency are different
+# things. numpy is declared by the `numpy` extra below at the >=2.0 floor D6
+# established for main-namespace `__array_namespace__`, so `pip install
+# akriti` still fetches nothing while anyone who needs numpy resolves that
+# floor at install time. Undeclared, a user on numpy 1.24 gets an
+# AttributeError at run time instead of a resolver error at install time,
+# because a presence-only lazy import never fires on a version that is merely
+# too old -- which is precisely what D6 existed to prevent.
+# `tools/check_license_closure.py` enforces the closure in CI.
 # ---------------------------------------------------------------------------
-dependencies = [
-    # >=2.0 for main-namespace array API support (__array_namespace__), which
-    # RFC-0001 §3.4 requires. 1.24 cannot satisfy it. array-api-compat would
-    # allow an older floor but adds a dependency to support a NumPy over two
-    # years old; it belongs behind [torch] later, where torch's non-conformance
-    # actually needs it.
-    "numpy>=2.0",
-]
+dependencies = []
 
 [project.optional-dependencies]
 # Vietoris-Rips via Ripser. MIT itself; pulls GPLv3 hopcroftkarp transitively
@@ -77,6 +87,22 @@ alpha = ["gudhi>=3.9"]
 # delegating -- see RFC-0001 §9.1.
 distances = ["persim>=0.3.1"]
 
+# The array namespace, for callers who want one and have no opinion about
+# which. `core.py` and `adapters.py` work on whatever the caller brings
+# (RFC-0001 §3.3), so this is a convenience rather than a requirement -- but
+# it is the convenience nearly every user wants, and it is where the >=2.0
+# floor lives: below that, numpy has no main-namespace `__array_namespace__`
+# and nothing in `diagrams/` can operate on its arrays at all (D6).
+#
+# Separate from `io` deliberately. Wanting numpy as your array backend and
+# wanting to read and write `.akd` files are different wants, and a user with
+# the first should not have to install under the name of the second.
+numpy = ["numpy>=2.0"]
+
+# Serialization: `.akd` save/load (RFC-0001 §10). Needs numpy for `.npz`, at
+# the same floor and by reference, so there is one place to raise it.
+io = ["akriti[numpy]"]
+
 # Tensor backend for the neural-network path. Never a hard dependency: a
 # biologist who wants a p-value must not download a multi-gigabyte library.
 torch = ["torch>=2.0"]
@@ -91,10 +117,18 @@ test = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "hypothesis>=6.161.8",   # MPL-2.0, weak copyleft. Test-only, never shipped.
-    # Conformance reference for RFC-0001 §3.4. Rejects NumPy-only calls that
+    # Conformance reference for RFC-0001 §3.3. Rejects NumPy-only calls that
     # numpy's own __array_namespace__ silently permits (it returns numpy
     # itself, so hasattr checks pass spuriously). BSD. Test-only.
     "array_api_strict>=2.6.1",
+    # Still not a *runtime* dependency (see the default-closure note above):
+    # the default closure stays empty and numpy is reachable only through the
+    # `numpy` and `io` extras. The suite needs it because the eager backend
+    # every user actually has is the one worth testing against, and because
+    # RFC-0001 §11.2 requires `content_hash` to be checked on the buffer path
+    # that `array_api_strict` cannot reach. By reference, so the floor is
+    # raised in one place.
+    "akriti[numpy]",
 ]
 lint = [
     "ruff>=0.16.0",

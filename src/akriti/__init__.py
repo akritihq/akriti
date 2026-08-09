@@ -8,8 +8,11 @@ This package is in early development. There is no stable API yet, and the
 public surface below is a placeholder while `akriti.diagrams` is implemented
 against RFC-0001.
 
-No persistence backend is a required dependency. `akriti.diagrams` needs only
-numpy; install a backend when you need one::
+`pip install akriti` installs no third-party package at all — not a
+persistence backend, and not numpy. `akriti.diagrams` works against whatever
+array library the caller already has, through the Python array API standard
+(RFC-0001 §3.3), so it has nothing to install on its behalf. Install a
+backend when you need one::
 
     pip install akriti[rips]        # Ripser
     pip install akriti[alpha]       # GUDHI  (GPLv3 -- see DEPENDENCIES.md)
