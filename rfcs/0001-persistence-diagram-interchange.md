@@ -1728,7 +1728,7 @@ its member; and the same bars hash identically under two namespaces.
 
 ## 12. Open decisions
 
-Fourteen decisions are on record: D1-D8 and D12-D17. **One still needs the
+Fifteen decisions are on record: D1-D8 and D12-D18. **Two still need the
 lead's judgment before M1** (§12.1); the other thirteen are settled (§12.2),
 each stating the outcome and pointing at the section that carries the
 normative requirement. Superseded recommendations are logged in the history
@@ -1754,6 +1754,7 @@ sequence.
 | # | Question | Recommendation / status |
 |---|---|---|
 | **D17** | §8's `DiagramMeta` block annotates `coeff_field` with "affects the diagram, must be recorded", and that comment is the only place the field appears anywhere in this document. The prose immediately below it says the opposite — "All fields are optional", with `from_*` adapters required to populate `backend`, `backend_version` and `provenance` and nothing else — and §8.1's `content_hash` covers bars and never metadata, so no other clause depends on the value being present either. The comment's underlying claim is sound: homology over ℤ/2 and ℤ/3 differ wherever there is torsion, so a diagram whose coefficient field is unknown is uninterpretable in the way §8's opening sentence says one whose filtration is unknown is. But the three fields §8 does require are all derivable from the adapter itself, and this one is not — §11's adapters receive a computed result plus `**meta`, not the call that produced it. Does `coeff_field` become a required keyword-only argument on the adapters whose backend takes a coefficient parameter, on the `from_giotto`/`reduced_homology` precedent (§5.1, §11); does §8 require it only where the backend's returned object exposes it; or does the comment's normative clause go, leaving the field optional as the prose already has it? | **Narrowed to two options by Appendix A.5; still needs the lead.** Found by auditing this document's RFC-2119 keyword use rather than against `core.py`. It was recorded as the sole lowercase obligation without an uppercase counterpart; two later sweeps found more, all now promoted, and this remains the only one whose *underlying obligation* is in question rather than its register. The keyword line's caps-only rule settles its normative status — the comment states no requirement — but not the question it raises, which is whether the obligation it describes ought to exist; it still contradicts, as plain prose, the paragraph seven lines below it. Which of the three options is even available turned on a per-backend fact this RFC did not state; **Appendix A.5 now measures it.** No backend returns the coefficient field it was computed with — it is a call parameter on GUDHI, Ripser and giotto alike and is absent from every returned object — so the middle option, requiring it only where the returned object exposes it, applies to nothing and is out. The defaults disagree besides (GUDHI ℤ/11, Ripser ℤ/2), so an unrecorded value is unknown rather than conventionally ℤ/2. **That disagreement is now recorded as a delegation hazard in its own right, §9.3**, independently of how this row lands: §9 records that it is true, D17 decides what the adapters do about it. Two of the five adapters are out of reach whatever the answer: `from_array` has no backend, and `from_persim` consumes diagrams rather than computing them. The value having proved unrecoverable, this is the `reduced_homology` question again, and §5.1 answered that one by putting the parameter in the signature and making omission raise — a signature change on up to three adapters, not something to take on this document's own initiative. What remains is a judgment, not a further measurement: whether the obligation should exist at the cost of that signature change, or whether the comment's normative clause goes and the field stays optional as the prose already has it. §8's field list is not itself in question: `coeff_field` sitting top-level alongside whatever backend-specific key `params` carries is the same arrangement §8 defends at length for `provenance["essential_bars"]` against `params["reduced_homology"]`. The comment is left exactly as it stands pending this call, since rewording it in either direction answers the question. |
+| **D18** | `torch.Tensor` does not implement `__array_namespace__`. array-api-compat's own documentation says so outright — "we do not wrap the `torch.Tensor` object. It is missing the `__array_namespace__` and `to_device` methods, so the corresponding helper functions… should be used instead" — PyTorch's compatibility tracker (gh-58743, open, last touched 2026-03-16) holds the attribute back deliberately as "the attribute that declares compliance", to be added at near-full conformance, and it is absent from the torch 2.13 `Tensor` reference. §3 defines `Array` as any object implementing that method, so **no diagram can currently be torch-backed**, and four sites in this document illustrate a second namespace with torch counterfactually: §3.3's "a diagram built from torch tensors stays torch-backed", D16's own "admitting a torch/NumPy mix into one diagram", §4.2's mixed-input `from_diagrams` check, and §6.3's "a NumPy diagram and a torch diagram… are each valid and still not comparable". D16's CI test is written against "every backend this project supports" and `akriti[torch]` is one; for torch it cannot fail the way D16 describes — it raises `AttributeError` before reaching the identity question. JAX is unaffected: `jax.Array` has implemented the method natively since 0.4.32. Resolving namespaces through `array_api_compat.array_namespace` closes the gap. Does that resolver go in front of **(1) every backend**, or **(2) torch alone**, behind `akriti[torch]`, with the native method preferred wherever it exists? | **Recommendation: option 2.** What decides it is §10.1 requirement 2, not performance. Under option 1 `core.py` cannot resolve *any* namespace without array-api-compat, so it becomes a required dependency and `pip install akriti` no longer resolves to nothing third-party; under option 2 the import is lazy and fires only when the native method is absent, which is the `numpy`-in-`io.py` pattern §3.3 already uses and the placement `pyproject.toml` already anticipates. **Performance does not discriminate** (Appendix A.7): JAX pays nothing structurally, since array-api-compat ships no JAX wrapper and a `jax.Array` resolves to `jax.numpy` itself; NumPy pays one Python frame on the 11 of 26 namespace functions that carry a wrapper and nothing on the other 15, which are numpy's own objects by identity, putting §7's `canonical()` at 1.17x at 40 bars and 1.00x from 100k up. **Conformance does not discriminate either, which is the finding that removes option 1's best argument**: on `numpy` 2.5 the wrappers are largely vestigial — `device=`, `unique_values`, `cumulative_sum(include_initial=)`, `reshape(copy=)` and the 0-d `nonzero` rejection are all native — leaving one live correction, the `sort`/`argsort` stable default, which §7 already buys by passing `stable=True` explicitly. **The constraint either option must respect** is that `array_namespace()` on a NumPy array returns `array_api_compat.numpy`, *not* `numpy`: resolution MUST go through exactly one function, or one backend yields two namespace objects and I7's `is` raises on arrays that legitimately share a namespace — the loud direction D16 chose, but fired by our own inconsistency rather than a backend's. A third arrangement, preferring compat when it happens to be installed, is excluded outright: it makes `d.xp` depend on the environment rather than the input. The four counterfactual illustrations and D16's test scope are left exactly as they stand pending this call, on D17's precedent — option 1 makes them true as written, option 2 requires substituting JAX, so editing them in either direction answers the question. |
 
 
 ### 12.2 Settled
@@ -1947,6 +1948,84 @@ format-benchmark script is not checked in** — its numbers were reported
 without it, and the lead has offered it; until it lands, the second table is
 the only claim in this appendix that cannot be re-run from this repository.
 
+### A.7 `array-api-compat` — what it costs, and what it still corrects
+
+D18's evidence. Measured on 2026-08-09 with `numpy 2.5.1`,
+`array-api-compat 1.15.0`, CPython 3.14.4, best-of-7 — not the 2026-07-29
+environment this appendix's preamble names, and `jax` is not installed in it
+(A.7.3 is asserted from the library's own dispatch rather than timed).
+Reproduction: `rfcs/evidence/array_api_compat_overhead.py`.
+
+**A.7.1 — Wrapper coverage.** Of 26 namespace functions this document names
+or `core/` plausibly reaches for, 11 carry a wrapper and 15 are numpy's own
+objects by identity, so no wrapper can sit in front of them:
+
+| Group | Functions |
+|---|---|
+| Wrapped (11) | `sort`, `argsort`, `asarray`, `astype`, `unique_values`, `nonzero`, `zeros`, `empty`, `arange`, `cumulative_sum`, `reshape` |
+| Identical (15) | `concat`, `take`, `max`, `min`, `sum`, `any`, `all`, `isnan`, `isinf`, `isdtype`, `equal`, `abs`, `where`, `searchsorted`, `lexsort` |
+
+**A.7.2 — Cost, at equal semantics.** Both sides asked for the same work;
+where the standard's default differs from numpy's, the keyword is passed
+explicitly, which is what §7 already does. §7's three-pass `canonical()` is
+the sort-heaviest operation this document specifies:
+
+| n bars | native | compat | Ratio |
+|---|---|---|---|
+| 40 | 10.2 µs | 12.0 µs | 1.17× |
+| 1,000 | 129 µs | 131 µs | 1.02× |
+| 100,000 | 29.7 ms | 29.7 ms | 1.00× |
+| 1,000,000 | 389 ms | 389 ms | 1.00× |
+
+Namespace resolution is 275 ns native against 837 ns through the helper. The
+wrapped functions cost a flat 200-800 ns each; the overhead is per call, not
+per element, which is why it disappears by 1,000 bars. Operators never reach
+a namespace at all — `deaths - births` dispatches on the array object — so no
+wrapper can sit in front of the elementwise work §3.2 and §4.3 are made of.
+
+**A.7.3 — JAX pays nothing, structurally.** array-api-compat ships no JAX
+wrapper. A `jax.Array` routes to `jnp.empty(0).__array_namespace__()`, which
+is `jax.numpy` itself for `jax>=0.4.32`, through a dispatch cached on the
+class. Every subsequent `xp.foo` is JAX's own function object, so there is no
+overhead to measure rather than a small one.
+
+**A.7.4 — What it still corrects on `numpy` 2.5, which is nearly nothing.**
+A wrapper existing does not mean the deviation it patches survives. Probed
+natively:
+
+| Standard behaviour | `numpy` 2.5.1 |
+|---|---|
+| `device=` on `zeros` / `asarray` / `arange` | native |
+| `unique_values` | native |
+| `cumulative_sum(include_initial=True)` | native |
+| `reshape(copy=True)` | native |
+| `nonzero` rejects 0-d input | native |
+| `sort` / `argsort` default to `stable=True` | **deviates** — defaults to `stable=None`, quicksort |
+
+One live correction remains, and §7 already buys it by passing `stable=True`.
+**The deviation is worth recording independently of D18**, because it is
+invisible from inside this document's own test strategy: it is observable
+only on tied keys, and against numpy's default the standard's semantics cost
+**9.70× on `sort` and 2.89× on `argsort`** at 1M elements — a price §7 pays
+deliberately, since an unstable pass loses the ordering the previous pass
+established. §3.3's conformance suite cannot catch a call site that omits the
+keyword, because `array_api_strict` is the side that behaves correctly; the
+lapse would appear only on the backend every user actually runs. That is
+§7's `lexsort` trap one function over, and it wants the same standing test.
+
+**A.7.5 — The constraint on any resolver.** `array_namespace()` on a NumPy
+array returns `array_api_compat.numpy`, **not** `numpy` — measured, not
+inferred. Resolution MUST therefore go through exactly one function. A
+codebase calling `__array_namespace__` directly in one place and the helper
+in another gets two namespace objects for one backend, and I7's `is` then
+raises on arrays that legitimately share a namespace: D16's loud direction,
+fired by our own inconsistency rather than a backend's.
+
+**Caveat.** One machine, one NumPy, one array-api-compat. The ratios are what
+transfer; the absolute nanoseconds are not a claim about anyone else's
+hardware. A.7.4 probes rather than asserts, so a later NumPy that closes the
+sort gap turns that table over without an edit here.
+
 ---
 
 ## Appendix B — Changelog
@@ -1994,3 +2073,4 @@ the only claim in this appendix that cannot be re-run from this repository.
 - **2026-08-05 (40)** — Linted all twelve tables into one compact form, completing what entry 36 began on §12.1 and §12.2. Cell text is untouched. No normative content changed.
 - **2026-08-06 (41)** — Review pass on PR #10. **Normative in five places.** Resolved **D14**: §6.3's `allclose` MUST be a matching over the multiset — a bijection sharing `dim` exactly and agreeing on both coordinates within tolerance — with a symmetric tolerance `atol + rtol * max(abs(a), abs(b))` diverging from `numpy.allclose` and documented as such, no new dependency, no refactor into bottleneck distance, and documented as not an equivalence relation; §11.2 gains the test that separates it from the rejected sorted-pairwise form. Resolved **D13**: multiparameter persistence is an explicit non-goal, stated in §1 as normative scope; §3.2's `d.h0`/`d.h1` note drops its multiparameter clause. Reinstated **D6** in §12.2 as superseded rather than deleted: `numpy` stays out of the required closure but moves to `akriti[io]` at `>=2.0`, so §10.1 requirement 2 now requires a lazily-imported library to be a declared extra with a floor, and §3.3 requires the lazy import to check the version and name the extra on both failure paths. Completed entry 38's keyword sweep: §3's array-API rule, §11's `TypeError`, §10.1's five requirements and requirement 4's mechanism paragraph, §8's `essential_bars_source` writer prohibition and §9.2's clean-room note all take uppercase keywords. Entry 38 found one orphan of six; the sweep was run three times by three readers and did not converge on the first pass. **D17** probed, not resolved: new Appendix A.5 measures that no backend returns the coefficient field it computed with, which removes one of the three options and leaves a judgment the lead still owes. §12's count moves to fourteen, four open.
 - **2026-08-07 (42)** — Second review pass on PR #10, acting on the lead's three replies. **Resolves D12, D15 and D16; §12.1 is down to D17 alone.** **D12** — `bars.npz` stays, and §10.2's payload stops being provisional. Resolved on the bar-count figure the row said it turned on, now Appendix A.6: H0 equals the input point count exactly, so bars scale linearly in cloud size and a 5,000-sample batch is ~4.7M bars; at 1M bars CSV costs ~2.1× the bytes and ~78× the load, sqlite3 ~1.3× and ~42×. The reason is *not* that CSV loses on inspectability — it wins there — but that requirement 5 is already satisfied by `meta.json` and §10.3's `to_csv()`, and does not need satisfying a third time. The one surviving argument for CSV (a stdlib payload would drop the `[io]` extra altogether) is recorded in §12.2 as the condition to reopen against, rather than waved away; sqlite3 is closed out. **D15** — `provenance["order"]` is removed. Every other reserved key records a fact that vanishes if unrecorded; canonical order is recoverable from the arrays in one pass, so `order` is a cached answer to an always-computable question and one that goes stale. §8 keeps a short note naming the order fact that is *not* derivable — whether the backend's own output was already canonical — as a different key to build if it is ever wanted, so this is not reopened. **D16** — namespace comparison is identity, stated in §3.3 as a constraint on supported backends rather than a property of the standard, and **verified in CI** rather than assumed. Decided on the direction of the failure: `is` fails loudly on arrays that legitimately share a namespace, while every available surrogate can match across genuinely different ones, which is the silent direction I7 exists to prevent. I7, B5 and §4.2's check are unchanged; only their rationale cells move from citing an open question to citing a requirement. **New §9.3**, at the lead's request and independent of D17: GUDHI defaults to ℤ/11 and Ripser to ℤ/2, neither returns the field it used (A.5), so two diagrams of the same cloud from our two primary backends are not diagrams of the same thing — and §6.3's cross-backend `allclose` is where that bites, returning `True` on torsion-free data. §9's preamble now counts three hazards, the third being a disagreement between correct delegates rather than a defect in one. **One addition beyond what was asked**, flagged for the lead to strike: §9.3 puts a MUST on §11.2's cross-backend test to pin the coefficient field on both sides. It constrains a test this RFC already requires rather than the adapter signatures D17 is about, and pinning is a call parameter on both backends, so it costs nothing — but it is new normative text the lead did not request. **New Appendix A.6** carries D12's figures, the lead's own measurements rather than a run of ours, with his caveat that two alpha-complex datasets fix an order of magnitude and not a distribution. `rfcs/evidence/bar_counts.py` is his script, committed verbatim in behaviour; the format-benchmark script was reported without its source and is **not** checked in.
+- **2026-08-09 (43)** — Opened **D18** and added **Appendix A.7**, its evidence; §12's count moves to fifteen, two open. No other content changed. `torch.Tensor` does not implement `__array_namespace__` — array-api-compat's documentation says so, PyTorch's tracker holds the attribute back until near-full conformance, and it is absent from the torch 2.13 reference — so §3's definition of `Array` excludes torch tensors and no diagram can currently be torch-backed. D18 asks whether `array_api_compat.array_namespace` goes in front of every backend or torch alone. **This does not reopen D16**, whose identity requirement stands; what is wrong is its reach, since its CI test names a backend on which it raises `AttributeError` before reaching the identity question, and four sites illustrate a second namespace with torch counterfactually. Those four and the test's scope are left as they stand on D17's precedent, editing them in either direction being the answer. `rfcs/evidence/array_api_compat_overhead.py` carries the measurements, which are committed because two arguments that look decisive are not: JAX pays nothing (array-api-compat ships no JAX wrapper) and NumPy pays one Python frame on the 11 of 26 wrapped functions, §7's `canonical()` measuring 1.17x at 40 bars and 1.00x from 100k up; and on `numpy` 2.5 the wrappers are largely vestigial, leaving the `sort`/`argsort` stable default as the one live correction, which §7 already buys explicitly. §10.1 requirement 2 is what decides it. **Appendix A.7** carries the figures, on A.6's precedent that a decision log citing numbers it does not hold is one nobody can check later. Recorded in A.7.4 and the history document, not raised as a row: numpy's `sort`/`argsort` default to quicksort where the standard specifies stable, `array_api_strict` behaves correctly and so cannot catch a call site that omits the keyword, and §7 is therefore correct by discipline rather than construction — entry 20's `lexsort` precedent applies.

@@ -1384,6 +1384,87 @@ section the earlier ones had no need for.
   citation that go stale the moment this merges, and the CI identity test D16
   now requires does not exist yet.
 
+- **2026-08-09 (43)** — Opened **D18**, added **Appendix A.7** carrying its
+  evidence, and committed the script behind it as
+  `rfcs/evidence/array_api_compat_overhead.py`. §12's count moves to fifteen,
+  two open. Nothing else in the document changed. A.7 exists on A.6's
+  precedent — a decision log that cites numbers it does not carry is one
+  nobody can check later — and unlike A.6 its script is checked in, so every
+  figure in it can be re-run from this repository.
+
+  **The finding.** `torch.Tensor` does not implement `__array_namespace__`.
+  array-api-compat's documentation states it directly — "we do not wrap the
+  `torch.Tensor` object. It is missing the `__array_namespace__` and
+  `to_device` methods" — PyTorch's own tracker (gh-58743, open, last touched
+  2026-03-16) holds the attribute back on purpose, as "the attribute that
+  declares compliance", to be added at near-full conformance, and it is absent
+  from the torch 2.13 `Tensor` reference. §3 defines `Array` as any object
+  implementing that method. Torch tensors are therefore not `Array`, and no
+  diagram can currently be torch-backed.
+
+  **This does not reopen D16.** The identity requirement is correct and the
+  reasoning behind it stands; what is wrong is its reach. D16's CI test is
+  written against "every backend this project supports" and `akriti[torch]` is
+  one, but for torch that test raises `AttributeError` before it can reach the
+  identity question, so it fails in a way D16 does not describe and would read
+  as a broken test rather than a reopened decision. Four sites also illustrate
+  a second namespace with torch, and all four are counterfactual as written:
+  §3.3's "a diagram built from torch tensors stays torch-backed", D16's own
+  "admitting a torch/NumPy mix into one diagram", §4.2's mixed-input
+  `from_diagrams` check, and §6.3's "each valid and still not comparable".
+  They are left as they stand, on D17's precedent: option 1 makes them true,
+  option 2 requires substituting JAX, so editing them answers the question.
+  JAX is not implicated either way — `jax.Array` has had the method natively
+  since 0.4.32.
+
+  **Why the row offers two options and not three.** Resolving through
+  `array_api_compat.array_namespace` is the available fix; the question is
+  only how far in front of the backends it sits. Preferring compat whenever it
+  is merely installed was considered and is excluded in the row itself, since
+  it makes `d.xp` a property of the environment rather than of the input.
+
+  **What the measurements settle, and what they do not.** The script is
+  committed because two of the three arguments one might expect to decide this
+  turn out not to. Performance does not: JAX pays nothing structurally, since
+  array-api-compat ships no JAX wrapper and a `jax.Array` resolves to
+  `jax.numpy` itself through an `lru_cache`d dispatch; NumPy pays one Python
+  frame on the 11 of 26 namespace functions carrying a wrapper and nothing on
+  the other 15, which are numpy's own objects by identity, leaving §7's
+  `canonical()` at 1.17x at 40 bars and 1.00x from 100k up. Conformance does
+  not either, and that is the finding that removes option 1's strongest
+  argument: on `numpy` 2.5 most of those wrappers are vestigial — `device=`,
+  `unique_values`, `cumulative_sum(include_initial=)`, `reshape(copy=)` and
+  the 0-d `nonzero` rejection are all native — leaving one live correction,
+  the `sort`/`argsort` stable default, which §7 already buys by passing
+  `stable=True`. What decides the row is §10.1 requirement 2: under option 1
+  `core.py` cannot resolve any namespace without the package, so it stops
+  being an extra and `pip install akriti` stops resolving to nothing
+  third-party.
+
+  **One constraint holds whichever option lands**, and it is measured rather
+  than argued: `array_namespace()` on a NumPy array returns
+  `array_api_compat.numpy`, not `numpy`. Resolution must therefore go through
+  exactly one function. A codebase calling `__array_namespace__` directly in
+  one place and the helper in another gets two namespace objects for one
+  backend, and I7's `is` then raises on arrays that legitimately share a
+  namespace — D16's loud direction, fired by our own inconsistency instead of
+  a backend's.
+
+  **A second finding, recorded here rather than raised as a row.** NumPy's
+  main namespace defaults `sort` and `argsort` to `stable=None`, which is
+  quicksort, where the array API standard specifies `stable=True`; the script
+  shows the difference is observable on tied keys, and against that default
+  the standard's semantics measure 9.70x on `sort` and 2.89x on `argsort` at
+  1M elements. §7 is correct today because it passes the keyword at all three
+  call sites and says why. It is correct by discipline rather than by
+  construction, though, and the conformance suite cannot catch a lapse:
+  `array_api_strict` is the side that behaves correctly, so a call site that
+  omits the keyword passes there and is silently unstable on the backend every
+  user actually runs. That is §7's `lexsort` trap one function over, and entry
+  20's precedent says it should become a standing test rather than prose. Not
+  opened as a row because no decision is in question — only a test that does
+  not exist yet.
+
 ---
 
 ## Original "Note on Dx" text
