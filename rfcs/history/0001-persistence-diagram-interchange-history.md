@@ -1619,6 +1619,136 @@ section the earlier ones had no need for.
   gets lifted inline the way §8's just was — so it is recorded here rather than
   decided in this pass.
 
+- **2026-08-09 (45)** — Fourth review pass on PR #10, acting on the lead's two
+  comments. **Resolves D18**, which empties §12.1, and closes the onboarding
+  citations entry 44 raised.
+
+  **D18 — option 2, the resolver in front of torch alone.**
+  `array_api_compat.array_namespace` sits behind `akriti[torch]`, lazily
+  imported, with the native `__array_namespace__` preferred wherever it exists.
+  The lead took the recommendation and the deciding argument with it: option 1
+  makes array-api-compat a required dependency, so `pip install akriti` stops
+  resolving to nothing third-party, undoing the closure work D6 was superseded
+  to establish weeks after establishing it. Nothing in the performance or
+  conformance case comes near outweighing that, and both were measured rather
+  than assumed — one Python frame on 11 of 26 functions, `canonical()` at 1.17x
+  at 40 bars and 1.00x from 100k up, JAX structurally free, and on numpy 2.5
+  the wrappers largely vestigial with one live correction §7 already buys.
+
+  **Where the resolution rule landed in the text.** §3.3 carries it as a single
+  function rather than as prose about which method to call, because the
+  constraint A.7.5 measured is what makes single-valuedness load-bearing:
+  `array_namespace()` on a NumPy array returns `array_api_compat.numpy`, not
+  `numpy`, so a codebase calling the helper in one place and the method in
+  another holds two namespace objects for one backend, and I7's `is` then
+  raises on arrays that legitimately share a namespace — D16's loud failure
+  fired by our own inconsistency rather than a backend's. §3's `Array`
+  definition now turns on that rule rather than on `__array_namespace__`
+  directly. Preferring compat whenever it is merely installed is excluded in
+  the row for the same reason the lead gave: `d.xp` must depend on the input,
+  never on the environment.
+
+  **One question the first draft of this pass got wrong, and it is worth
+  recording.** The definition was first written as "any object implementing
+  `__array_namespace__`, and, for as long as it does not implement one,
+  `torch.Tensor`" — a vendor named in a normative type definition, which reads
+  as leniency granted to one backend. It is not what the resolution does.
+  `array_api_compat` supplies a conforming namespace for a backend that
+  conforms in substance without having declared it; a backend that does not
+  conform is not rescued by being wrapped, and the arrangement expires by
+  itself when the declaration lands. §3 states the capability and §3.3 names
+  the one backend currently in that state, which is where a dated fact about a
+  dependency belongs.
+
+  **The staleness risk is pinned, in the pattern used for every other one.**
+  gh-58743 is open and the attribute is being withheld deliberately until
+  near-full conformance, so it lands eventually; on that release a torch tensor
+  stops resolving through the wrapper, `d.xp` changes from
+  `array_api_compat.torch` to `torch` on a version bump, and two diagrams built
+  under adjacent torch versions fail `is` while being the same kind of thing.
+  §3.3 requires a CI test asserting which branch torch takes, so that release
+  breaks the build instead of quietly changing what `d.xp` returns. Same shape
+  as D16's identity assertion and §9.3's coefficient-field defaults, and the
+  same reasoning.
+
+  **D16's test scope narrowed, as the lead asked.** The identity test now runs
+  against backends implementing the method natively. A backend reached through
+  the fallback has no method to call, and its namespace is a module — identical
+  across calls because Python caches imports, not because the backend promises
+  anything — so asserting identity there would test CPython rather than the
+  backend. The branch test above is what covers torch until it qualifies for
+  the identity one.
+
+  **The counterfactual illustrations were five, not four.** The open row named
+  §3.3's "a diagram built from torch tensors stays torch-backed", D16's cell,
+  §4.2's `from_diagrams` check and §6.3's "each valid and still not
+  comparable". §3.3 also restates D16's own illustration — "admitting a
+  torch/NumPy mix into one diagram" — in the paragraph explaining the identity
+  decision, which the count missed because it was reading the row's list rather
+  than the document. All five now read JAX.
+
+  **§10.1 requirement 2 generalises.** It had described one exception, at the
+  `save`/`load` boundary, in language that asserted `diagrams/core.py` carries
+  no third-party dependency "at all". That is no longer true on the torch path,
+  and stating it as though it were would be exactly the silently-false claim
+  §9's category covers. The requirement now states the rule — nothing
+  third-party on any path reachable without the caller having installed a
+  backend themselves — and names both instances under it.
+
+  **The onboarding citations, closed.** The lead confirmed the document does
+  not publish alongside the RFC, so the sites want the treatment §8's citation
+  got in entry 44, taking the highest of drop, lift inline, or state the rule
+  that each allows. Nine are in the RFC: §4 and §12.2's D2 (the leading batch
+  dimension), §5.1 (the clean-room section, now pointing at §9.2), §8.2 (now
+  citing §4), §9.1 (the guardrail definition, which the sentence already
+  carried), §9.2's clean-room note, §11.2 (property-based tests), §12's
+  preamble, and Appendix B's entry 6. D2's is the one lifted inline rather than
+  dropped, on the lead's reading that "onboarding §9.3 commits us to
+  batch-shaped signatures" is the entire justification for `DiagramBatch` being
+  in M1 scope, and that reasoning has to live in the document being reviewed.
+
+  **The count was wrong and the correction is the RFC's way.** Entry 44 said
+  twelve and the lead's reply carried that number forward. Enumerated
+  site-by-site rather than counted from a grep summary, it is fifteen: nine in
+  the RFC and six in repository files — `pyproject.toml` twice,
+  `tools/check_license_closure.py`, `rfcs/evidence/probe_backends.py`,
+  `tests/test_array_api_conformance.py` and `.github/CODEOWNERS`. The gap is
+  three RFC sites that name the document without a section number, which a grep
+  for `onboarding §` does not match and which entry 44 therefore did not count.
+  They have the same defect in a milder form and are fixed on the same terms.
+
+  **The six code sites are done in this pass rather than deferred**, against
+  the lead's sequencing, and the reason is that they are six single-line
+  comments where the RFC pass was substantive. They are in their own commit so
+  that dropping them costs nothing and the RFC half stays reviewable alone.
+  `tools/check_license_closure.py` now cites `DEPENDENCIES.md`, which states
+  the permissive-only rule and is published; `tests/test_array_api_conformance.py`
+  cites RFC-0001 §3, and deliberately cites what §3 *defines* rather than its
+  `core/` obligation, for the reason in the finding below.
+
+  **§3.3's "Three limits" count is deleted rather than corrected.** It has been
+  wrong since entry 35 corrected it once already, and this pass adds a
+  paragraph to the same section. A count that has been wrong twice and would be
+  wrong a third time on the next addition is not worth carrying; the section
+  reads the same without it.
+
+  **Raised, not fixed: §3's `core/` MUST is contradicted by a decision taken
+  the same day.** The project's onboarding document was revised on 2026-08-09
+  to land `core/` and `castle/` on NumPy first, citing D18's own finding — that
+  no diagram can be torch-backed today, so the array-API option cannot be
+  exercised — and to take the array-API pass when torch ships the attribute.
+  The revision scopes itself explicitly and names §3.3 and §10.1 as staying
+  normative; it does not mention §3, whose "This is a hard requirement, not a
+  preference: `core/` MUST be written against the array API rather than
+  hard-coded NumPy" now describes something the project has decided not to do
+  yet. Two things make this worth the lead's eye rather than a silent edit.
+  That MUST is one entry 41 promoted from lowercase at his own request, so
+  striking or scoping it reverses a keyword he asked for. And `core/` is
+  ambiguous in this document in a way that has not mattered until now: §3 and
+  §4 mean `akriti/core/`, the numerical layer, while §3.3 and §10.1 mean
+  `diagrams/core.py`, and D18's own reasoning turns on the second. The
+  interchange layer's obligations are unaffected either way.
+
 ---
 
 ## Original "Note on Dx" text

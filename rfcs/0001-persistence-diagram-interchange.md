@@ -87,11 +87,14 @@ class PersistenceDiagram:
 
     @property
     def xp(self):
-        return self.dims.__array_namespace__()
+        return namespace_of(self.dims)   # §3.3's single resolution rule
 ```
 
-`Array` is **any object implementing `__array_namespace__`** — the Python array
-API standard — not `np.ndarray`.
+`Array` is **any object carrying an array-API namespace** — the Python array
+API standard — not `np.ndarray`. §3.3 states how that namespace is obtained:
+from the object's own `__array_namespace__` where it has one, and through
+`array_api_compat` where a backend conforms in substance but has not yet
+exposed the method.
 
 This is a hard requirement, not a preference: `core/` MUST be written against
 the array API rather than hard-coded NumPy, and `PersistenceDiagram` is the
@@ -193,8 +196,9 @@ property.
 ### 3.3 What array-API support does and does not promise
 
 Being namespace-agnostic is not free, and promising more than the standard
-delivers would be worse than promising nothing. Three limits, all measured
-against `array_api_strict` 2.6.1, the conformance reference:
+delivers would be worse than promising nothing. What follows is what it does
+and does not buy; the limits stated as measurements were measured against
+`array_api_strict` 2.6.1, the conformance reference:
 
 **Filtering produces data-dependent shapes.** `d.finite`, `d.dim(k)` and any
 boolean-mask selection give an output shape that depends on the *values* in the
@@ -245,11 +249,12 @@ diagrams on load — serialization is not a numerical kernel, so there's
 nothing to gain from making it generic, but the conversion MUST happen at
 that boundary only, never in the constructor or an adapter. This does not
 make `numpy` a dependency of the package: `diagrams/core.py` and
-`diagrams/adapters.py` MUST import nothing beyond the standard library,
-operating entirely through `__array_namespace__` on whatever the caller
-already has. `numpy` is used **only** inside `save`/`load`, imported lazily
-there rather than at module scope, so everything except serialization works
-with zero third-party dependencies (§10.1 requirement 2).
+`diagrams/adapters.py` MUST import nothing beyond the standard library, save
+for the single lazy import §3.3's namespace resolution rule carries, which no
+caller can reach without having installed the backend that triggers it.
+`numpy` is used **only** inside `save`/`load`, imported lazily there rather
+than at module scope, so everything except serialization works with zero
+third-party dependencies (§10.1 requirement 2).
 
 **The floor is `numpy>=2.0`, and it is declared rather than assumed.**
 Array-API support in NumPy's main namespace landed in 2.0; a `numpy` older
@@ -274,8 +279,48 @@ already installed to install what they have; naming the extra states the
 action that actually resolves the floor.
 
 **Adapters preserve the input namespace.** `from_*` MUST NOT force-convert to
-NumPy. A diagram built from torch tensors stays torch-backed. What adapters
+NumPy. A diagram built from JAX arrays stays JAX-backed. What adapters
 convert is *dtype* (§6.1), not namespace.
+
+**Namespace resolution goes through exactly one function, and its answer
+depends on the input and never on the environment.** `d.xp`, I7, B5 and §4.2's
+`from_diagrams` check are all defined over what that one function returns:
+
+```python
+def namespace_of(x):
+    ns = getattr(x, "__array_namespace__", None)
+    if ns is not None:
+        return ns()                              # numpy, jax, array_api_strict
+    import array_api_compat                      # lazy; akriti[torch]
+    return array_api_compat.array_namespace(x)
+```
+
+The native method MUST be preferred wherever it exists, and the fallback MUST
+be reached only where it does not. **This is not a lower bar for backends that
+skip the method.** `array_api_compat` supplies a conforming namespace for a
+backend that conforms in substance without having declared it; a backend that
+does not conform is not rescued by being wrapped. Exactly one backend is in
+that state today — `torch.Tensor` implements no `__array_namespace__`, PyTorch
+withholding it deliberately as the attribute that declares conformance
+(gh-58743) — and without the fallback `Array` excludes torch tensors outright,
+so no diagram could be torch-backed at all (D18). The arrangement expires on
+its own: when the declaration lands, the first branch takes torch and the
+second stops being reached.
+
+`array-api-compat` MUST therefore be declared in the `akriti[torch]` extra
+with a version floor, on the terms §10.1 requirement 2 sets. The import MUST
+be lazy and function-scoped. It fires only for a caller who has handed in a
+tensor from a backend they installed themselves, so it is unreachable on the
+default install and cannot widen that closure.
+
+**Preferring the wrapper whenever it happens to be installed is excluded**,
+and that exclusion is what makes the rule single-valued. A NumPy array
+resolved through the helper gives `array_api_compat.numpy`, not `numpy`
+(A.7.5), so a codebase calling both would hold two namespace objects for one
+backend and the identity comparison below would raise on arrays that
+legitimately share a namespace — D16's loud failure, fired by our own
+inconsistency rather than a backend's. Under the rule as written the same
+array resolves the same way whether or not `array-api-compat` is installed.
 
 **Namespaces are compared by identity, and that is a constraint this document
 places on supported backends rather than a property the standard provides.**
@@ -284,41 +329,66 @@ requires `__array_namespace__()` to return "an object representing the
 namespace"; it does not require the same object on every call, and it takes an
 `api_version` argument that a backend could legitimately answer with distinct
 wrapper objects. NumPy and `array_api_strict` return the module itself, so
-identity holds there and the assumption is invisible. **Akriti requires
-`__array_namespace__()` to return a consistent object for a given backend**,
-and states that here rather than claiming the standard guarantees it.
+identity holds there and the assumption is invisible. **Akriti requires the
+resolution rule above to return a consistent object for a given backend** —
+which for a backend answering natively is a requirement on
+`__array_namespace__` itself — and states that here rather than claiming the
+standard guarantees it.
 
 D16 settled this on the **direction of the failure**, not on the theory. `is`
 fails by raising `ValueError` (§6.3) on arrays that legitimately share a
 namespace: conservative, loud, immediately diagnosable, and impossible to
 mistake for a correct answer. Every surrogate the standard leaves available —
 comparing `__name__`, a sentinel dtype, anything else — is a weaker test that
-can *match across genuinely different namespaces*, admitting a torch/NumPy mix
+can *match across genuinely different namespaces*, admitting a JAX/NumPy mix
 into one diagram, which is what I7 exists to prevent. That is the silent
 direction. Given a conservative check carrying a documented constraint against
 a clever one that fails open, this document takes the first.
 
 **The constraint MUST be verified in CI, not assumed.** A test MUST assert,
-for every backend this project supports, that `__array_namespace__()` called
-on two separate arrays of that backend returns the same object. This is the
-paragraph below applied to a promise the standard does not make, and it
-follows §7's `lexsort` precedent: a trap a reader cannot see becomes a
-standing regression test rather than prose. A backend that ever returns a
-fresh wrapper per call then fails that test and reopens D16 as a real
-decision, instead of breaking silently in someone's pipeline.
+for every supported backend that implements `__array_namespace__` natively,
+that the method called on two separate arrays of that backend returns the same
+object. This is "conformance is tested, not intended" below, applied to a
+promise the standard does not make, and it follows §7's `lexsort` precedent:
+a trap a reader cannot see becomes a standing regression test rather than
+prose. A backend that ever returns a fresh wrapper per call then fails that
+test and reopens D16 as a real decision, instead of breaking silently in
+someone's pipeline.
+
+The test is scoped to backends that implement the method because a backend
+resolved through the fallback has no method to call, and its namespace is a
+module — identical across calls because Python caches imports, not because the
+backend promises anything. **What MUST be pinned for those is which branch of
+the resolution rule they take.** A test MUST assert that a `torch.Tensor` does
+not implement `__array_namespace__` and therefore resolves through
+`array_api_compat`, marked `@pytest.mark.backend` on the `akriti[torch]`
+extra. gh-58743 is open and the attribute is being withheld until near-full
+conformance, which means it lands eventually; on the release that adds it, a
+torch tensor stops resolving through the wrapper and `d.xp` changes from
+`array_api_compat.torch` to `torch`, so two diagrams built under adjacent
+torch versions fail the identity comparison while being the same kind of
+thing. That MUST break the build rather than reach a user, and when it does,
+torch enters the identity test above on the same terms as every other backend.
+This is §9.3's treatment of the coefficient-field defaults applied to a fact
+about a backend that is expected to change.
 
 **Conformance is tested, not intended.** CI runs the diagram test suite
 against `array_api_strict`, which rejects any NumPy-only call. A requirement
-merely written down decays within weeks — the first-draft slip noted in §3
-is direct evidence of that, and nobody caught it until a reviewer read both
-documents.
+merely written down decays within weeks, and this document is its own
+evidence: the first draft specified `np.ndarray` for the three arrays despite
+the array-API rule §3 states, and nothing caught it until a reader checked the
+type against that rule by hand.
 
 ---
 
 ## 4. Batch semantics
 
 Every numerical function in `core/` and `castle/` takes a **leading batch
-dimension** (onboarding §9.3). For diagrams, the batch container is:
+dimension** rather than expecting a Python loop over diagrams. That is a
+project-wide commitment made for its own reasons — a looping API is very hard
+to withdraw once published — and it is why this document specifies a batch
+type at all instead of leaving callers to assemble one. For diagrams, the
+batch container is:
 
 ```python
 class DiagramBatch:          # a sequence of PersistenceDiagram
@@ -482,7 +552,7 @@ calls it.
 
 **Every input diagram MUST share one array namespace, and `from_diagrams`
 MUST check it.** I7 constrains the three arrays *within* one diagram and says
-nothing across diagrams, so a sequence mixing a torch-backed diagram with a
+nothing across diagrams, so a sequence mixing a JAX-backed diagram with a
 NumPy-backed one satisfies I7 term by term and still cannot become a batch.
 The check has to happen here because it cannot happen afterwards: `concat`
 either raises something opaque from the backend or silently coerces the
@@ -729,9 +799,9 @@ Measured, not recalled (Appendix A.1):
 | persim | Consumes `(n,2)` arrays; no opinion. |
 | **giotto-tda** | **One H0 class dropped by design (`reduced_homology=True`, default).** |
 
-The giotto behaviour is worth stating precisely because the compat shim (§8 of
-the onboarding) has to decide what to do about it. On a 40-point noisy circle,
-GUDHI and Ripser both return 40 H0 bars, exactly one essential.
+The giotto behaviour is worth stating precisely because the compat shim (§9.2)
+has to decide what to do about it. On a 40-point noisy circle, GUDHI and
+Ripser both return 40 H0 bars, exactly one essential.
 `VietorisRipsPersistence` returns **39** H0 rows and zero non-finite entries.
 This holds for `infinity_values` set to `None`, `inf`, and `99.0` alike, and
 the reason is not that giotto mishandles infinite death times. `infinity_values`
@@ -863,7 +933,7 @@ disagreement everywhere else.
 **Comparing two diagrams backed by different array namespaces MUST raise
 `ValueError`, at both levels and in both methods.** I7 constrains the three
 arrays *within* one diagram and says nothing across two, so a NumPy diagram
-and a torch diagram of the same bars are each valid and still not comparable:
+and a JAX diagram of the same bars are each valid and still not comparable:
 `core.py` may not convert either one (§3.3 gives it no third-party import and
 no default backend), so the comparison has no well-defined answer to return.
 The check MUST happen before any length or value comparison, so the failure
@@ -1247,9 +1317,9 @@ either side ever re-serializing the whole batch to find out.
 **Order-sensitive.** `b.content_hash` MUST hash the member hashes in batch
 order, `b[0], b[1], ..., b[len(b) - 1]`, never a sorted or otherwise
 canonicalized order. §6.3 already makes `DiagramBatch` equality
-order-sensitive across diagrams for the same reason: onboarding §9.3's
-leading batch dimension is a positional axis, and `[A, B]` and `[B, A]` are
-different batches even when they hold the same two diagrams. A hash that
+order-sensitive across diagrams for the same reason: §4's leading batch
+dimension is a positional axis, and `[A, B]` and `[B, A]` are different
+batches even when they hold the same two diagrams. A hash that
 ignored order would be answering a looser question than `==` already
 commits to, the exact drift §6.3 warns a tolerance can introduce silently.
 
@@ -1359,9 +1429,9 @@ the backend. If they agree, delegate on the finite parts only, handle +inf bars
 internally, and combine responsibly. It MUST NOT pass a diagram containing `inf`
 to persim.
 
-This is a guardrail in the sense of onboarding §7 — a negative result about a
-dependency, converted into a safety feature. It should be documented publicly;
-it is a genuine contribution and costs us nothing.
+This is a guardrail: a negative result about a dependency, converted into a
+safety feature. It should be documented publicly; it is a genuine
+contribution and costs us nothing.
 
 ### 9.2 giotto-tda 0.6.2 does not run on current scikit-learn
 
@@ -1405,9 +1475,9 @@ cost from this project maintaining a shim once onto every migrating user
 rediscovering the same three hazards on their own, which defeats the point of
 a shim aimed at a stranded userbase.
 
-*Clean-room note (onboarding §8): giotto-tda is AGPLv3. The above was determined
-by calling public API and reading a traceback. No giotto source has been read,
-and MUST NOT be read while implementing `compat/`.*
+*Clean-room note: giotto-tda is AGPLv3. The above was determined by calling
+public API and reading a traceback. No giotto source has been read, and MUST
+NOT be read while implementing `compat/`.*
 
 ### 9.3 GUDHI and Ripser compute over different coefficient fields by default
 
@@ -1495,16 +1565,20 @@ the on-disk format and on `save`/`load`.
    there is no such diagram unless `load` preserves provenance. The two
    clauses cover the two halves of a diagram that `==` deliberately splits,
    and requirement 1 needs both.
-2. **Zero-dependency by default, with a narrow, lazily-imported exception at
-   the `save`/`load` boundary.** `diagrams/core.py` and
-   `diagrams/adapters.py` carry no third-party dependency at all: importing
-   the package, or constructing, inspecting, or comparing a diagram, never
-   touches one. The single normative on-disk format's `save`/`load`
-   implementation MAY depend on one third-party library, provided the import
-   is lazy and function-scoped, confined to those two functions, and nothing
-   outside `save`/`load` requires it. That library MUST be declared as an
-   install extra carrying a version floor, and the lazy import MUST fail
-   actionably on both absence and an unsatisfied floor.
+2. **Zero-dependency by default, with narrow, lazily-imported exceptions.**
+   `pip install akriti` MUST resolve to nothing third-party, and importing the
+   package, or constructing, inspecting, or comparing a diagram, MUST NOT
+   reach a third-party library on any path a caller can take without having
+   installed a backend themselves. The single normative on-disk format's
+   `save`/`load` implementation MAY depend on one third-party library,
+   provided the import is lazy and function-scoped, confined to those two
+   functions, and nothing outside `save`/`load` requires it. Any library
+   admitted under this requirement MUST be declared as an install extra
+   carrying a version floor, and its lazy import MUST fail actionably on both
+   absence and an unsatisfied floor. §3.3's namespace resolution rule is the
+   only other exception and is held to the same terms: `array-api-compat` in
+   `akriti[torch]`, imported lazily and reached only by a caller who has
+   passed in an array from the backend that needs it.
 3. **Self-describing and versioned.** The format MUST identify itself and
    carry the version of this specification that wrote it.
 4. **Deterministic.** Identical diagrams MUST produce identical bytes.
@@ -1796,8 +1870,10 @@ suite MUST include, at minimum:
 Property-based tests (Hypothesis) for the invariants and for both clauses of
 §10.1 requirement 1 — `load(dump(d)) == d` *and*
 `load(dump(d)).same_provenance(d)`, since the first passes on a `load` that
-drops metadata entirely; onboarding §10 requires them for the numerical layer
-and they fit this layer unusually well.
+drops metadata entirely. They fit this layer unusually well: §3.1's and
+§4.2's invariants are universally quantified over every diagram the type
+admits, which is what a property-based test states directly and an
+example-based one only samples.
 
 `content_hash` (§8.1, §8.2) MUST be tested against the byte layout this
 document specifies, not against whatever the implementation currently emits,
@@ -1816,34 +1892,33 @@ its member; and the same bars hash identically under two namespaces.
 
 ---
 
-## 12. Open decisions
+## 12. Decisions
 
-Fifteen decisions are on record: D1-D8 and D12-D18. **One still needs the
-lead's judgment before M1** (§12.1); the other fourteen are settled (§12.2),
-each stating the outcome and pointing at the section that carries the
-normative requirement. Superseded recommendations are logged in the history
-document rather than repeated here.
+Fifteen decisions are on record: D1-D8 and D12-D18. **All fifteen are
+settled** (§12.2), each stating the outcome and pointing at the section that
+carries the normative requirement; §12.1 is empty. Superseded recommendations
+are logged in the history document rather than repeated here.
 
 **D6 is reinstated as superseded, not deleted.** It was removed with D9, D10
 and D11 in the pass below, and its resolution has since been reversed: the
 row is restored in §12.2 carrying both its original resolution and the one
 that replaced it.
 
-**D9, D10, and D11 were removed from this RFC** as
-dependency-and-licensing policy questions rather than interchange ones; that
-policy belongs to the onboarding document, which owns it. Nothing normative
-went with them — §3.3 and §10.1 state the zero-dependency-by-default
-requirement and `numpy`'s lazy-import behaviour directly, in MUST language,
-and never depended on a table row to carry it. Their prior text and the
-reasoning for removing them are in the history document. D-numbers are not
-renumbered to close the gap; they are stable identifiers, not a dense
-sequence.
+**D9, D10, and D11 were removed from this RFC** as dependency-and-licensing
+policy questions rather than interchange ones, and this document does not set
+that policy. Nothing normative went with them — §3.3 and §10.1 state the
+zero-dependency-by-default requirement and `numpy`'s lazy-import behaviour
+directly, in MUST language, and never depended on a table row to carry it.
+Their prior text and the reasoning for removing them are in the history
+document. D-numbers are not renumbered to close the gap; they are stable
+identifiers, not a dense sequence.
 
-### 12.1 Needs the lead before M1
+### 12.1 Open
 
-| # | Question | Recommendation / status |
-|---|---|---|
-| **D18** | `torch.Tensor` does not implement `__array_namespace__`. array-api-compat's own documentation says so outright — "we do not wrap the `torch.Tensor` object. It is missing the `__array_namespace__` and `to_device` methods, so the corresponding helper functions… should be used instead" — PyTorch's compatibility tracker (gh-58743, open, last touched 2026-03-16) holds the attribute back deliberately as "the attribute that declares compliance", to be added at near-full conformance, and it is absent from the torch 2.13 `Tensor` reference. §3 defines `Array` as any object implementing that method, so **no diagram can currently be torch-backed**, and four sites in this document illustrate a second namespace with torch counterfactually: §3.3's "a diagram built from torch tensors stays torch-backed", D16's own "admitting a torch/NumPy mix into one diagram", §4.2's mixed-input `from_diagrams` check, and §6.3's "a NumPy diagram and a torch diagram… are each valid and still not comparable". D16's CI test is written against "every backend this project supports" and `akriti[torch]` is one; for torch it cannot fail the way D16 describes — it raises `AttributeError` before reaching the identity question. JAX is unaffected: `jax.Array` has implemented the method natively since 0.4.32. Resolving namespaces through `array_api_compat.array_namespace` closes the gap. Does that resolver go in front of **(1) every backend**, or **(2) torch alone**, behind `akriti[torch]`, with the native method preferred wherever it exists? | **Recommendation: option 2.** What decides it is §10.1 requirement 2, not performance. Under option 1 `core.py` cannot resolve *any* namespace without array-api-compat, so it becomes a required dependency and `pip install akriti` no longer resolves to nothing third-party; under option 2 the import is lazy and fires only when the native method is absent, which is the `numpy`-in-`io.py` pattern §3.3 already uses and the placement `pyproject.toml` already anticipates. **Performance does not discriminate** (Appendix A.7): JAX pays nothing structurally, since array-api-compat ships no JAX wrapper and a `jax.Array` resolves to `jax.numpy` itself; NumPy pays one Python frame on the 11 of 26 namespace functions that carry a wrapper and nothing on the other 15, which are numpy's own objects by identity, putting §7's `canonical()` at 1.17x at 40 bars and 1.00x from 100k up. **Conformance does not discriminate either, which is the finding that removes option 1's best argument**: on `numpy` 2.5 the wrappers are largely vestigial — `device=`, `unique_values`, `cumulative_sum(include_initial=)`, `reshape(copy=)` and the 0-d `nonzero` rejection are all native — leaving one live correction, the `sort`/`argsort` stable default, which §7 already buys by passing `stable=True` explicitly. **The constraint either option must respect** is that `array_namespace()` on a NumPy array returns `array_api_compat.numpy`, *not* `numpy`: resolution MUST go through exactly one function, or one backend yields two namespace objects and I7's `is` raises on arrays that legitimately share a namespace — the loud direction D16 chose, but fired by our own inconsistency rather than a backend's. A third arrangement, preferring compat when it happens to be installed, is excluded outright: it makes `d.xp` depend on the environment rather than the input. The four counterfactual illustrations and D16's test scope are left exactly as they stand pending this call, on D17's precedent — option 1 makes them true as written, option 2 requires substituting JAX, so editing them in either direction answers the question. |
+**None.** Every decision this document opened has been resolved; the rows are
+in §12.2. The section is kept rather than deleted so that a later question has
+a place to open into, and so a reader arriving here from a cross-reference
+finds the state of the log stated rather than inferred from an absence.
 
 
 ### 12.2 Settled
@@ -1851,7 +1926,7 @@ sequence.
 | # | Question | Recommendation / status |
 |---|---|---|
 | D1 | File extension `.akd`, or plain `.npz` with our layout inside? | **Resolved by §10.** §10.1/§10.2 normatively specify `.akd`; Parquet is excluded as the *default* format. This row originally recommended Parquet, contradicting both; the correction is logged in the history document. |
-| D2 | Is `DiagramBatch` in scope for M1, or does M1 ship the single-diagram type only? | **In scope.** Retrofitting a batch container after `core/` is written against scalars is the expensive order, and onboarding §9.3 commits us to batch-shaped signatures. §4.2's CSR storage is chosen deliberately ahead of the neural-network path that needs it, a committed direction, not a hypothetical one; see §4.1 (why not dense-padded) and §4.2 (the CSR design itself). |
+| D2 | Is `DiagramBatch` in scope for M1, or does M1 ship the single-diagram type only? | **In scope.** §4 requires every numerical function in `core/` and `castle/` to take a leading batch dimension rather than expecting a Python loop over diagrams, so the container those signatures consume has to exist before they are written — and retrofitting one after `core/` is written against scalars is the expensive order. That commitment is not made for this layer's convenience: a looping API is very hard to withdraw once published, and it is the usability complaint most often made of the library this project is positioned against. |
 | D3 | Do we accept `float32` storage behind a flag for large-scale work? | No, not in v0. Revisit when a real memory complaint exists. |
 | D4 | Should `from_giotto` default to `strip_padding=True`? | No. Defaulting to a lossy repair contradicts §5's whole argument. Warn and let the caller choose. |
 | D5 | Does the RFC published at M1 include §9's delegation hazards, or do we raise them upstream first? | Raise upstream first — file the persim issue and the giotto scikit-learn issue, then publish citing our own reports. Costs two weeks, buys enormous goodwill, and turns a criticism into a contribution. |
@@ -1862,8 +1937,9 @@ sequence.
 | **D13** | `PersistenceDiagram` (§3) is single-parameter-persistence-shaped: one scalar `dim`, `birth`, `death` per bar. §3.2 referenced "the multiparameter case" in passing, but nothing in this RFC said whether that module reuses this type, needs a parallel type, or forces a breaking change to this one once it exists. Does `PersistenceDiagram` need a version boundary, an extension point, or an explicit non-goal statement now, before adapters and `core/` are written against its current shape? | **Explicit non-goal, stated in §1** — normative scope rather than an aside in §3. No extension point and no new version machinery. Multiparameter persistence modules do not decompose into intervals and admit no complete discrete invariant, so a multiparameter "diagram" is not this type with an extra column but a different object — a rank invariant, a fibered or signed barcode — and no extension point designed now would fit a shape nobody can yet specify. An extension point would instead put a case into every adapter, accessor and invariant check to serve a module that is not on the roadmap through M4. If it is ever built it takes a parallel type and the two coexist; this is not a deprecation path. The forward-compatibility cost is already paid by §10.1 requirement 3's format version, and that is the whole of the version boundary this needs. §3.2's `d.h0`/`d.h1` note no longer leans on the multiparameter case: `d.dim(k)` is canonical and an unwithdrawable alias is a permanent liability regardless. |
 | **D14** | §6.3 required `allclose` to be approximate and order-insensitive but did not say how bars are paired. Sorting both sides canonically (§7) and comparing pairwise is exact in the sort and approximate in the comparison, and the two do not compose: bars whose births lie within tolerance of each other can canonicalise into different orders on two backends, and the comparison then returns `False` for diagrams that do have a partner for every bar within `rtol` — at the `2.7e-8` magnitude Appendix A.3 measures, on exactly the cross-backend case §6.2 defines `allclose` for. Does `allclose` become a matching over the multiset, or does §6.3 accept the conservative false negative and require it to be documented? And is the tolerance symmetric, or does `rtol` scale `other` as `numpy.allclose` does? | **Both resolved in §6.3.** `allclose` MUST be a matching: a bijection under which every matched pair shares a `dim` exactly and agrees on both coordinates within tolerance; equal bar counts are necessary and not sufficient. The tolerance MUST be symmetric, `atol + rtol * max(abs(a), abs(b))`, deliberately diverging from `numpy.allclose` and documented as such in the method's own docstring. `allclose` is reflexive and symmetric but not transitive, and MUST be documented as not an equivalence relation. Accepting the false negative was weighed and rejected: the caller's remedy for a spurious failure is to widen `rtol` until it passes, which relocates §6.3's silent loosening into user code where nobody reviews it. No sort key repairs the pairwise form — the history document carries that argument. No new dependency: an augmenting-path matching in the standard library is sufficient at these sizes. Not bottleneck distance, and §9's delegation rule is unaffected in both directions — `core/distances.py` MUST NOT be built on this method. |
 | **D15** | §8 reserves `provenance["order"]` with values `"backend"` and `"canonical"`, but names no writer for the second. §7 forbids adapters from sorting, so every `from_*` adapter records `"backend"`; `d.canonical()` is the operation that makes `"canonical"` true of a diagram, and §7 has it carry `meta` through unchanged, so a sorted diagram still reports `"backend"` and nothing ever writes the other value at all. Does `canonical()` become a second writer of `order`, does `save` write it (§10.2 emits `bars.npz` in canonical order regardless of what the in-memory diagram reports), or does the key not earn its place now that §7 makes row order advisory to a reader and load-bearing for nobody? | **The key goes.** §8's reserved-key table drops `order`; §7 and `core.py` drop their references to it. What decides it is not the missing writer but a property every other reserved key has and this one does not: **the rest record facts that vanish if unrecorded.** `source_dtype` is lost the moment the array is upcast, `clamped_rows` the moment the rows are repaired, `padding_removed` the moment they are stripped; `essential_bars_source` records a then-versus-now distinction no later inspection can recover. Whether rows are in canonical order is recoverable from the arrays themselves, exactly, in one pass, forever. `order` is a cached answer to an always-computable question, and one that goes stale: anything reordering rows while carrying `meta` through unchanged leaves a diagram reporting `"canonical"` while not being canonical — clean, plausible and wrong, §9's own category, arrived at by our hand rather than a dependency's. **Having `save` write it is worse rather than better**: §10.2 emits `bars.npz` in canonical order unconditionally, so the key would be a constant in every file on disk — no information, and a claim about the in-memory diagram it came from that may be false. And §7 leaves no consumer who could act on it either way, every consumer being required to treat row order as arbitrary, so a reader seeing `"canonical"` is forbidden to do anything differently. **The one genuine order fact is a different key**, and §8 records it so this is not reopened: whether the *backend's own output* was already canonical is not derivable, is exactly the GUDHI-versus-Ripser disagreement §7 documents and A.3 measures, and is unrecoverable once anything sorts. `order` as specified never captured it — every adapter records `"backend"` regardless of what the backend did — so it is a key to build at adapter time if order provenance is ever wanted, not this one repaired. |
-| **D16** | I7, B5 and §4.2's `from_diagrams` check are all written as `is` on `__array_namespace__()`, and `core.py` implements them that way. The array API standard requires that method to return "an object representing the namespace"; it does not require the same object on every call, and it takes an `api_version` argument that a backend could legitimately answer with different wrapper objects. NumPy and `array_api_strict` return the module itself, so identity holds there and the assumption is invisible. Does the RFC require namespace *identity*, or a weaker equivalence — and if weaker, what is the portable test, given the standard defines no namespace equality? | **Require identity, state it as a supported-backend constraint, and verify it in CI (§3.3).** What decides it is the **direction of the failure**, not the theory — the standard does not guarantee identity, and no portable surrogate exists, both as this row observed. `is` fails by raising `ValueError` on arrays that legitimately share a namespace: conservative, loud, immediately diagnosable, impossible to mistake for a correct answer. Every available surrogate — `__name__`, a sentinel dtype, anything else the standard leaves — is a weaker test that can *match across genuinely different namespaces*, admitting a torch/NumPy mix into one diagram, which is the silent direction and defeats exactly what I7 exists to prevent. Given a conservative check with a documented constraint against a clever one that fails open, take the first. §3.3 therefore states plainly that akriti requires `__array_namespace__()` to return a consistent object for a given backend — a constraint on supported backends, not a property claimed of the standard. **Made verified rather than assumed:** a CI test MUST assert identity holds for each supported backend, which is §3.3's own "conformance is tested, not intended" and the same treatment §7's `hasattr(xp, "lexsort")` trap gets — a standing regression test rather than prose. If a backend ever returns a fresh wrapper per call the test fails and D16 reopens as a real decision, instead of breaking silently in someone's pipeline. I7, B5 and §4.2's `from_diagrams` check are unchanged; only their rationale cells now cite the requirement rather than the open question. |
+| **D16** | I7, B5 and §4.2's `from_diagrams` check are all written as `is` on `__array_namespace__()`, and `core.py` implements them that way. The array API standard requires that method to return "an object representing the namespace"; it does not require the same object on every call, and it takes an `api_version` argument that a backend could legitimately answer with different wrapper objects. NumPy and `array_api_strict` return the module itself, so identity holds there and the assumption is invisible. Does the RFC require namespace *identity*, or a weaker equivalence — and if weaker, what is the portable test, given the standard defines no namespace equality? | **Require identity, state it as a supported-backend constraint, and verify it in CI (§3.3).** What decides it is the **direction of the failure**, not the theory — the standard does not guarantee identity, and no portable surrogate exists, both as this row observed. `is` fails by raising `ValueError` on arrays that legitimately share a namespace: conservative, loud, immediately diagnosable, impossible to mistake for a correct answer. Every available surrogate — `__name__`, a sentinel dtype, anything else the standard leaves — is a weaker test that can *match across genuinely different namespaces*, admitting a JAX/NumPy mix into one diagram, which is the silent direction and defeats exactly what I7 exists to prevent. Given a conservative check with a documented constraint against a clever one that fails open, take the first. §3.3 therefore states plainly that akriti requires `__array_namespace__()` to return a consistent object for a given backend — a constraint on supported backends, not a property claimed of the standard. **Made verified rather than assumed:** a CI test MUST assert identity holds for each supported backend, which is §3.3's own "conformance is tested, not intended" and the same treatment §7's `hasattr(xp, "lexsort")` trap gets — a standing regression test rather than prose. If a backend ever returns a fresh wrapper per call the test fails and D16 reopens as a real decision, instead of breaking silently in someone's pipeline. I7, B5 and §4.2's `from_diagrams` check are unchanged; only their rationale cells now cite the requirement rather than the open question. |
 | **D17** | §8's `DiagramMeta` block annotates `coeff_field` with "affects the diagram, must be recorded", and that comment is the only place the field appears anywhere in this document. The prose immediately below it says the opposite — "All fields are optional", with `from_*` adapters required to populate `backend`, `backend_version` and `provenance` and nothing else — and §8.1's `content_hash` covers bars and never metadata, so no other clause depends on the value being present either. The comment's underlying claim is sound: homology over ℤ/2 and ℤ/3 differ wherever there is torsion, so a diagram whose coefficient field is unknown is uninterpretable in the way §8's opening sentence says one whose filtration is unknown is. But the three fields §8 does require are all derivable from the adapter itself, and this one is not — §11's adapters receive a computed result plus `**meta`, not the call that produced it. Does `coeff_field` become a required keyword-only argument on the adapters whose backend takes a coefficient parameter, on the `from_giotto`/`reduced_homology` precedent (§5.1, §11); does §8 require it only where the backend's returned object exposes it; or does the comment's normative clause go, leaving the field optional as the prose already has it? | **Resolved on a fourth option this row did not frame: record the field, do not require it.** `coeff_field` stays optional and no adapter signature changes. §11 requires `from_gudhi` and `from_ripser` to record it in the same construction as the rest of the provenance — the caller's value where one was passed, that backend's documented default (GUDHI 11, Ripser 2) where none was — together with a new reserved `provenance["coeff_field_source"]` of `"caller"` or `"backend_default"` (§8). §8's comment loses its normative clause, so "All fields are optional" is now true as written rather than contradicted seven lines above, and what survives of the obligation is an adapter recording requirement rather than a demand on our callers. **Option 2 was measured out of existence by Appendix A.5**: no backend returns the field it computed with, so "require it where the returned object exposes it" would require it nowhere. **Option 1 is rejected on severity, not on shape.** The `reduced_homology` precedent is exact in shape and the difference in severity is what decides it — `reduced_homology` guards a demonstrated failure, giotto returning 39 H0 bars where GUDHI and Ripser return 40 (A.1, §5.1), while a coefficient field only bites where the data carries torsion, which for the domains this library targets is close to never: dynamical orbits in ℝ², single-cell blobs and rings in ℝ³, molecular graphs. Torsion in low degrees wants projective planes, Klein bottles, lens spaces. Option 1 breaks three signatures and puts a mandatory argument on every `from_gudhi` and `from_ripser` call to guard something most users cannot reach — friction charged to everyone and repaid to almost nobody. **Option 3 is rejected because A.5 made the comment's underlying claim stronger than it looked**: an unrecorded field is not conventionally ℤ/2, since the two backends we lean on hardest disagree by default and nothing in the artifact says which produced it. That is a diagram uninterpretable in the way §8's opening sentence describes, not one missing a nice-to-have. **The pattern is §8's own** — `essential_bars` / `essential_bars_source`, applied to the same then-versus-now problem. D15 tested `provenance["order"]` against this shape and correctly failed it, §7 fixing every adapter's answer at `"backend"` so that there was no adapter-time verdict worth a second key; here there is one, because the backend's default is a fact the adapter knows, the caller may not, and A.5 shows nothing recovers it afterwards. **One risk, pinned rather than accepted:** recording a backend default is a claim about a backend, and claims about backends go stale, which is what §9 is a whole section about. §9.3 now requires both defaults to be asserted in CI and §11.2 carries that test, so an upstream change breaks the build instead of silently corrupting the provenance of every diagram recorded afterwards. **Two residual limits, recorded rather than left to be found later.** `"backend_default"` is an assumption and is marked as one: a caller who sets a non-default field on GUDHI and does not pass it on to `from_gudhi` gets a diagram recording 11 (§11), which is a marked assumption where the status quo was a silent one. And `from_giotto` is excluded for now on evidence rather than principle — A.5 could not measure giotto's default (§9.2) and this document does not assert a backend default it has not measured; `from_array` and `from_persim` are out of reach permanently, having no backend and computing no homology respectively. **The condition to reopen against** is where the argument is least confident: it turns on torsion being rare in this library's target data, which is a judgment about users we do not have yet rather than a measurement. If §1's general-purpose framing means the projective-plane user should be assumed to exist, option 1 gets much stronger — three signatures once against a wrong default forever. |
+| **D18** | `torch.Tensor` does not implement `__array_namespace__`. array-api-compat's own documentation says so outright — "we do not wrap the `torch.Tensor` object. It is missing the `__array_namespace__` and `to_device` methods" — PyTorch's tracker (gh-58743, open, last touched 2026-03-16) holds the attribute back deliberately as "the attribute that declares compliance", to be added at near-full conformance, and it is absent from the torch 2.13 `Tensor` reference. §3 defined `Array` as any object implementing that method, so **no diagram could be torch-backed**; four sites illustrated a second namespace with torch counterfactually; and D16's CI test was written against "every backend this project supports", of which `akriti[torch]` is one, where it raises `AttributeError` before reaching the identity question. JAX is unaffected — `jax.Array` has implemented the method natively since 0.4.32. Resolving through `array_api_compat.array_namespace` closes the gap. Does that resolver go in front of **(1) every backend**, or **(2) torch alone**, behind `akriti[torch]`, with the native method preferred wherever it exists? | **Option 2: the resolver in front of torch alone, the native method preferred wherever it exists.** §3.3 carries the rule as a single resolution function, and §3's `Array` definition now turns on that rule rather than on the method directly. **What decides it is §10.1 requirement 2, not performance.** Under option 1 `diagrams/core.py` cannot resolve *any* namespace without array-api-compat, so it stops being an extra and `pip install akriti` stops resolving to nothing third-party — undoing the closure D6 was superseded to establish, weeks after establishing it. Under option 2 the import is lazy, function-scoped and reachable only by a caller who passed in an array from a backend they installed themselves, which is the `numpy`-in-`io.py` pattern §3.3 already uses. **The two arguments that look decisive were measured and neither discriminates** (Appendix A.7): array-api-compat ships no JAX wrapper, so JAX pays nothing structurally; NumPy pays one Python frame on the 11 of 26 namespace functions carrying a wrapper and nothing on the other 15, putting §7's `canonical()` at 1.17× at 40 bars and 1.00× from 100k up; and on `numpy` 2.5 the wrappers are largely vestigial, leaving one live correction, the `sort`/`argsort` stable default, which §7 already buys by passing `stable=True` explicitly. **The constraint binding either option** is measured rather than argued: `array_namespace()` on a NumPy array returns `array_api_compat.numpy`, *not* `numpy` (A.7.5), so resolution MUST go through exactly one function — otherwise one backend yields two namespace objects and I7's `is` raises on arrays that legitimately share a namespace, D16's loud failure fired by our own inconsistency rather than a backend's. **A third arrangement, preferring compat wherever it happens to be installed, is excluded outright**: `d.xp` MUST depend on the input and never on the environment. **The fallback is not a lower bar for backends that skip the method** — it supplies a conforming namespace for a backend that conforms in substance without having declared it, and the arrangement expires by itself, since the first branch takes torch the moment the declaration lands. **One risk, pinned rather than accepted.** That landing is expected, not hypothetical, and on that release `d.xp` changes from `array_api_compat.torch` to `torch` on a version bump, so two diagrams built under adjacent torch versions fail `is` while being by any reasonable reading the same kind of thing. §3.3 therefore requires a CI test asserting which branch torch takes, so the release that adds the attribute breaks the build rather than quietly changing what `d.xp` returns — the shape of D16's identity assertion and §9.3's coefficient-field defaults, and the same reasoning, that a fact about a backend is exactly what changes without telling us. **Consequential edits this resolution forces**, none of which option 1 would have: the counterfactual torch illustrations move to JAX at §3.3, §4.2, §6.3 and D16's own cell — five sites rather than the four the open row named, §3.3 restating D16's illustration as well as carrying its own; D16's identity test narrows to backends implementing the method natively, a backend reached through the fallback having no method to call and a namespace that is a module, identical across calls because Python caches imports rather than because the backend promises anything; and §10.1 requirement 2 generalises from one lazily-imported exception to the class of them. **The condition to reopen against** is a second backend needing the fallback. The argument rests on the cost falling on `akriti[torch]` alone and on the fallback being a shim for one missing declaration; two backends in that state is a different question from this one. |
 
 ---
 
@@ -2146,7 +2222,7 @@ sort gap turns that table over without an edit here.
 - **2026-07-30 (3)** — Resolved the D1/§10 Parquet contradiction; added `DiagramBatch.from_diagrams`; added batch equality to §6.3; opened D7.
 - **2026-07-30 (4)** — Added I8 (immutability) and B1–B5 (`offsets` invariants); added the batch-canonicalization rule to §7.
 - **2026-07-30 (5)** — Opened D8 (Parquet export) and D9 (MIT/BSD-only vs. dependency-free).
-- **2026-07-30 (6)** — Resolved D9: onboarding document retracted "MIT/BSD-only"; corrected §10.1.
+- **2026-07-30 (6)** — Resolved D9 on a revised project licensing policy retracting "MIT/BSD-only"; corrected §10.1.
 - **2026-07-30 (7)** — Removed `numpy` from the "dependency-free" default install (§10.1, D9); added D10.
 - **2026-07-30 (8)** — Corrected §5.1: giotto's H0 loss traced to `reduced_homology`, not `infinity_values`.
 - **2026-07-30 (9)** — Reworked §5.1/§8: `essential_bars` explicitly derived from `params["reduced_homology"]`; loss scoped to H0.
@@ -2185,3 +2261,4 @@ sort gap turns that table over without an edit here.
 - **2026-08-07 (42)** — Second review pass on PR #10, acting on the lead's three replies. **Resolves D12, D15 and D16; §12.1 is down to D17 alone.** **D12** — `bars.npz` stays, and §10.2's payload stops being provisional. Resolved on the bar-count figure the row said it turned on, now Appendix A.6: H0 equals the input point count exactly, so bars scale linearly in cloud size and a 5,000-sample batch is ~4.7M bars; at 1M bars CSV costs ~2.1× the bytes and ~78× the load, sqlite3 ~1.3× and ~42×. The reason is *not* that CSV loses on inspectability — it wins there — but that requirement 5 is already satisfied by `meta.json` and §10.3's `to_csv()`, and does not need satisfying a third time. The one surviving argument for CSV (a stdlib payload would drop the `[io]` extra altogether) is recorded in §12.2 as the condition to reopen against, rather than waved away; sqlite3 is closed out. **D15** — `provenance["order"]` is removed. Every other reserved key records a fact that vanishes if unrecorded; canonical order is recoverable from the arrays in one pass, so `order` is a cached answer to an always-computable question and one that goes stale. §8 keeps a short note naming the order fact that is *not* derivable — whether the backend's own output was already canonical — as a different key to build if it is ever wanted, so this is not reopened. **D16** — namespace comparison is identity, stated in §3.3 as a constraint on supported backends rather than a property of the standard, and **verified in CI** rather than assumed. Decided on the direction of the failure: `is` fails loudly on arrays that legitimately share a namespace, while every available surrogate can match across genuinely different ones, which is the silent direction I7 exists to prevent. I7, B5 and §4.2's check are unchanged; only their rationale cells move from citing an open question to citing a requirement. **New §9.3**, at the lead's request and independent of D17: GUDHI defaults to ℤ/11 and Ripser to ℤ/2, neither returns the field it used (A.5), so two diagrams of the same cloud from our two primary backends are not diagrams of the same thing — and §6.3's cross-backend `allclose` is where that bites, returning `True` on torsion-free data. §9's preamble now counts three hazards, the third being a disagreement between correct delegates rather than a defect in one. **One addition beyond what was asked**, flagged for the lead to strike: §9.3 puts a MUST on §11.2's cross-backend test to pin the coefficient field on both sides. It constrains a test this RFC already requires rather than the adapter signatures D17 is about, and pinning is a call parameter on both backends, so it costs nothing — but it is new normative text the lead did not request. **New Appendix A.6** carries D12's figures, the lead's own measurements rather than a run of ours, with his caveat that two alpha-complex datasets fix an order of magnitude and not a distribution. `rfcs/evidence/bar_counts.py` is his script, committed verbatim in behaviour; the format-benchmark script was reported without its source and is **not** checked in.
 - **2026-08-09 (43)** — Opened **D18** and added **Appendix A.7**, its evidence; §12's count moves to fifteen, two open. No other content changed. `torch.Tensor` does not implement `__array_namespace__` — array-api-compat's documentation says so, PyTorch's tracker holds the attribute back until near-full conformance, and it is absent from the torch 2.13 reference — so §3's definition of `Array` excludes torch tensors and no diagram can currently be torch-backed. D18 asks whether `array_api_compat.array_namespace` goes in front of every backend or torch alone. **This does not reopen D16**, whose identity requirement stands; what is wrong is its reach, since its CI test names a backend on which it raises `AttributeError` before reaching the identity question, and four sites illustrate a second namespace with torch counterfactually. Those four and the test's scope are left as they stand on D17's precedent, editing them in either direction being the answer. `rfcs/evidence/array_api_compat_overhead.py` carries the measurements, which are committed because two arguments that look decisive are not: JAX pays nothing (array-api-compat ships no JAX wrapper) and NumPy pays one Python frame on the 11 of 26 wrapped functions, §7's `canonical()` measuring 1.17x at 40 bars and 1.00x from 100k up; and on `numpy` 2.5 the wrappers are largely vestigial, leaving the `sort`/`argsort` stable default as the one live correction, which §7 already buys explicitly. §10.1 requirement 2 is what decides it. **Appendix A.7** carries the figures, on A.6's precedent that a decision log citing numbers it does not hold is one nobody can check later. Recorded in A.7.4 and the history document, not raised as a row: numpy's `sort`/`argsort` default to quicksort where the standard specifies stable, `array_api_strict` behaves correctly and so cannot catch a call site that omits the keyword, and §7 is therefore correct by discipline rather than construction — entry 20's `lexsort` precedent applies.
 - **2026-08-09 (44)** — Third review pass on PR #10, acting on the lead's four comments. **Resolves D17 on a fourth option the row did not frame — record the coefficient field, do not require it.** `coeff_field` stays optional and no adapter signature changes; §11 has `from_gudhi` and `from_ripser` record it in every construction, the caller's value where one was passed and that backend's documented default (GUDHI 11, Ripser 2) where none was, alongside a new reserved `provenance["coeff_field_source"]` of `"caller"` or `"backend_default"` (§8). §8's `coeff_field` comment loses its normative clause, so "All fields are optional" is true as written for the first time since entry 37 opened the contradiction. Option 1 is rejected on severity rather than shape — `reduced_homology` guards a demonstrated H0 loss where a coefficient field bites only on torsion, which this library's target domains do not carry — and option 3 on A.5, which makes an unrecorded field genuinely unknown rather than conventionally ℤ/2. `DiagramMeta` validates the new key at construction on the `essential_bars_source` pattern; §9.3 requires both backend defaults to be **asserted in CI**, since recording a default is a claim about a backend and claims about backends go stale; §11.2 carries that test and a both-directions test of the recording itself. §12.1 is down to D18 alone. **Two additions beyond what was asked**, flagged for the lead to strike: `from_giotto` is excluded from the recording requirement because A.5 could not measure giotto's default and this document does not assert a backend default it has not measured; and `"backend_default"` is documented as a marked assumption, since a caller who sets a non-default field on the backend and does not pass it to the adapter gets the default recorded. **A.6 stops reporting multipliers.** The 78× and 42× were a quotient by the fastest thing in the table and moved with how the `.npz` baseline was sampled — best-of-3 reads 149× and 99× on the lead's machine and 65× and 46× on a second — so the appendix now records absolute times, the sizes, and "two orders of magnitude", all of which survive re-measurement, and D12's row follows. A.6's table gains the script's own `Exact` column asserting `float64` round-trip and `inf` preservation per format, so correctness is checked in the table rather than asserted in prose. **`rfcs/evidence/payload_formats.py` is checked in**, the lead's script, verbatim in behaviour; every figure in A.6 now re-runs and the format table re-runs from this repository directly. **Three citations to an unpublished internal document are removed** — §3's and §8's, plus `.github/CODEOWNERS` — found by the lead on the grounds that this RFC is about to go out for public comment and `(§2.4)` reads as self-reference until a reader checks. §3's three bullets already carried their own argument; §8's claim is lifted inline onto §8.1 and §10.1 requirement 4; CODEOWNERS states the rule it was citing. A repository-wide grep confirms none remain.
+- **2026-08-09 (45)** — Fourth review pass on PR #10, acting on the lead's two comments. **Resolves D18 on option 2 — `array_api_compat.array_namespace` in front of torch alone, behind `akriti[torch]`, with the native method preferred wherever it exists. §12.1 is empty; all fifteen decisions are settled.** §3.3 carries the rule as a single resolution function whose answer depends on the input and never on the environment, and §3 defines `Array` against that rule rather than against `__array_namespace__` directly, so a diagram can be torch-backed for the first time. **§10.1 requirement 2 decides it**: under option 1 `diagrams/core.py` cannot resolve any namespace without array-api-compat, which stops being an extra, and `pip install akriti` stops resolving to nothing third-party — undoing the closure D6 was superseded to establish. Performance and conformance were both measured and neither discriminates (A.7). Preferring the wrapper wherever it happens to be installed is excluded: `array_namespace()` on a NumPy array returns `array_api_compat.numpy`, so a codebase holding both objects fires I7's `is` on arrays that legitimately share a namespace (A.7.5). The fallback is a shim for a missing declaration rather than a lower bar, and it expires by itself when gh-58743 lands. **That landing is pinned rather than awaited**: `d.xp` would change from `array_api_compat.torch` to `torch` on a version bump, so §3.3 requires a CI test asserting which branch torch takes, on §9.3's precedent for facts about backends. D16's identity test narrows to backends implementing the method natively; requirement 2 generalises from one lazily-imported exception to the class of them; and the counterfactual torch illustrations move to JAX at §3.3, §4.2, §6.3 and D16's own cell — **five sites, not the four the open row named**, §3.3 restating D16's illustration as well as carrying its own. **Nine citations to an unpublished internal document are removed** — §4, §5.1, §8.2, §9.1, §9.2, §11.2, §12's preamble, §12.2's D2 and this appendix's entry 6 — entry 44 having raised them and the lead having since confirmed that document does not publish alongside this one. Each took the highest of drop, lift inline, or state the rule that the site allowed; D2's is lifted, being the entire justification for `DiagramBatch` sitting in M1 scope. Six further sites outside this document are fixed in the same push and recorded in the history document. §3.3's "Three limits" count is deleted rather than corrected to a fourth wrong number, this pass having added a paragraph to a section that has carried a stale count since entry 35.
