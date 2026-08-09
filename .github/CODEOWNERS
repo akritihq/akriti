@@ -32,7 +32,6 @@
 /.github/               @sushovan4
 
 # The interchange layer and packaging are the students' to own. Both of them
-# review here, which is the arrangement in the onboarding document: they review
-# each other's PRs, and Majhi reviews both.
+# review here: they review each other's PRs, and Majhi reviews both.
 /src/akriti/diagrams/   @akritihq/developers @sushovan4
 /tests/                 @akritihq/developers @sushovan4

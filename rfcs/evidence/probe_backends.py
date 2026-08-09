@@ -12,7 +12,7 @@ ripser 0.6.15, persim 0.3.8, numpy 2.5.1, scikit-learn 1.9.0. giotto-tda is not
 installed in that environment, so its A.5 row is unmeasured (RFC-0001 §9.2) and
 the script reports it as such rather than skipping it silently.
 
-Clean-room note (onboarding §8): giotto-tda is AGPLv3. This script calls its
+Clean-room note: giotto-tda is AGPLv3. This script calls its
 public API and inspects returned arrays. No giotto source is read, and giotto
 source MUST NOT be read while implementing akriti.compat.giotto.
 """
