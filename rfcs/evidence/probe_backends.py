@@ -3,12 +3,18 @@
 
 Run:  python rfcs/evidence/probe_backends.py
 
-Measured 2026-07-29 with gudhi 3.11.0, ripser 0.6.14, persim 0.3.8,
-giotto-tda 0.6.2, numpy 2.4.4, scikit-learn 1.8.0, Python 3.12.11.
+Sections A.1-A.4 measured 2026-07-29 with gudhi 3.11.0, ripser 0.6.14,
+persim 0.3.8, giotto-tda 0.6.2, numpy 2.4.4, scikit-learn 1.8.0,
+Python 3.12.11.
 
-Clean-room note (onboarding §8): giotto-tda is AGPLv3. This script calls its
-public API and inspects returned arrays. No giotto source is read, and none may
-be read while implementing akriti.compat.giotto.
+Section A.5 (RFC-0001 D17) was added and measured 2026-08-06 with gudhi 3.13.0,
+ripser 0.6.15, persim 0.3.8, numpy 2.5.1, scikit-learn 1.9.0. giotto-tda is not
+installed in that environment, so its A.5 row is unmeasured (RFC-0001 §9.2) and
+the script reports it as such rather than skipping it silently.
+
+Clean-room note: giotto-tda is AGPLv3. This script calls its
+public API and inspects returned arrays. No giotto source is read, and giotto
+source MUST NOT be read while implementing akriti.compat.giotto.
 """
 
 from __future__ import annotations
@@ -200,6 +206,64 @@ def main() -> None:
     print("     warning cannot be used to detect the failure.")
     print("     core/distances.py must partition on `essential` before")
     print("     delegating (RFC-0001 §9.1).")
+
+    # ---------------------------------------------------------------- A.5
+    rule("A.5  COEFFICIENT FIELD — is it recoverable from what a backend returns?")
+
+    # RFC-0001 D17. The question is not whether a backend accepts a coefficient
+    # field, but whether the object it hands back carries the value it was
+    # computed with. If it does not, the adapter cannot record it without
+    # being told, and D17 is the reduced_homology question again (§5.1).
+
+    import inspect
+
+    sig_g = inspect.signature(gudhi.SimplexTree.persistence)
+    default_g = sig_g.parameters["homology_coeff_field"].default
+    st3 = gudhi.RipsComplex(points=A, max_edge_length=4.0).create_simplex_tree(
+        max_dimension=2
+    )
+    res3 = st3.persistence(homology_coeff_field=3)
+    carriers_g = [a for a in dir(st3) if "coeff" in a.lower() or "field" in a.lower()]
+    print(
+        "  gudhi   parameter: persistence(homology_coeff_field=...) "
+        f"default={default_g}"
+    )
+    print(
+        f"          returns   : {type(res3).__name__} of "
+        f"{type(res3[0]).__name__}, e.g. {res3[0]}"
+    )
+    print(f"          SimplexTree attrs naming a coeff field: {carriers_g or 'NONE'}")
+
+    sig_r = inspect.signature(ripser)
+    default_r = sig_r.parameters["coeff"].default
+    out3 = ripser(A, maxdim=1, coeff=3)
+    carriers_r = [k for k in out3 if "coeff" in k.lower()]
+    print(f"  ripser  parameter: ripser(..., coeff=...) default={default_r}")
+    print(f"          returns   : dict keys {sorted(out3.keys())}")
+    print(f"          keys naming a coeff field: {carriers_r or 'NONE'}")
+
+    print("  persim  consumes diagrams; computes no homology. No coefficient field.")
+    print("  array   no backend. No coefficient field.")
+    if have_giotto:
+        vr3 = VietorisRipsPersistence(homology_dimensions=(0, 1), coeff=3)
+        arr3 = vr3.fit_transform(A[None])
+        print(f"  giotto  parameter: VietorisRipsPersistence(coeff=...) -> {vr3.coeff}")
+        print(
+            f"          returns   : {type(arr3).__name__} shape "
+            f"{arr3.shape}, dtype {arr3.dtype}"
+        )
+        print("          the value lives on the estimator, not on the returned array;")
+        print("          from_giotto (§11) receives the array.")
+    else:
+        print("  giotto  NOT MEASURED — not importable in this environment (§9.2).")
+        print("          from_giotto (§11) receives the (n_samples, n_bars, 3) array,")
+        print("          which has no slot for a coefficient field regardless.")
+
+    print("  => No backend returns the coefficient field it computed with. It is a")
+    print("     call parameter on every one of them and is absent from every")
+    print("     returned object, so an adapter cannot recover it from its input.")
+    print("     The defaults also disagree: gudhi Z/11, ripser Z/2. An unrecorded")
+    print("     coeff_field is therefore not conventionally Z/2 -- it is unknown.")
 
 
 if __name__ == "__main__":

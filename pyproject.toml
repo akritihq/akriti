@@ -36,17 +36,18 @@ classifiers = [
 # ---------------------------------------------------------------------------
 # DEFAULT CLOSURE — permissive only. numpy and nothing else.
 #
-# This is deliberately smaller than the onboarding document assumed, and the
+# This is deliberately smaller than the project's original plan assumed, and the
 # reason is measured, not stylistic. See DEPENDENCIES.md for the full audit.
 #
 #   persim depends on hopcroftkarp, which is GPLv3 and was last released
 #   2019-10-11. ripser depends on persim. There is therefore NO arrangement in
 #   which `pip install akriti` pulls a persistence backend and keeps an
-#   MIT/BSD-only closure.
+#   permissive-only closure.
 #
 # So the backends move behind extras and the default install is the interchange
 # layer alone. That is not a compromise: akriti.diagrams needs no backend, the
-# "diagrams in" path is the primary one (onboarding §4), and a user who already
+# "diagrams in" path is the primary one -- users arriving with diagrams a
+# backend already computed, rather than computing them here -- and one who
 # has diagrams now installs ~15 MB of permissively licensed code to work with
 # them. `tools/check_license_closure.py` enforces this in CI.
 # ---------------------------------------------------------------------------

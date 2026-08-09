@@ -1,9 +1,9 @@
 """Pin the array-API facts RFC-0001 §3.4 depends on.
 
-The onboarding document requires `core/` to be written against the Python array
-API rather than hard-coding NumPy, and PersistenceDiagram is the input to every
-function in `core/`. The first draft of RFC-0001 specified `np.ndarray` anyway
-and nobody noticed until a reviewer read both documents together.
+RFC-0001 §3 defines a diagram's arrays as any object implementing
+`__array_namespace__`, not `np.ndarray`. The first draft specified
+`np.ndarray` anyway and nobody noticed until a reviewer read it against the
+rule it was meant to implement.
 
 A written requirement of that kind decays. These tests make it enforceable:
 they encode what the standard does and does not provide, so an implementation
