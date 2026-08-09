@@ -36,13 +36,13 @@ classifiers = [
 # ---------------------------------------------------------------------------
 # DEFAULT CLOSURE — EMPTY. Not "permissive only": empty. Not even numpy.
 #
-# This is deliberately smaller than the onboarding document assumed, and the
+# This is deliberately smaller than the project's original plan assumed, and the
 # reason is measured, not stylistic. See DEPENDENCIES.md for the full audit.
 #
 #   persim depends on hopcroftkarp, which is GPLv3 and was last released
 #   2019-10-11. ripser depends on persim. There is therefore NO arrangement in
 #   which `pip install akriti` pulls a persistence backend and keeps an
-#   MIT/BSD-only closure.
+#   permissive-only closure.
 #
 # So the backends move behind extras. numpy then went the same way, one step
 # later and for a different reason: RFC-0001 §3.3 and §10.1 requirement 2
@@ -114,13 +114,13 @@ bio = ["anndata>=0.10"]
 # for compat-shim fixtures only, and it does not currently run on scikit-learn
 # >= 1.8 (RFC-0001 §9.2), so CI uses committed fixture arrays instead.
 test = [
-    "pytest>=8.0",
-    "pytest-cov>=5.0",
-    "hypothesis>=6.100",   # MPL-2.0, weak copyleft. Test-only, never shipped.
+    "pytest>=9.1.1",
+    "pytest-cov>=7.1.0",
+    "hypothesis>=6.161.8",   # MPL-2.0, weak copyleft. Test-only, never shipped.
     # Conformance reference for RFC-0001 §3.3. Rejects NumPy-only calls that
     # numpy's own __array_namespace__ silently permits (it returns numpy
     # itself, so hasattr checks pass spuriously). BSD. Test-only.
-    "array_api_strict>=2.0",
+    "array_api_strict>=2.6.1",
     # Still not a *runtime* dependency (see the default-closure note above):
     # the default closure stays empty and numpy is reachable only through the
     # `numpy` and `io` extras. The suite needs it because the eager backend
@@ -131,8 +131,8 @@ test = [
     "akriti[numpy]",
 ]
 lint = [
-    "ruff>=0.6",
-    "mypy>=1.11",
+    "ruff>=0.16.0",
+    "mypy>=2.3.0",
 ]
 dev = ["akriti[test,lint,rips,alpha,distances]"]
 

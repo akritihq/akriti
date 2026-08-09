@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Fail if the installed dependency closure contains copyleft or unknown licenses.
 
-The default `pip install akriti` closure must be permissive-only. This is a
-stated commitment (onboarding §12) and it is not self-enforcing: persim pulls
+The default `pip install akriti` closure must be permissive-only. `DEPENDENCIES.md`
+states that rule, and it is not self-enforcing: persim pulls
 GPLv3 `hopcroftkarp` transitively, and GUDHI ships a wheel with no license
 metadata at all. Both were found by hand on 2026-07-29. Neither would be found
 again by hand.

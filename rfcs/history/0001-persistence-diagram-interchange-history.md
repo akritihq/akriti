@@ -1217,6 +1217,586 @@ section the earlier ones had no need for.
   its `allclose` is still the sorted-pairwise form this entry rejects, with
   the D14 assumptions documented in its docstring.
 
+- **2026-08-07 (42)** — Second review pass on PR #10, acting on the lead's
+  three replies. Resolves D12, D15 and D16, adds §9.3 and Appendix A.6, and
+  leaves §12.1 carrying D17 alone.
+
+  **D12 — `bars.npz` stays, and the payload stops being provisional.** The row
+  said the decision turned on a per-diagram and per-batch bar-count figure this
+  RFC did not state. The lead measured it, and Appendix A.6 now carries it.
+  Alpha complex over two `classify` datasets, recomputed from the point clouds
+  because the cached diagrams there are truncated to `top_n=50` and
+  diagonal-padded and therefore saturate: orbit5k at 500 points gives a median
+  936 bars per diagram, synthetic single-cell at 150 points gives 499. The
+  structural finding matters more than either median — **H0 equals the point
+  count exactly**, so bar count is linear in cloud size, and both clouds are
+  small relative to what users will bring. At batch scale it compounds:
+  `orbit5k_full` is 5,000 samples, so one `DiagramBatch` is around 4.7 million
+  bars. At 1M bars the three candidate payloads measure 20.0 MB / 0.02 s for
+  `.npz`, 41.1 MB / 1.19 s for CSV, and 26.5 MB / 0.65 s for sqlite3 — 78× and
+  42× on load against the binary payload.
+
+  **Correctness does not discriminate, which is what makes this a cost
+  decision.** CSV round-trips `float64` exactly through `repr` and `inf`
+  survives as the literal, so all three clear requirement 1. And the earlier
+  suspicion was right on its own terms: CSV *does* beat `.npz` on requirement
+  5, being readable without even `numpy.load`. What retires it is that
+  requirement 5 is already satisfied twice without it — by `meta.json` sitting
+  in the archive as literal UTF-8 text, and by §10.3's `to_csv()`, which exists
+  precisely to be the human-readable surface. Requirement 5 does not need
+  satisfying a third time, and paying 2.1× size and 78× load on every `load()`
+  to duplicate an escape hatch already shipped is the wrong trade.
+
+  **One argument for CSV survives, and §12.2 records it rather than waving it
+  away.** A stdlib payload would let the `[io]` extra be dropped altogether,
+  `meta.json` being stdlib `json` already, and "zero dependencies, including
+  serialization" is a materially stronger claim than the one this document
+  makes. It is not worth 78× at four-million-bar scale — but that ratio, or a
+  use case where batches are small and dependency-freedom outweighs load time,
+  is the condition to reopen D12 against, and A.6 is the number to reopen it
+  against. Recording the losing argument with its trigger is the same instinct
+  that reinstated D6 as superseded rather than deleting it.
+
+  **sqlite3 is closed out** rather than left as a third option: larger than
+  `.npz`, 42× slower, not inspectable without a separate tool, and its files
+  carry internal page state that makes requirement 4's byte-determinism harder
+  rather than easier — a loss on every axis including the one it was proposed
+  for.
+
+  **The caveat travels with the figures.** Two datasets, both alpha-complex,
+  both low-dimensional, both the lead's own; they fix an order of magnitude and
+  the linear-in-point-count scaling, not a distribution over what users will
+  store. The decision is robust to that in one specific direction: every way
+  the bar count moves from here makes CSV worse, so the caveat cannot flip the
+  outcome, only the margin.
+
+  **D15 — `provenance["order"]` is removed, and the argument is about
+  derivability rather than about the missing writer.** The row had framed it as
+  a key with one reachable value, which is true but not decisive; a key could
+  earn its place by having a second writer added. What decides it is a property
+  every other reserved key has and this one does not: **the rest record facts
+  that vanish if unrecorded.** `source_dtype` is lost the moment the array is
+  upcast, `clamped_rows` the moment the rows are repaired, `padding_removed`
+  the moment they are stripped, `essential_bars_source` a then-versus-now
+  distinction no later inspection recovers. Whether rows are in canonical order
+  is recoverable from the arrays themselves, exactly, in one pass, forever. So
+  `order` is a cached answer to an always-computable question — and a cache
+  that can go stale, since anything reordering rows while carrying `meta`
+  through unchanged leaves a diagram reporting `"canonical"` while not being
+  canonical. Clean, plausible and wrong: §9's own category, arrived at by our
+  hand rather than a dependency's.
+
+  Having `save` write it is worse rather than better, which retires the second
+  of the row's three options. §10.2 emits `bars.npz` in canonical order
+  unconditionally, so the key would be a constant in every file on disk: no
+  information, and a claim about the in-memory diagram it came from that may be
+  false. The third option dies on §7 — every consumer MUST treat row order as
+  arbitrary, so a reader who sees `"canonical"` is forbidden to act on it.
+
+  **The genuine order fact is a different key, and §8 keeps a note about it so
+  this is not reopened.** Whether the *backend's own output* was already
+  canonical is not derivable: it is exactly the GUDHI-versus-Ripser
+  disagreement §7 documents and A.3 measures, and it is unrecoverable once
+  anything sorts. `order` as specified never captured it — every adapter
+  records `"backend"` regardless of what the backend actually did, so the value
+  names the ordering's source rather than the ordering. If order provenance is
+  ever wanted, that is a key to build at adapter time, and building it does not
+  reopen this decision. The note is deliberately short and lives in §8 at the
+  lead's request; the reasoning above is what §12.2 and this entry carry
+  instead, since a removed key should not leave a long obituary in the body.
+
+  **D16 — require identity, say so as a supported-backend constraint, verify it
+  in CI.** The row was right that the standard does not guarantee identity and
+  right that no portable surrogate exists, and it treated that as a deadlock.
+  It is not one, because the two options fail in opposite directions. `is`
+  fails by raising `ValueError` on arrays that legitimately share a namespace:
+  conservative, loud, immediately diagnosable, impossible to mistake for a
+  correct answer. Every surrogate the standard leaves — `__name__`, a sentinel
+  dtype, anything else — is a weaker test that can match across genuinely
+  different namespaces, admitting a torch/NumPy mix into one diagram. That is
+  the silent direction, and it defeats exactly what I7 exists to prevent. Given
+  a conservative check with a documented constraint against a clever one that
+  fails open, take the first.
+
+  So §3.3 now states plainly that akriti requires `__array_namespace__()` to
+  return a consistent object for a given backend — a constraint on supported
+  backends, not a property claimed of the standard, which is the honest form of
+  the same sentence. **And it is verified rather than assumed:** a CI test MUST
+  assert identity for each supported backend. That is §3.3's own "conformance
+  is tested, not intended" applied to a promise the standard does not make, and
+  it follows entry 20's precedent, where the `hasattr(xp, "lexsort")` trap
+  became a standing regression test rather than prose. The failure mode the
+  test exists for is a backend appearing that returns a fresh wrapper per call:
+  it then fails CI and reopens D16 as a real decision, rather than breaking
+  silently in someone's pipeline. I7, B5 and §4.2's `from_diagrams` check are
+  unchanged in substance; only their rationale cells move from citing an open
+  question to citing a requirement.
+
+  **§9.3 is new, and it is not a D17 answer.** The lead's point is that the
+  coefficient-field finding belongs in §9 regardless of how D17 lands. A.5
+  measured that GUDHI defaults to ℤ/11 and Ripser to ℤ/2 and that neither
+  returns the field it used, so two diagrams of the same point cloud from our
+  two primary backends are computing different homology theories and agree only
+  where the data is torsion-free. §9.3 records that as a delegation hazard on
+  the same footing as §9.1 and §9.2, with one difference stated outright:
+  **neither backend is wrong.** The hazard is ours, and it arrives when we call
+  both and compare. §9's preamble now counts three hazards rather than two and
+  says which kind the third is.
+
+  The consequence lands on §6.3, which is why it could not be left to D17.
+  Cross-backend agreement is what `allclose` exists for — §6.2 sets its
+  tolerance against Ripser's single precision, §11.2 requires a GUDHI-vs-Ripser
+  comparison at `rtol=1e-6` — and under default settings that comparison can be
+  carefully matching bars between objects that are not comparable, returning
+  `True` because test data is usually torsion-free.
+
+  **One addition beyond what the lead asked for, flagged so it can be struck.**
+  §9.3 puts a MUST on §11.2's cross-backend test to pin the coefficient field
+  explicitly on both sides. The lead's instruction was that §9 record the fact
+  and D17 decide what we do about it, and this is arguably doing something
+  about it. The case for including it: it constrains a test this RFC already
+  requires rather than the adapter signatures D17 is about, pinning is a call
+  parameter on both backends so it costs nothing, and §11.2 is the one place in
+  this document's own suite where the hazard is otherwise live and green. The
+  case against is that it is new normative text nobody requested. It is written
+  as its own paragraph so removing it removes nothing else.
+
+  **Appendix A.6 carries measurements this project did not run**, and says so
+  in its first line. The bar-count script is the lead's, committed as
+  `rfcs/evidence/bar_counts.py` with behaviour unchanged and only formatting
+  adjusted for `ruff`; it does not run from this repository, since `lib.datasets`
+  lives in `classify`, and its docstring says that rather than leaving a reader
+  to discover it. The format-benchmark numbers were reported without their
+  script, which the lead offered; until it lands, A.6's second table is the one
+  claim in the appendix that cannot be re-run from this repository, and the
+  appendix says which. A.6 also records that the 78× and 42× ratios are taken
+  against the unrounded `.npz` time, so dividing the displayed 0.02 s column
+  does not quite reproduce them — a reader checking the arithmetic should not
+  have to wonder whether the table contradicts itself.
+
+  **What did not change.** D17 is untouched and still carries no
+  recommendation; §8's `coeff_field` comment is left exactly as it stands,
+  since rewording it in either direction answers the question. §9.3 sharpens
+  the case for one of D17's two remaining options without choosing between
+  them. `core.py` is not in this branch, so D15's removal of `order` and D16's
+  identity requirement both land as specification only; the implementation
+  branch carries two `provenance["order"]` docstring references and a `D15`
+  citation that go stale the moment this merges, and the CI identity test D16
+  now requires does not exist yet.
+
+- **2026-08-09 (43)** — Opened **D18**, added **Appendix A.7** carrying its
+  evidence, and committed the script behind it as
+  `rfcs/evidence/array_api_compat_overhead.py`. §12's count moves to fifteen,
+  two open. Nothing else in the document changed. A.7 exists on A.6's
+  precedent — a decision log that cites numbers it does not carry is one
+  nobody can check later — and unlike A.6 its script is checked in, so every
+  figure in it can be re-run from this repository.
+
+  **The finding.** `torch.Tensor` does not implement `__array_namespace__`.
+  array-api-compat's documentation states it directly — "we do not wrap the
+  `torch.Tensor` object. It is missing the `__array_namespace__` and
+  `to_device` methods" — PyTorch's own tracker (gh-58743, open, last touched
+  2026-03-16) holds the attribute back on purpose, as "the attribute that
+  declares compliance", to be added at near-full conformance, and it is absent
+  from the torch 2.13 `Tensor` reference. §3 defines `Array` as any object
+  implementing that method. Torch tensors are therefore not `Array`, and no
+  diagram can currently be torch-backed.
+
+  **This does not reopen D16.** The identity requirement is correct and the
+  reasoning behind it stands; what is wrong is its reach. D16's CI test is
+  written against "every backend this project supports" and `akriti[torch]` is
+  one, but for torch that test raises `AttributeError` before it can reach the
+  identity question, so it fails in a way D16 does not describe and would read
+  as a broken test rather than a reopened decision. Four sites also illustrate
+  a second namespace with torch, and all four are counterfactual as written:
+  §3.3's "a diagram built from torch tensors stays torch-backed", D16's own
+  "admitting a torch/NumPy mix into one diagram", §4.2's mixed-input
+  `from_diagrams` check, and §6.3's "each valid and still not comparable".
+  They are left as they stand, on D17's precedent: option 1 makes them true,
+  option 2 requires substituting JAX, so editing them answers the question.
+  JAX is not implicated either way — `jax.Array` has had the method natively
+  since 0.4.32.
+
+  **Why the row offers two options and not three.** Resolving through
+  `array_api_compat.array_namespace` is the available fix; the question is
+  only how far in front of the backends it sits. Preferring compat whenever it
+  is merely installed was considered and is excluded in the row itself, since
+  it makes `d.xp` a property of the environment rather than of the input.
+
+  **What the measurements settle, and what they do not.** The script is
+  committed because two of the three arguments one might expect to decide this
+  turn out not to. Performance does not: JAX pays nothing structurally, since
+  array-api-compat ships no JAX wrapper and a `jax.Array` resolves to
+  `jax.numpy` itself through an `lru_cache`d dispatch; NumPy pays one Python
+  frame on the 11 of 26 namespace functions carrying a wrapper and nothing on
+  the other 15, which are numpy's own objects by identity, leaving §7's
+  `canonical()` at 1.17x at 40 bars and 1.00x from 100k up. Conformance does
+  not either, and that is the finding that removes option 1's strongest
+  argument: on `numpy` 2.5 most of those wrappers are vestigial — `device=`,
+  `unique_values`, `cumulative_sum(include_initial=)`, `reshape(copy=)` and
+  the 0-d `nonzero` rejection are all native — leaving one live correction,
+  the `sort`/`argsort` stable default, which §7 already buys by passing
+  `stable=True`. What decides the row is §10.1 requirement 2: under option 1
+  `core.py` cannot resolve any namespace without the package, so it stops
+  being an extra and `pip install akriti` stops resolving to nothing
+  third-party.
+
+  **One constraint holds whichever option lands**, and it is measured rather
+  than argued: `array_namespace()` on a NumPy array returns
+  `array_api_compat.numpy`, not `numpy`. Resolution must therefore go through
+  exactly one function. A codebase calling `__array_namespace__` directly in
+  one place and the helper in another gets two namespace objects for one
+  backend, and I7's `is` then raises on arrays that legitimately share a
+  namespace — D16's loud direction, fired by our own inconsistency instead of
+  a backend's.
+
+  **A second finding, recorded here rather than raised as a row.** NumPy's
+  main namespace defaults `sort` and `argsort` to `stable=None`, which is
+  quicksort, where the array API standard specifies `stable=True`; the script
+  shows the difference is observable on tied keys, and against that default
+  the standard's semantics measure 9.70x on `sort` and 2.89x on `argsort` at
+  1M elements. §7 is correct today because it passes the keyword at all three
+  call sites and says why. It is correct by discipline rather than by
+  construction, though, and the conformance suite cannot catch a lapse:
+  `array_api_strict` is the side that behaves correctly, so a call site that
+  omits the keyword passes there and is silently unstable on the backend every
+  user actually runs. That is §7's `lexsort` trap one function over, and entry
+  20's precedent says it should become a standing test rather than prose. Not
+  opened as a row because no decision is in question — only a test that does
+  not exist yet.
+
+- **2026-08-09 (44)** — Third review pass on PR #10, acting on the lead's four
+  comments. **Resolves D17**; §12.1 is down to D18 alone. Also retires A.6's
+  ratios, checks in the format-benchmark script, and removes three citations to
+  an unpublished internal document ahead of the comment window.
+
+  **D17 — a fourth option, and the row had framed three.** The lead's reading
+  is that neither of the two options A.5 left was right. Against option 1, the
+  required keyword-only argument: the `reduced_homology` precedent is exact in
+  *shape* and not in *severity*, and the difference is what decides it.
+  `reduced_homology` guards a demonstrated failure — giotto returning 39 H0
+  bars where GUDHI and Ripser return 40 (A.1). A coefficient field guards a
+  failure that bites only where the data carries torsion, and for the domains
+  this library targets that is close to never: orbit5k is dynamical orbits in
+  ℝ², the single-cell data is blobs and rings in ℝ³, the chemical benchmarks
+  are graphs. Torsion in low degrees needs projective planes, Klein bottles,
+  lens spaces; ℤ/2 and ℤ/11 return identical diagrams for essentially
+  everything else. Option 1 therefore breaks three adapter signatures and puts
+  a mandatory argument on every `from_gudhi` and `from_ripser` call to guard
+  something most users cannot reach — friction charged to everyone, repaid to
+  almost nobody. Against option 3, dropping the clause: A.5 had made the
+  comment's underlying claim *stronger* than it looked, not weaker. An
+  unrecorded field is not conventionally ℤ/2, because the two backends this
+  project leans on hardest disagree by default and nothing in the artifact says
+  which produced it. That is a diagram uninterpretable in the way §8's opening
+  sentence describes.
+
+  **The fourth option is §8's own pattern.** `essential_bars` /
+  `essential_bars_source` exists for exactly this then-versus-now problem, and
+  the coefficient field has the same shape: record it, do not require it.
+  `coeff_field` stays optional; the adapter records the caller's value if one
+  arrived and the backend's documented default if none did, and
+  `provenance["coeff_field_source"]` says which. No signature changes, no
+  friction in the common case, and the diagram is never *silently* ambiguous —
+  a reader can always tell whether the value was stated or assumed, which is
+  the only thing option 3 gave up and the only thing option 1 bought.
+
+  **Why this fits where D15's `order` did not**, since the two were tested
+  against the same criterion four entries apart. `order` had no adapter-time
+  verdict worth a second key: §7 fixes every adapter's answer at `"backend"`,
+  and there was nothing else it could have said. Here there is a real verdict —
+  the backend's default is a fact the adapter knows, the caller may not, and
+  A.5 measures that nothing recovers it from the returned object afterwards.
+  That is the condition the `essential_bars_source` split exists for, and
+  `order` failing it is what made D15 a removal rather than a second key.
+
+  **One risk, and it is pinned rather than accepted.** Recording a backend
+  default is a claim about a backend, and claims about backends go stale, which
+  is what §9 is a whole section about. §9.3 now requires both defaults to be
+  asserted in CI against the installed version, so a change to `gudhi`'s or
+  `ripser`'s default breaks the build instead of silently corrupting the
+  provenance of every diagram recorded afterwards. §11.2 carries that test and
+  a second one exercising the recording in both directions — a suite testing
+  only the omitted case passes against an adapter that ignores the argument
+  outright.
+
+  **Two additions beyond what the lead specified, both flagged in the RFC for
+  him to strike.** First, `from_giotto` is excluded from the recording
+  requirement. The lead named `gudhi → 11` and `ripser → 2`; giotto's default
+  is 2 as documented but A.5 could not measure it, giotto-tda 0.6.2 not running
+  on the installed scikit-learn (§9.2), and a document that will not assert an
+  unmeasured backend fact anywhere else should not start here. The exclusion is
+  written as evidence-conditional rather than permanent: when the shim is
+  testable again, `from_giotto` joins on the same terms. Second,
+  `"backend_default"` is documented as a marked assumption rather than a
+  measurement. No backend returns the field it computed with, so an adapter
+  cannot verify the caller left the default alone: a caller who passes
+  `homology_coeff_field=3` to GUDHI and does not pass `coeff_field=3` on to
+  `from_gudhi` gets a diagram recording 11. That is a real limit of the fourth
+  option and it belongs in the text — but it replaces a *silent* assumption
+  with a marked one, since the status quo was a diagram carrying nothing and a
+  reader defaulting to ℤ/2 on a backend that uses ℤ/11.
+
+  **Where the argument is least confident, recorded in the row as the condition
+  to reopen against.** It turns on torsion being rare in this library's target
+  data, which is a judgment about users this project does not have yet rather
+  than a measurement. If §1's general-purpose framing means the
+  projective-plane user should be assumed to exist, option 1 becomes much
+  stronger: three signatures once against a wrong default forever.
+
+  **§11.2's coefficient-field MUST stays, and now says why it is not scope
+  creep.** It adds no test — it makes a test §11.2 already required actually
+  test what it claims. Unpinned, the cross-backend comparison sets GUDHI's ℤ/11
+  against Ripser's ℤ/2, which is two homology theories rather than one
+  computation done twice; on torsion-free input, which synthetic test data
+  almost always is, they agree anyway, so the test passes, establishes nothing,
+  and would keep passing straight through a genuine regression in either
+  adapter. §9.3 also now records why the clause was safe to write before D17
+  closed and stays correct after: pinning is a call parameter the test itself
+  controls, not a claim about what a returned object carries, so it never
+  depended on how the row landed.
+
+  **A.6 stops reporting multipliers, and the reason is the more useful
+  finding.** The 78× and 42× were computed against an unrounded 0.0153 s while
+  the table displayed 0.02 s, which is what prompted the check. Correcting the
+  arithmetic was not the fix. The ratio is a quotient by the fastest thing in
+  the table, so it moves with how the `.npz` baseline is sampled while nothing
+  about the formats changes: best-of-3 rather than a single run drops that
+  baseline to 0.0083 s and the same measurement then reads **149× and 99×**.
+  Rerunning the committed script on a second machine — CPython 3.14.6, numpy
+  2.5.1 — gives byte-identical sizes and 0.0226 s / 1.4781 s / 1.0339 s, which
+  is **65× and 46×**. Two machines, one script, one seed: the sizes reproduce
+  exactly, the order of magnitude holds, and the multiplier moves by more than
+  a factor of two. §12.2 names A.6 as the thing to reopen D12 against, and a
+  figure serving that purpose must not move when someone runs it on a different
+  laptop. A.6 therefore records absolute times, the sizes, and "two orders of
+  magnitude"; D12's row follows, and its reopen condition reads "two orders of
+  magnitude on load" rather than "78×". Entry 42's text is left as it was
+  written — it records what that pass did, and this entry records the
+  correction.
+
+  **A.6's table gains an `Exact` column**, the script's own assertion of
+  `float64` round-trip and `inf` preservation per format and per run. All three
+  pass. Correctness was never the discriminator between the payloads, but the
+  table now shows that rather than asserting it in prose, and a payload that
+  silently lost precision can no longer contribute a size and a time to the
+  comparison unnoticed.
+
+  **`rfcs/evidence/payload_formats.py` is checked in**, the lead's script,
+  committed verbatim in behaviour with only formatting changed for `ruff` — the
+  same treatment `bar_counts.py` got in entry 42. It is self-contained where
+  `bar_counts.py` is not: synthetic bars, `numpy` plus stdlib, no dataset
+  dependency, so it runs in CI's own environment. Generating the 1M-row CSV is
+  the slow part, around fourteen seconds end to end here. A.6's "not checked
+  in" caveat is gone, and every figure in the appendix now re-runs.
+
+  **Three citations to an unpublished internal document, removed.** The lead
+  found two in the RFC — §3's justification that the three-parallel-array
+  representation "is the right one", and §8's claim about the reproducibility
+  hash — and then a third in `.github/CODEOWNERS`, which is the more exposed of
+  the two files, since anyone browsing the repository can read it today without
+  waiting for the comment window. Both RFC citations were load-bearing rather
+  than decorative, and the notation was the problem as much as the reference:
+  `(§2.4)` is this document's own convention for self-reference, so it reads as
+  *this* RFC until a reader checks §2 and finds it has no subsections. The two
+  places asking a reader to take a conclusion on trust were the two places the
+  trail went cold. Fixed in the lead's order of preference where each allowed
+  it: §3's three bullets already carried the argument, so the citation is
+  simply dropped; §8's claim is lifted inline onto the two commitments this
+  document actually makes, §8.1's content hash and §10.1 requirement 4's
+  byte-determinism; CODEOWNERS states the ownership rule it was citing, which
+  the file's own patterns then demonstrate. A repository-wide grep confirms
+  none remain.
+
+  **Raised rather than fixed: the `onboarding §N` citations have the same
+  defect.** Twelve of them, across the RFC, `pyproject.toml`,
+  `tools/check_license_closure.py`, `tests/test_array_api_conformance.py`,
+  `probe_backends.py` and CODEOWNERS itself. They are milder, because naming a
+  document at least tells a reader the reference is external, but an outside
+  reviewer still cannot follow `onboarding §9.3` anywhere. The lead scoped his
+  grep to "execution plan" and this is a larger, separate call — whether the
+  onboarding document is published alongside the RFC, or its cited reasoning
+  gets lifted inline the way §8's just was — so it is recorded here rather than
+  decided in this pass.
+
+- **2026-08-09 (45)** — Fourth review pass on PR #10, acting on the lead's two
+  comments. **Resolves D18**, which empties §12.1, and closes the onboarding
+  citations entry 44 raised.
+
+  **D18 — option 2, the resolver in front of torch alone.**
+  `array_api_compat.array_namespace` sits behind `akriti[torch]`, lazily
+  imported, with the native `__array_namespace__` preferred wherever it exists.
+  The lead took the recommendation and the deciding argument with it: option 1
+  makes array-api-compat a required dependency, so `pip install akriti` stops
+  resolving to nothing third-party, undoing the closure work D6 was superseded
+  to establish weeks after establishing it. Nothing in the performance or
+  conformance case comes near outweighing that, and both were measured rather
+  than assumed — one Python frame on 11 of 26 functions, `canonical()` at 1.17x
+  at 40 bars and 1.00x from 100k up, JAX structurally free, and on numpy 2.5
+  the wrappers largely vestigial with one live correction §7 already buys.
+
+  **Where the resolution rule landed in the text.** §3.3 carries it as a single
+  function rather than as prose about which method to call, because the
+  constraint A.7.5 measured is what makes single-valuedness load-bearing:
+  `array_namespace()` on a NumPy array returns `array_api_compat.numpy`, not
+  `numpy`, so a codebase calling the helper in one place and the method in
+  another holds two namespace objects for one backend, and I7's `is` then
+  raises on arrays that legitimately share a namespace — D16's loud failure
+  fired by our own inconsistency rather than a backend's. §3's `Array`
+  definition now turns on that rule rather than on `__array_namespace__`
+  directly. Preferring compat whenever it is merely installed is excluded in
+  the row for the same reason the lead gave: `d.xp` must depend on the input,
+  never on the environment.
+
+  **One question the first draft of this pass got wrong, and it is worth
+  recording.** The definition was first written as "any object implementing
+  `__array_namespace__`, and, for as long as it does not implement one,
+  `torch.Tensor`" — a vendor named in a normative type definition, which reads
+  as leniency granted to one backend. It is not what the resolution does.
+  `array_api_compat` supplies a conforming namespace for a backend that
+  conforms in substance without having declared it; a backend that does not
+  conform is not rescued by being wrapped, and the arrangement expires by
+  itself when the declaration lands. §3 states the capability and §3.3 names
+  the one backend currently in that state, which is where a dated fact about a
+  dependency belongs.
+
+  **The staleness risk is pinned, in the pattern used for every other one.**
+  gh-58743 is open and the attribute is being withheld deliberately until
+  near-full conformance, so it lands eventually; on that release a torch tensor
+  stops resolving through the wrapper, `d.xp` changes from
+  `array_api_compat.torch` to `torch` on a version bump, and two diagrams built
+  under adjacent torch versions fail `is` while being the same kind of thing.
+  §3.3 requires a CI test asserting which branch torch takes, so that release
+  breaks the build instead of quietly changing what `d.xp` returns. Same shape
+  as D16's identity assertion and §9.3's coefficient-field defaults, and the
+  same reasoning.
+
+  **I7 and B5 were written as direct method calls and had to move too.** Both
+  spelled the comparison `births.__array_namespace__() is
+  deaths.__array_namespace__()`, which on a torch tensor raises
+  `AttributeError` before reaching the identity question — the same defect D18
+  found in D16's CI test, sitting in the invariants themselves rather than in a
+  test, and absent from the open row's list of affected sites. They now read
+  `namespace_of(...)`. This is A.7.5's constraint biting where it said it
+  would: resolving through one function in one place and the method in another
+  yields two namespace objects for one backend.
+
+  **What the resolver does not fix.** `array-api-compat` does not wrap the
+  array object — it returns the backend's own `torch.Tensor` — and its
+  documentation states that torch's operators are left unmodified, that 0-d
+  type promotion diverges from the standard, and that the functional spellings
+  are the workaround. So resolving a namespace corrects namespace calls and
+  nothing else, and §3.2's and §4.3's accessors are almost all operators:
+  `deaths - births`, `deaths == xp.inf`, `dims == k`,
+  `offsets[1:] - offsets[:-1]`. A.7.2 had already recorded that operators never
+  reach a namespace, but as an observation about cost — on NumPy nothing
+  followed from it. On a backend whose operator semantics deviate, the same
+  fact is about correctness.
+
+  They are nonetheless safe, and the reason is worth recording because it is
+  not the resolver: I2 and §6.1 fix every operand's dtype, so this document
+  contains no mixed-dtype arithmetic and the divergence has nothing to act on.
+  That is the `stable=True` situation exactly — correct by construction of a
+  different rule, invisible to the conformance suite, and one accessor away
+  from silently stopping being true. §3.3 therefore requires a cross-namespace
+  test of `essential`, `persistence`, `bar_counts` and `dim(k)`. New normative
+  text nobody asked for, flagged in the row for the lead to strike, and written
+  as its own sentence so that striking it removes nothing else.
+
+  The other documented torch gaps do not reach this document: `unique_all` is
+  unavailable and unused, `d.dimensions` needing `unique_values`, which is
+  present; `x.size` is a method rather than an attribute on torch, and §4.2
+  already requires `shape[0]`; negative slice steps, `std`/`var` corrections
+  and unsigned integers beyond `uint8` are all outside what the diagram layer
+  does.
+
+  **A.7 now says what it did not measure.** Nothing in that appendix was run
+  against torch — A.7.1's coverage and A.7.2's timings are NumPy's, A.7.3 is
+  asserted from JAX's dispatch, and every torch finding is from
+  array-api-compat's and PyTorch's documentation. That is weaker evidence than
+  the rest of the appendix carries, and on this document's own standard it is
+  stated rather than left to be inferred from a missing table. Probing it needs
+  torch installed, which the default and `dev` environments deliberately do not
+  have.
+
+  **D16's test scope narrowed, as the lead asked.** The identity test now runs
+  against backends implementing the method natively. A backend reached through
+  the fallback has no method to call, and its namespace is a module — identical
+  across calls because Python caches imports, not because the backend promises
+  anything — so asserting identity there would test CPython rather than the
+  backend. The branch test above is what covers torch until it qualifies for
+  the identity one.
+
+  **The counterfactual illustrations were five, not four.** The open row named
+  §3.3's "a diagram built from torch tensors stays torch-backed", D16's cell,
+  §4.2's `from_diagrams` check and §6.3's "each valid and still not
+  comparable". §3.3 also restates D16's own illustration — "admitting a
+  torch/NumPy mix into one diagram" — in the paragraph explaining the identity
+  decision, which the count missed because it was reading the row's list rather
+  than the document. All five now read JAX.
+
+  **§10.1 requirement 2 generalises.** It had described one exception, at the
+  `save`/`load` boundary, in language that asserted `diagrams/core.py` carries
+  no third-party dependency "at all". That is no longer true on the torch path,
+  and stating it as though it were would be exactly the silently-false claim
+  §9's category covers. The requirement now states the rule — nothing
+  third-party on any path reachable without the caller having installed a
+  backend themselves — and names both instances under it.
+
+  **The onboarding citations, closed.** The lead confirmed the document does
+  not publish alongside the RFC, so the sites want the treatment §8's citation
+  got in entry 44, taking the highest of drop, lift inline, or state the rule
+  that each allows. Nine are in the RFC: §4 and §12.2's D2 (the leading batch
+  dimension), §5.1 (the clean-room section, now pointing at §9.2), §8.2 (now
+  citing §4), §9.1 (the guardrail definition, which the sentence already
+  carried), §9.2's clean-room note, §11.2 (property-based tests), §12's
+  preamble, and Appendix B's entry 6. D2's is the one lifted inline rather than
+  dropped, on the lead's reading that "onboarding §9.3 commits us to
+  batch-shaped signatures" is the entire justification for `DiagramBatch` being
+  in M1 scope, and that reasoning has to live in the document being reviewed.
+
+  **The count was wrong and the correction is the RFC's way.** Entry 44 said
+  twelve and the lead's reply carried that number forward. Enumerated
+  site-by-site rather than counted from a grep summary, it is fifteen: nine in
+  the RFC and six in repository files — `pyproject.toml` twice,
+  `tools/check_license_closure.py`, `rfcs/evidence/probe_backends.py`,
+  `tests/test_array_api_conformance.py` and `.github/CODEOWNERS`. The gap is
+  three RFC sites that name the document without a section number, which a grep
+  for `onboarding §` does not match and which entry 44 therefore did not count.
+  They have the same defect in a milder form and are fixed on the same terms.
+
+  **The six code sites are done in this pass rather than deferred**, against
+  the lead's sequencing, and the reason is that they are six single-line
+  comments where the RFC pass was substantive. They are in their own commit so
+  that dropping them costs nothing and the RFC half stays reviewable alone.
+  `tools/check_license_closure.py` now cites `DEPENDENCIES.md`, which states
+  the permissive-only rule and is published; `tests/test_array_api_conformance.py`
+  cites RFC-0001 §3, and deliberately cites what §3 *defines* rather than its
+  `core/` obligation, for the reason in the finding below.
+
+  **§3.3's "Three limits" count is deleted rather than corrected.** It has been
+  wrong since entry 35 corrected it once already, and this pass adds a
+  paragraph to the same section. A count that has been wrong twice and would be
+  wrong a third time on the next addition is not worth carrying; the section
+  reads the same without it.
+
+  **Raised, not fixed: §3's `core/` MUST is contradicted by a decision taken
+  the same day.** The project's onboarding document was revised on 2026-08-09
+  to land `core/` and `castle/` on NumPy first, citing D18's own finding — that
+  no diagram can be torch-backed today, so the array-API option cannot be
+  exercised — and to take the array-API pass when torch ships the attribute.
+  The revision scopes itself explicitly and names §3.3 and §10.1 as staying
+  normative; it does not mention §3, whose "This is a hard requirement, not a
+  preference: `core/` MUST be written against the array API rather than
+  hard-coded NumPy" now describes something the project has decided not to do
+  yet. Two things make this worth the lead's eye rather than a silent edit.
+  That MUST is one entry 41 promoted from lowercase at his own request, so
+  striking or scoping it reverses a keyword he asked for. And `core/` is
+  ambiguous in this document in a way that has not mattered until now: §3 and
+  §4 mean `akriti/core/`, the numerical layer, while §3.3 and §10.1 mean
+  `diagrams/core.py`, and D18's own reasoning turns on the second. The
+  interchange layer's obligations are unaffected either way.
+
 ---
 
 ## Original "Note on Dx" text
