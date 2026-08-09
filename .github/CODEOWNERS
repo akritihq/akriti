@@ -1,6 +1,8 @@
 # Code owners — automatic reviewer assignment.
 #
-# Ownership follows the decision rights in the execution plan (§4.4). Add
+# Ownership follows the project's decision rights: the lead owns the
+# specifications, the correctness-critical statistical core, and anything that
+# can widen the install closure. The rules below are the whole of it. Add
 # individual handles as PIs and developers join; team handles work today and do
 # not need updating when membership changes.
 #

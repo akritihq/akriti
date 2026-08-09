@@ -13,8 +13,9 @@ Authored by the project lead and reported on PR #10; the figures it produced
 are RFC-0001 Appendix A.6. Committed here verbatim in behaviour — only
 formatting changed, to satisfy this repository's `ruff` configuration.
 
-Appendix A.6's second table, the .npz/csv/sqlite3 format comparison, was
-reported without its script and has none here yet.
+Appendix A.6's second table, the .npz/csv/sqlite3 format comparison, has its
+own script: `payload_formats.py`, which unlike this one is self-contained and
+runs from this repository.
 """
 
 from __future__ import annotations

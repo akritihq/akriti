@@ -78,10 +78,32 @@ SIZES = (40, 1_000, 100_000, 1_000_000)
 # reaches for. `lexsort` is here because §7 forbids it and the inventory
 # should show it is numpy's own, not something compat supplies.
 SURFACE = (
-    "sort", "argsort", "concat", "take", "max", "min", "sum", "any", "all",
-    "isnan", "isinf", "isdtype", "asarray", "astype", "unique_values",
-    "nonzero", "zeros", "empty", "equal", "abs", "where", "arange",
-    "searchsorted", "cumulative_sum", "reshape", "lexsort",
+    "sort",
+    "argsort",
+    "concat",
+    "take",
+    "max",
+    "min",
+    "sum",
+    "any",
+    "all",
+    "isnan",
+    "isinf",
+    "isdtype",
+    "asarray",
+    "astype",
+    "unique_values",
+    "nonzero",
+    "zeros",
+    "empty",
+    "equal",
+    "abs",
+    "where",
+    "arange",
+    "searchsorted",
+    "cumulative_sum",
+    "reshape",
+    "lexsort",
 )
 
 
@@ -97,8 +119,9 @@ def bench(fn: Callable[[], Any], reps: int, rounds: int = 7) -> float:
     return min(once() for _ in range(rounds))
 
 
-def compare(label: str, native: Callable[[], Any], compat: Callable[[], Any],
-            reps: int) -> None:
+def compare(
+    label: str, native: Callable[[], Any], compat: Callable[[], Any], reps: int
+) -> None:
     a, b = bench(native, reps), bench(compat, reps)
     print(f"  {label:<38} {a:>13,.0f} {b:>13,.0f}  {b / a:>5.2f}x")
 
@@ -145,8 +168,10 @@ def part2_resolution() -> None:
         ("x.__array_namespace__() is numpy", x.__array_namespace__() is np),
         ("array_namespace(x) is numpy", resolve(x) is np),
         ("array_namespace(x) is compat.numpy", resolve(x) is cnp),
-        ("identity across two arrays (I7)",
-         resolve(np.zeros(1)) is resolve(np.ones(9))),
+        (
+            "identity across two arrays (I7)",
+            resolve(np.zeros(1)) is resolve(np.ones(9)),
+        ),
     ):
         print(f"  {label:<42} {held}")
 
@@ -167,24 +192,43 @@ def part3_per_op(rng: np.random.Generator) -> None:
         reps = 2_000 if n <= 1_000 else (100 if n <= 100_000 else 10)
 
         print(f"\n3. n = {n:>9,} bars                  native (ns)  compat (ns)\n")
-        compare("argsort(births, stable=True)",
-                partial(np.argsort, births, stable=True),
-                partial(cnp.argsort, births, stable=True), reps)
-        compare("sort(births, stable=True)",
-                partial(np.sort, births, stable=True),
-                partial(cnp.sort, births, stable=True), reps)
-        compare("take(births, idx)",
-                partial(np.take, births, idx), partial(cnp.take, births, idx), reps)
-        compare("concat((births, births))",
-                partial(np.concatenate, (births, births)),
-                partial(cnp.concat, (births, births)), reps)
+        compare(
+            "argsort(births, stable=True)",
+            partial(np.argsort, births, stable=True),
+            partial(cnp.argsort, births, stable=True),
+            reps,
+        )
+        compare(
+            "sort(births, stable=True)",
+            partial(np.sort, births, stable=True),
+            partial(cnp.sort, births, stable=True),
+            reps,
+        )
+        compare(
+            "take(births, idx)",
+            partial(np.take, births, idx),
+            partial(cnp.take, births, idx),
+            reps,
+        )
+        compare(
+            "concat((births, births))",
+            partial(np.concatenate, (births, births)),
+            partial(cnp.concat, (births, births)),
+            reps,
+        )
         compare("max(births)", partial(np.max, births), partial(cnp.max, births), reps)
-        compare("astype(dims, float64)",
-                partial(np.astype, dims, np.float64),
-                partial(cnp.astype, dims, cnp.float64), reps)
-        compare("§7 canonical(), three passes",
-                partial(canonical, np, dims, births, deaths),
-                partial(canonical, cnp, dims, births, deaths), reps)
+        compare(
+            "astype(dims, float64)",
+            partial(np.astype, dims, np.float64),
+            partial(cnp.astype, dims, cnp.float64),
+            reps,
+        )
+        compare(
+            "§7 canonical(), three passes",
+            partial(canonical, np, dims, births, deaths),
+            partial(canonical, cnp, dims, births, deaths),
+            reps,
+        )
         # Not a comparison: `deaths - births` dispatches on the array object and
         # never reaches a namespace, so no wrapper can sit in front of it. Shown
         # as one figure so its scale can be read against the rows above.
@@ -208,8 +252,9 @@ def part4_stability(rng: np.random.Generator) -> None:
     x = rng.random(n)
     print(f"\n4. Stability, numpy only, n = {n:,}    stable=None   stable=True\n")
     compare("np.sort(x)", partial(np.sort, x), partial(np.sort, x, stable=True), 5)
-    compare("np.argsort(x)", partial(np.argsort, x),
-            partial(np.argsort, x, stable=True), 5)
+    compare(
+        "np.argsort(x)", partial(np.argsort, x), partial(np.argsort, x, stable=True), 5
+    )
     print("\n  The standard specifies stable=True as the default for both.")
     print("  numpy's main namespace defaults to stable=None -> quicksort.")
     print("  §7 passes the keyword explicitly; nothing enforces that it keeps")
@@ -259,8 +304,10 @@ def part6_still_corrected(rng: np.random.Generator) -> None:
         ("asarray(x, device=)", partial(np.asarray, x, device="cpu")),
         ("arange(3, device=)", partial(np.arange, 3, device="cpu")),
         ("unique_values(x)", partial(np.unique_values, x)),
-        ("cumulative_sum(c, include_initial=True)",
-         partial(np.cumulative_sum, counts, include_initial=True)),
+        (
+            "cumulative_sum(c, include_initial=True)",
+            partial(np.cumulative_sum, counts, include_initial=True),
+        ),
         ("reshape(x, (2,2), copy=True)", partial(np.reshape, x, (2, 2), copy=True)),
     )
     for label, fn in probes:
@@ -275,10 +322,14 @@ def part6_still_corrected(rng: np.random.Generator) -> None:
     keys = rng.integers(0, 4, 100_000).astype(np.float64)
     stable = np.argsort(keys, stable=True)
     print()
-    print(f"  np.argsort(keys)  is the stable order       "
-          f"{np.array_equal(np.argsort(keys), stable)}")
-    print(f"  cnp.argsort(keys) is the stable order       "
-          f"{np.array_equal(cnp.argsort(keys), stable)}")
+    print(
+        f"  np.argsort(keys)  is the stable order       "
+        f"{np.array_equal(np.argsort(keys), stable)}"
+    )
+    print(
+        f"  cnp.argsort(keys) is the stable order       "
+        f"{np.array_equal(cnp.argsort(keys), stable)}"
+    )
     print("\n  §7's three-pass composition is incorrect under an unstable pass,")
     print("  so this is the one correction that still has a customer here --")
     print("  and passing stable=True buys it without the dependency.")
@@ -286,8 +337,10 @@ def part6_still_corrected(rng: np.random.Generator) -> None:
 
 def main() -> None:
     rng = np.random.default_rng(0)
-    print(f"numpy {np.__version__} | array-api-compat {array_api_compat.__version__}"
-          f" | python {sys.version.split()[0]}")
+    print(
+        f"numpy {np.__version__} | array-api-compat {array_api_compat.__version__}"
+        f" | python {sys.version.split()[0]}"
+    )
     part1_inventory()
     part2_resolution()
     part3_per_op(rng)

@@ -1465,6 +1465,160 @@ section the earlier ones had no need for.
   opened as a row because no decision is in question — only a test that does
   not exist yet.
 
+- **2026-08-09 (44)** — Third review pass on PR #10, acting on the lead's four
+  comments. **Resolves D17**; §12.1 is down to D18 alone. Also retires A.6's
+  ratios, checks in the format-benchmark script, and removes three citations to
+  an unpublished internal document ahead of the comment window.
+
+  **D17 — a fourth option, and the row had framed three.** The lead's reading
+  is that neither of the two options A.5 left was right. Against option 1, the
+  required keyword-only argument: the `reduced_homology` precedent is exact in
+  *shape* and not in *severity*, and the difference is what decides it.
+  `reduced_homology` guards a demonstrated failure — giotto returning 39 H0
+  bars where GUDHI and Ripser return 40 (A.1). A coefficient field guards a
+  failure that bites only where the data carries torsion, and for the domains
+  this library targets that is close to never: orbit5k is dynamical orbits in
+  ℝ², the single-cell data is blobs and rings in ℝ³, the chemical benchmarks
+  are graphs. Torsion in low degrees needs projective planes, Klein bottles,
+  lens spaces; ℤ/2 and ℤ/11 return identical diagrams for essentially
+  everything else. Option 1 therefore breaks three adapter signatures and puts
+  a mandatory argument on every `from_gudhi` and `from_ripser` call to guard
+  something most users cannot reach — friction charged to everyone, repaid to
+  almost nobody. Against option 3, dropping the clause: A.5 had made the
+  comment's underlying claim *stronger* than it looked, not weaker. An
+  unrecorded field is not conventionally ℤ/2, because the two backends this
+  project leans on hardest disagree by default and nothing in the artifact says
+  which produced it. That is a diagram uninterpretable in the way §8's opening
+  sentence describes.
+
+  **The fourth option is §8's own pattern.** `essential_bars` /
+  `essential_bars_source` exists for exactly this then-versus-now problem, and
+  the coefficient field has the same shape: record it, do not require it.
+  `coeff_field` stays optional; the adapter records the caller's value if one
+  arrived and the backend's documented default if none did, and
+  `provenance["coeff_field_source"]` says which. No signature changes, no
+  friction in the common case, and the diagram is never *silently* ambiguous —
+  a reader can always tell whether the value was stated or assumed, which is
+  the only thing option 3 gave up and the only thing option 1 bought.
+
+  **Why this fits where D15's `order` did not**, since the two were tested
+  against the same criterion four entries apart. `order` had no adapter-time
+  verdict worth a second key: §7 fixes every adapter's answer at `"backend"`,
+  and there was nothing else it could have said. Here there is a real verdict —
+  the backend's default is a fact the adapter knows, the caller may not, and
+  A.5 measures that nothing recovers it from the returned object afterwards.
+  That is the condition the `essential_bars_source` split exists for, and
+  `order` failing it is what made D15 a removal rather than a second key.
+
+  **One risk, and it is pinned rather than accepted.** Recording a backend
+  default is a claim about a backend, and claims about backends go stale, which
+  is what §9 is a whole section about. §9.3 now requires both defaults to be
+  asserted in CI against the installed version, so a change to `gudhi`'s or
+  `ripser`'s default breaks the build instead of silently corrupting the
+  provenance of every diagram recorded afterwards. §11.2 carries that test and
+  a second one exercising the recording in both directions — a suite testing
+  only the omitted case passes against an adapter that ignores the argument
+  outright.
+
+  **Two additions beyond what the lead specified, both flagged in the RFC for
+  him to strike.** First, `from_giotto` is excluded from the recording
+  requirement. The lead named `gudhi → 11` and `ripser → 2`; giotto's default
+  is 2 as documented but A.5 could not measure it, giotto-tda 0.6.2 not running
+  on the installed scikit-learn (§9.2), and a document that will not assert an
+  unmeasured backend fact anywhere else should not start here. The exclusion is
+  written as evidence-conditional rather than permanent: when the shim is
+  testable again, `from_giotto` joins on the same terms. Second,
+  `"backend_default"` is documented as a marked assumption rather than a
+  measurement. No backend returns the field it computed with, so an adapter
+  cannot verify the caller left the default alone: a caller who passes
+  `homology_coeff_field=3` to GUDHI and does not pass `coeff_field=3` on to
+  `from_gudhi` gets a diagram recording 11. That is a real limit of the fourth
+  option and it belongs in the text — but it replaces a *silent* assumption
+  with a marked one, since the status quo was a diagram carrying nothing and a
+  reader defaulting to ℤ/2 on a backend that uses ℤ/11.
+
+  **Where the argument is least confident, recorded in the row as the condition
+  to reopen against.** It turns on torsion being rare in this library's target
+  data, which is a judgment about users this project does not have yet rather
+  than a measurement. If §1's general-purpose framing means the
+  projective-plane user should be assumed to exist, option 1 becomes much
+  stronger: three signatures once against a wrong default forever.
+
+  **§11.2's coefficient-field MUST stays, and now says why it is not scope
+  creep.** It adds no test — it makes a test §11.2 already required actually
+  test what it claims. Unpinned, the cross-backend comparison sets GUDHI's ℤ/11
+  against Ripser's ℤ/2, which is two homology theories rather than one
+  computation done twice; on torsion-free input, which synthetic test data
+  almost always is, they agree anyway, so the test passes, establishes nothing,
+  and would keep passing straight through a genuine regression in either
+  adapter. §9.3 also now records why the clause was safe to write before D17
+  closed and stays correct after: pinning is a call parameter the test itself
+  controls, not a claim about what a returned object carries, so it never
+  depended on how the row landed.
+
+  **A.6 stops reporting multipliers, and the reason is the more useful
+  finding.** The 78× and 42× were computed against an unrounded 0.0153 s while
+  the table displayed 0.02 s, which is what prompted the check. Correcting the
+  arithmetic was not the fix. The ratio is a quotient by the fastest thing in
+  the table, so it moves with how the `.npz` baseline is sampled while nothing
+  about the formats changes: best-of-3 rather than a single run drops that
+  baseline to 0.0083 s and the same measurement then reads **149× and 99×**.
+  Rerunning the committed script on a second machine — CPython 3.14.6, numpy
+  2.5.1 — gives byte-identical sizes and 0.0226 s / 1.4781 s / 1.0339 s, which
+  is **65× and 46×**. Two machines, one script, one seed: the sizes reproduce
+  exactly, the order of magnitude holds, and the multiplier moves by more than
+  a factor of two. §12.2 names A.6 as the thing to reopen D12 against, and a
+  figure serving that purpose must not move when someone runs it on a different
+  laptop. A.6 therefore records absolute times, the sizes, and "two orders of
+  magnitude"; D12's row follows, and its reopen condition reads "two orders of
+  magnitude on load" rather than "78×". Entry 42's text is left as it was
+  written — it records what that pass did, and this entry records the
+  correction.
+
+  **A.6's table gains an `Exact` column**, the script's own assertion of
+  `float64` round-trip and `inf` preservation per format and per run. All three
+  pass. Correctness was never the discriminator between the payloads, but the
+  table now shows that rather than asserting it in prose, and a payload that
+  silently lost precision can no longer contribute a size and a time to the
+  comparison unnoticed.
+
+  **`rfcs/evidence/payload_formats.py` is checked in**, the lead's script,
+  committed verbatim in behaviour with only formatting changed for `ruff` — the
+  same treatment `bar_counts.py` got in entry 42. It is self-contained where
+  `bar_counts.py` is not: synthetic bars, `numpy` plus stdlib, no dataset
+  dependency, so it runs in CI's own environment. Generating the 1M-row CSV is
+  the slow part, around fourteen seconds end to end here. A.6's "not checked
+  in" caveat is gone, and every figure in the appendix now re-runs.
+
+  **Three citations to an unpublished internal document, removed.** The lead
+  found two in the RFC — §3's justification that the three-parallel-array
+  representation "is the right one", and §8's claim about the reproducibility
+  hash — and then a third in `.github/CODEOWNERS`, which is the more exposed of
+  the two files, since anyone browsing the repository can read it today without
+  waiting for the comment window. Both RFC citations were load-bearing rather
+  than decorative, and the notation was the problem as much as the reference:
+  `(§2.4)` is this document's own convention for self-reference, so it reads as
+  *this* RFC until a reader checks §2 and finds it has no subsections. The two
+  places asking a reader to take a conclusion on trust were the two places the
+  trail went cold. Fixed in the lead's order of preference where each allowed
+  it: §3's three bullets already carried the argument, so the citation is
+  simply dropped; §8's claim is lifted inline onto the two commitments this
+  document actually makes, §8.1's content hash and §10.1 requirement 4's
+  byte-determinism; CODEOWNERS states the ownership rule it was citing, which
+  the file's own patterns then demonstrate. A repository-wide grep confirms
+  none remain.
+
+  **Raised rather than fixed: the `onboarding §N` citations have the same
+  defect.** Twelve of them, across the RFC, `pyproject.toml`,
+  `tools/check_license_closure.py`, `tests/test_array_api_conformance.py`,
+  `probe_backends.py` and CODEOWNERS itself. They are milder, because naming a
+  document at least tells a reader the reference is external, but an outside
+  reviewer still cannot follow `onboarding §9.3` anywhere. The lead scoped his
+  grep to "execution plan" and this is a larger, separate call — whether the
+  onboarding document is published alongside the RFC, or its cited reasoning
+  gets lifted inline the way §8's just was — so it is recorded here rather than
+  decided in this pass.
+
 ---
 
 ## Original "Note on Dx" text
