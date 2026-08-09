@@ -658,10 +658,12 @@ class PersistenceDiagram:
         Canonical order is a presentation and determinism concern and MUST
         NOT be assumed by any numerical routine (§7).
 
-        `meta` carries through unchanged, `provenance["order"]` included, so
-        a diagram sorted here still reports whatever it reported before -- in
-        practice `"backend"`. That key has no specified writer for its other
-        value; §7 requires it left alone pending D15.
+        `meta` carries through unchanged. There is no order key to update:
+        D15 removed `provenance["order"]` on the ground that canonical order
+        is recoverable from the arrays in one pass, so a cached answer to it
+        could only go stale -- a diagram carrying `"canonical"` while no
+        longer being canonical is §9's clean-plausible-wrong shape, arrived
+        at by our own hand (§7, §8, §12.2).
         """
         xp = self.xp
         order = xp.argsort(self.deaths, stable=True)
@@ -1368,8 +1370,9 @@ class DiagramBatch:
         Segment lengths are unchanged, so `offsets` and `metas` carry through
         and the result skips revalidation (see `_unchecked`). This is also
         what makes §10.1's determinism requirement true for a batch and not
-        just for a single diagram. `provenance["order"]` is left alone, for
-        the reason `PersistenceDiagram.canonical()` gives (D15).
+        just for a single diagram. Each segment's `meta` carries through
+        untouched, there being no order key to update (D15; see
+        `PersistenceDiagram.canonical()`).
 
         **Eager-only (§3.3), unlike `PersistenceDiagram.canonical()`.** The
         sort is shape-preserving at both levels, but this one reaches its

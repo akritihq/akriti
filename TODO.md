@@ -49,6 +49,51 @@ mutating `core.py` until each mutation was caught, and the measurements that
 drove that are recorded in the file, since the tuning is what makes those
 tests worth their runtime.
 
+## `core.py` predates D17 and D18
+
+*`src/akriti/diagrams/core.py`, `pyproject.toml` — RFC-0001 §3.3, §8, §12.2.*
+
+Both decisions resolved in #10 after this implementation was written, so the
+spec moved underneath it. Nothing here is reachable today, which is why it is
+an entry rather than a blocker: D18's own premise is that no diagram can
+currently be torch-backed, and the adapters that would write a coefficient
+field do not exist yet. All of it becomes live the moment either changes.
+
+**Namespace resolution goes through one function (D18, §3.3).** §3.3 requires
+`namespace_of(x)` — the native `__array_namespace__` where it exists, and
+`array_api_compat.array_namespace` where it does not, which today is torch
+alone. `core.py` calls `__array_namespace__()` directly at five sites:
+`_validate_bar_arrays` (I7, and the `xp` it returns),
+`PersistenceDiagram.xp`, `DiagramBatch.__post_init__` (B5), and
+`DiagramBatch.xp`. That spelling is exactly what D18 identified as broken —
+it raises `AttributeError` on a torch tensor before reaching the identity
+question I7 and B5 exist to ask. To close: add the resolver, route all five
+through it, and keep it the only caller, since resolving two ways yields
+`array_api_compat.numpy` alongside `numpy` for one backend and fires I7's
+`is` on arrays that legitimately agree (A.7.5).
+
+**`array-api-compat` is undeclared.** §3.3 requires it in the `akriti[torch]`
+extra with a version floor, on §10.1 requirement 2's terms — lazy,
+function-scoped, unreachable on the default install. The extra is still
+`torch = ["torch>=2.0"]` and the string occurs nowhere in the repository.
+
+**`coeff_field_source` is unvalidated (D17, §8).** `DiagramMeta` must raise
+`ValueError` when it holds anything but `"caller"` or `"backend_default"`,
+and when it is present while `coeff_field` is `None` — a source describing no
+value being incoherent rather than merely weak. `_validate_provenance` covers
+`essential_bars_dropped` and `essential_bars_source` and has no branch for
+the new key. The adapter half of D17 belongs with `adapters.py`.
+
+**Three CI tests §3.3 now requires and nothing provides:** which resolution
+branch a `torch.Tensor` takes, marked on the `akriti[torch]` extra, so that
+the release closing gh-58743 breaks the build rather than quietly changing
+what `d.xp` returns; namespace identity across two arrays of each natively
+implementing backend (D16, narrowed by D18 to those backends); and a
+cross-namespace check that `essential`, `persistence`, `bar_counts` and
+`dim(k)` agree, since those accessors are built from operators the resolver
+does not reach and are safe only because I2 and §6.1 fix every operand's
+dtype.
+
 ## The conformance module still skips as one unit
 
 *`tests/test_array_api_conformance.py` — needs a CI guarantee, not a test.*
