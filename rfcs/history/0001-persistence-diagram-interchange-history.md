@@ -831,7 +831,7 @@ section the earlier ones had no need for.
   `core.py` implements `coeff_field: int | None = None`, having followed the
   prose. The comment is therefore a requirement that no clause states, no test
   can check, and the implementation does not honour — but its claim is
-  correct, since homology over ℤ/2 and ℤ/3 genuinely differ where there is
+  correct, since homology over $\mathbb{Z}/2$ and $\mathbb{Z}/3$ genuinely differ where there is
   torsion, which is the same criterion §8's opening sentence uses to justify
   recording `filtration` at all.
 
@@ -1201,8 +1201,8 @@ section the earlier ones had no need for.
   two, because what remains is whether the obligation should exist at the cost
   of a signature change on up to three adapters, which is a judgment rather
   than a further fact. One measurement sharpens it: the defaults disagree,
-  GUDHI over ℤ/11 and Ripser over ℤ/2, so an unrecorded `coeff_field` is not
-  conventionally ℤ/2 — it is unknown, and two diagrams of the same data from
+  GUDHI over $\mathbb{Z}/11$ and Ripser over $\mathbb{Z}/2$, so an unrecorded `coeff_field` is not
+  conventionally $\mathbb{Z}/2$ — it is unknown, and two diagrams of the same data from
   those two backends differ wherever the data has torsion.
 
   A.5 was measured on 2026-08-06 against `gudhi 3.13.0`, `ripser 0.6.15`,
@@ -1334,7 +1334,7 @@ section the earlier ones had no need for.
 
   **§9.3 is new, and it is not a D17 answer.** The lead's point is that the
   coefficient-field finding belongs in §9 regardless of how D17 lands. A.5
-  measured that GUDHI defaults to ℤ/11 and Ripser to ℤ/2 and that neither
+  measured that GUDHI defaults to $\mathbb{Z}/11$ and Ripser to $\mathbb{Z}/2$ and that neither
   returns the field it used, so two diagrams of the same point cloud from our
   two primary backends are computing different homology theories and agree only
   where the data is torsion-free. §9.3 records that as a delegation hazard on
@@ -1478,15 +1478,15 @@ section the earlier ones had no need for.
   bars where GUDHI and Ripser return 40 (A.1). A coefficient field guards a
   failure that bites only where the data carries torsion, and for the domains
   this library targets that is close to never: orbit5k is dynamical orbits in
-  ℝ², the single-cell data is blobs and rings in ℝ³, the chemical benchmarks
+  $\mathbb{R}^{2}$, the single-cell data is blobs and rings in $\mathbb{R}^{3}$, the chemical benchmarks
   are graphs. Torsion in low degrees needs projective planes, Klein bottles,
-  lens spaces; ℤ/2 and ℤ/11 return identical diagrams for essentially
+  lens spaces; $\mathbb{Z}/2$ and $\mathbb{Z}/11$ return identical diagrams for essentially
   everything else. Option 1 therefore breaks three adapter signatures and puts
   a mandatory argument on every `from_gudhi` and `from_ripser` call to guard
   something most users cannot reach — friction charged to everyone, repaid to
   almost nobody. Against option 3, dropping the clause: A.5 had made the
   comment's underlying claim *stronger* than it looked, not weaker. An
-  unrecorded field is not conventionally ℤ/2, because the two backends this
+  unrecorded field is not conventionally $\mathbb{Z}/2$, because the two backends this
   project leans on hardest disagree by default and nothing in the artifact says
   which produced it. That is a diagram uninterpretable in the way §8's opening
   sentence describes.
@@ -1535,7 +1535,7 @@ section the earlier ones had no need for.
   `from_gudhi` gets a diagram recording 11. That is a real limit of the fourth
   option and it belongs in the text — but it replaces a *silent* assumption
   with a marked one, since the status quo was a diagram carrying nothing and a
-  reader defaulting to ℤ/2 on a backend that uses ℤ/11.
+  reader defaulting to $\mathbb{Z}/2$ on a backend that uses $\mathbb{Z}/11$.
 
   **Where the argument is least confident, recorded in the row as the condition
   to reopen against.** It turns on torsion being rare in this library's target
@@ -1546,8 +1546,8 @@ section the earlier ones had no need for.
 
   **§11.2's coefficient-field MUST stays, and now says why it is not scope
   creep.** It adds no test — it makes a test §11.2 already required actually
-  test what it claims. Unpinned, the cross-backend comparison sets GUDHI's ℤ/11
-  against Ripser's ℤ/2, which is two homology theories rather than one
+  test what it claims. Unpinned, the cross-backend comparison sets GUDHI's $\mathbb{Z}/11$
+  against Ripser's $\mathbb{Z}/2$, which is two homology theories rather than one
   computation done twice; on torsion-free input, which synthetic test data
   almost always is, they agree anyway, so the test passes, establishes nothing,
   and would keep passing straight through a genuine regression in either
@@ -1817,6 +1817,198 @@ section the earlier ones had no need for.
   §4 mean `akriti/core/`, the numerical layer, while §3.3 and §10.1 mean
   `diagrams/core.py`, and D18's own reasoning turns on the second. The
   interchange layer's obligations are unaffected either way.
+
+- **2026-08-09 (47)** — Review pass on the RFC itself rather than on a PR. The
+  blocking group: defects that produce wrong code if implemented as written,
+  as distinct from the contradictions, stale facts and over-length prose, which
+  this pass deliberately did not touch. Keeping them apart was the review's
+  own recommendation, on the grounds that the first changes requirements and the
+  second must not.
+
+  **The defects fell into three kinds, and the kinds are more useful than the
+  list.**
+
+  *Clauses that were never checkable.* B1 read `len(offsets) == len(batch) + 1`
+  while `__len__` was defined as `offsets.shape[0] - 1`, so it expanded to
+  `offsets.shape[0] == offsets.shape[0]` — a fencepost invariant with no
+  fencepost in it, and one that had been through two invariant-tightening
+  passes (entries 31, 32) without anyone expanding the definition. Restating it
+  against `metas` both makes it non-vacuous and binds the only stored field on
+  `DiagramBatch` that no invariant reached, which is how a three-diagram batch
+  carrying two `DiagramMeta`s could satisfy B2-B7 completely and hand back the
+  wrong diagram's provenance. §9.1's "delegate on the finite parts only, handle
+  +inf bars internally, and combine responsibly" is the same failure in prose
+  rather than in a formula: three verbs standing where a requirement should be,
+  inside a MUST, in the section this document nominates as its worst delegation
+  hazard.
+
+  *Requirements that contradicted other requirements.* §6.3 stated that
+  "`inf == inf` compares equal at both levels" and then fixed `allclose`'s
+  tolerance at `|a - b| <= atol + rtol * max(|a|, |b|)`. For two matched
+  essential bars `|inf - inf|` is `NaN`, every comparison against `NaN` is
+  `False`, and the two clauses therefore disagree about whether a diagram
+  carrying an essential bar is `allclose` to itself. I5 makes that the ordinary
+  case and §11.2's first required test exercises it. The same shape appears at
+  `finitize`: I6 is checked exactly, so a finite `at` below some essential
+  bar's birth produces `death < birth` and no constructible diagram, which
+  makes the operation either an error or unimplementable — and §5's `ValueError`
+  enumeration listed neither it nor `at="max_finite_death"` on a diagram with
+  no finite death, both of which entry 32's history records as having been
+  identified and then lost in a condensation pass. `to_csv()` writing
+  `dim,birth,death` against `from_array`'s `(birth, death, dim)` is the
+  user-facing version: two clauses each correct alone, guaranteeing a silent
+  column transposition for anyone who used them together.
+
+  *Guarantees resting on mechanisms that do not provide them.* I8 offered
+  `@dataclass(frozen=True)` or "the array API standard's read-only view
+  support". Frozen prevents rebinding a field, not `d.births[0] = 5.0`. The
+  second does not exist: the standard specifies no read-only array, no
+  writeability flag and no immutable view, lists `__setitem__` among the array
+  object's methods, and its copies-views-and-mutation topic records read-only
+  views as an option considered and rejected as hard to implement and
+  backward-incompatible for strided libraries. That sentence was a claim about
+  the standard of exactly the kind D16 was careful not to make. The real hole
+  was elsewhere and unaddressed: nothing required the constructor to copy, so a
+  caller retaining a reference to the arrays it passed in could mutate a
+  diagram after construction and, through §4.2's zero-copy views, corrupt batch
+  siblings — the hazard I8 was added for. §3.1 now carries three obligations
+  and is explicit that the last step is a caller contract rather than something
+  either type can enforce, which is the honest end state given the standard.
+
+  **§9.1 resolved by specification.** The bottleneck formula was written into
+  §9.1 directly, making it the one location in `core/` that implements part of
+  a formula rather than delegating: matched essential bars cost `abs(b1 - b2)`,
+  an essential against a finite costs `+inf`, both falling out of the diagonal
+  distance `(d - b) / 2` being infinite for an essential bar. This is a
+  deliberate, named exception to the project's delegation rule rather than a
+  drift away from it — and the implementation still owes the equation citation
+  `CLAUDE.md` requires of numerical code in `core/`.
+
+  **One argument this pass lost and the subsequent improvement.** The `to_csv`
+  round-trip was first fixed by changing the file's column order to match
+  `from_array`, which subordinates the human-readable surface to a machine
+  format for no gain. Having `from_array` read column *names* where its input
+  carries them is strictly better — it fixes the round trip, leaves
+  `dim,birth,death` as the order a human wants, and generalises to any named
+  table rather than only to our own. The fallback for a nameless input stays
+  `(birth, death, dim)`, and §3.1 is what makes that safe to default to: a
+  transposed read puts the death column into `dims`, where `inf` or any
+  non-integral value fails I2 and I3 at construction. Not a proof — a diagram
+  with no essential bars and small non-negative integer coordinates survives
+  the transposition — which is why the header row is a MUST on the writing
+  side.
+
+  **Four of these fixes first landed wrong, and the pattern in them is worth
+  more than the list.** Three are the same error: fixing the instance the
+  finding named rather than the class it belonged to.
+
+  *The `finitize` fix patched one of two modes.* The rule was written as
+  "`at=<float>` MUST NOT fall below the birth of any bar it substitutes",
+  which is the shape the finding arrived in. `at="max_finite_death"` computes a
+  float and substitutes it on exactly the same path, and reaches the same I6
+  violation whenever the longest-lived finite bar dies before the last
+  essential bar is born — a Rips filtration truncated at `max_edge_length` with
+  an H1 cycle still open at the cutoff, which is ordinary rather than
+  contrived. Worse, the surviving hole failed the way §5 already rejects for
+  `at=nan`: an I6 error naming death times rather than the argument the caller
+  got wrong. The rule is now stated over the substituted death, whichever mode
+  produced it, and the error names the computed maximum in the mode where the
+  caller passed no number.
+
+  *The extended-persistence non-goal asserted something false.* It said
+  essential classes carry `death < birth` by construction and that an extended
+  diagram "cannot be constructed at all". Extended persistence has no essential
+  classes — pairing them off is the point of it — and `gudhi` 3.13.0 returns
+  four sub-diagrams of which only relative and extended− violate I6; ordinary
+  and extended+ satisfy every invariant here. That makes the §11 rejection rule
+  weaker than it was written: the 4-tuple is detectable and MUST be refused,
+  but a single member passed alone is indistinguishable from `persistence()`
+  output, so two of the four construct cleanly into a diagram this type cannot
+  mark as extended. The residual case is now stated rather than implied
+  covered. **A scope exclusion is not enforced by being declared**, and the
+  first draft of this one read as though it were.
+
+  *§9.1 replaced an unimplementable clause with an incomplete one.* "Delegate
+  on the finite parts only, handle +inf bars internally, and combine
+  responsibly" became a derivation of the per-pair cost — correct, and still
+  not an algorithm, because it named neither how essential bars are matched to
+  each other nor how the two halves combine. Both are now stated: sorted
+  pairing on births, optimal for a one-dimensional bottleneck matching, and
+  `max` of the essential cost with the backend's finite answer, the two being
+  independent because the essential pairing is forced. The exception to the
+  delegation rule is recorded as **D19** rather than left in prose, which is
+  what the review asked for and what the first attempt did not do — a
+  requirement that contradicts a project-wide hard rule needs a row, not a
+  paragraph.
+
+  *§10.1 requirement 1 was extended to batches without checking it was
+  satisfiable.* `load` returns NumPy-backed objects (§3.3) and §6.3 makes a
+  cross-namespace `==` raise `ValueError` deliberately, so a universally
+  quantified `load(p) == b` is a MUST no implementation can meet, and §11.2's
+  four new batch cases could not have passed. The `==` clause is now scoped to
+  NumPy-backed objects; `same_provenance`, which §6.3 exempts, still binds
+  every namespace. The pre-existing single-diagram clause had the same
+  problem and had gone unnoticed through six passes.
+
+  **Two structural corrections came out of the same review.** §3.3's rule that
+  `core.py` and `adapters.py` "MUST import nothing beyond the standard library"
+  is retired rather than amended. It was a proxy for §10.1 requirement 2, which
+  states the same closure over what a caller can reach instead of over which
+  files may import what — and the proxy was both stricter than intended, having
+  no reason to ban first-party imports, and silent about every module it did
+  not name. It is what produced the `to_parquet` finding in the first place,
+  and patching it to admit one more case would have kept the shape that caused
+  it. With it gone, §10.3's exporters go to `adapters.py` on their merits: they
+  are the export direction of §11's job, `to_arrays()` returns what
+  `from_persim` and `from_ripser` consume, and `to_csv()` and `from_array` are
+  now a round-trip pair that should not sit in two files. And `from_array` no
+  longer recognises `diagram_id`: it returns a `PersistenceDiagram`, and a
+  return type that changed on the presence of a column is the hazard §11 rules
+  out for `from_giotto`. A batch written by `to_csv()` therefore does not read
+  back through this adapter, which is stated as a bounded gap rather than
+  left for someone to discover.
+
+  **Four cross-references that arrived nowhere**, each one a clause citing
+  something this document never defined or never acted on.
+
+  *`same_provenance` had no definition.* It is cited in §3.2, §4.3, §6.3, §8,
+  §10.1 requirement 1 and §11.2 — including inside a MUST a `load`
+  implementation has to satisfy — and no clause said what it compares. §8 now
+  fixes it: every `DiagramMeta` field except `description`, each by `==`, with
+  `params` and `provenance` compared as mappings, which is well-defined
+  because §8 already requires their values to be JSON-representable.
+  `description` is excluded because including it would contradict §8's own
+  rule that the field acquires no machine-readable meaning without a
+  format-version bump — a field that can flip a comparison has one. A frozen
+  dataclass's generated comparison is wrong in exactly that one field, which
+  is the reason to state the rule rather than inherit it.
+
+  *The named-column form was NumPy-only.* Requiring `from_array` to read "a
+  structured or record array" put `.dtype.names` into `adapters.py`, which the
+  array API standard does not define and §3 forbids as a NumPy-shaped idiom
+  applied to a caller's array — fixing the `to_csv` round trip by breaking the
+  namespace rule one section over. A `Mapping[str, Array]` was the first
+  replacement and was worse than it looked: it makes `arr` polymorphic and has
+  the adapter stack N arrays back into the one it was going to read. **A
+  `columns=` sequence of names is the form that fits**, because it is what a
+  header row already is — `csv.reader` yields it as the first row, `loadtxt`
+  skips it, a `DataFrame` has `df.columns` — and it leaves `arr` a plain
+  `(n,3)` array on every path. `from_array` gains a second deviation and §11's
+  count moves to five.
+
+  *`load` ignored `spec`.* The schema table introduced the key to distinguish
+  a file some later RFC defines from a later revision of this one, and the
+  reject list omitted it, so the key could not do the job it was added for.
+
+  *§6.3's `+inf` clause had no test.* It was the one new requirement here with
+  nothing in §11.2 behind it, and a suite without that case passes against an
+  implementation carrying no `+inf` clause at all — on the diagrams I5 makes
+  ordinary rather than on a corner.
+
+  **Mathematical notation is LaTeX throughout**, the unicode `²`, `ℤ` and `ℝ`
+  glyphs having sat alongside it since §9.1 gained a formula. GitHub renders
+  both `$` forms and is the only renderer this document has: there is no docs
+  pipeline, and CI does not lint Markdown.
 
 ---
 

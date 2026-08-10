@@ -3,6 +3,7 @@
 | | |
 |---|---|
 | **Status** | Draft — not yet open for public comment |
+| **Version** | 0.1.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file |
 | **Author** | Sushovan Majhi |
 | **Edited By** | A. D. Silberman |
 | **Created** | 2026-07-29 |
@@ -55,6 +56,24 @@ two coexist. This is not a deprecation path and MUST NOT be read as one. The
 only forward-compatibility machinery warranted is §10.1 requirement 3's
 format version, carried in §10.2's `meta.json`, which already exists.
 
+**Non-goal: extended persistence**, on the same terms and for a nearer reason.
+GUDHI ships `extended_persistence()`, so this is a boundary a `from_gudhi`
+caller reaches with one documented call rather than a hypothetical one. Its
+output is not this type, and it is worth being exact about why, because the
+reason is not uniform across what that call returns. Extended persistence has
+no essential classes — pairing them off is the point of it — and returns
+**four** sub-diagrams: ordinary, relative, extended+ and extended−. The
+relative and extended− bars carry `death < birth` by construction rather than
+as a backend defect, which I6 (§3.1) forbids exactly. The ordinary and
+extended+ bars satisfy every invariant in this document and are still not
+interchangeable with an ordinary diagram's, because nothing in this type
+records which of the four families a bar came from.
+
+Support therefore requires a fourth per-bar field carrying that family, and
+every invariant, accessor and adapter in this document would have to say what
+it means for each. A parallel type again, not a column. §11 states what
+`from_gudhi` can and cannot do about it.
+
 ---
 
 ## 2. Definitions
@@ -99,12 +118,12 @@ exposed the method.
 This is a hard requirement, not a preference: `core/` MUST be written against
 the array API rather than hard-coded NumPy, and `PersistenceDiagram` is the
 input to every function in `core/`. §3.3 states what this does and does not
-promise. This is a strictly stronger obligation than §3.3's stdlib-only MUST,
-not a restatement of it: importing nothing third-party forbids *calling*
-NumPy, while writing against the array API additionally rules out
-NumPy-shaped idioms applied to an array the caller handed in — which is what
-§7's `lexsort` prohibition and §4.2's `len()`-versus-`shape[0]` rule are both
-instances of.
+promise. This is a strictly stronger obligation than the dependency closure
+§10.1 requirement 2 sets, not a restatement of it: keeping third-party
+libraries off a caller's path forbids *calling* NumPy, while writing against
+the array API additionally rules out NumPy-shaped idioms applied to an array
+the caller handed in — which is what §7's `lexsort` prohibition and §4.2's
+`len()`-versus-`shape[0]` rule are both instances of.
 
 `xp` is a derived **property**, not a fourth stored field: I7 already
 requires `dims`, `births`, and `deaths` to share one namespace, so deriving
@@ -134,24 +153,70 @@ these at construction and MUST NOT permit an invalid instance to exist.
 | I5 | `deaths` are non-`NaN`; `+inf` permitted; `-inf` forbidden | §5 |
 | I6 | `deaths >= births` elementwise | definitional |
 | I7 | all three arrays share one namespace — `namespace_of(births) is namespace_of(deaths) is namespace_of(dims)` | §3.3; resolved by the one rule, never by calling `__array_namespace__` here (D18); the `is` is identity by requirement (D16), verified in CI |
-| I8 | `PersistenceDiagram` is immutable after construction — no method may write to `dims`, `births`, or `deaths` in place, and none may rebind them | §4.2 |
+| I8 | `PersistenceDiagram` is immutable after construction — no method may write to `dims`, `births`, or `deaths` in place, and none may rebind them; public construction copies rather than aliasing the caller's arrays | §4.2; the three obligations and the one that stays a caller contract are below |
 | I9 | `dims`, `births`, `deaths` are each rank-1 (`ndim == 1`) | §3, shape `(n,)` |
 
 **I6 is checked exactly, not within tolerance.** A backend that returns
-`death < birth` has a bug (excluding extended persistence), and we surface it
-rather than absorb it. Observed floating-point violations are a real occurrence
-at the 1e-16 level in some filtration code; the adapter (not the core type) is
-the correct place to clamp, and it MUST warn when it does.
+`death < birth` has a bug, and we surface it rather than absorb it. Observed
+floating-point violations are a real occurrence at the 1e-16 level in some
+filtration code; the adapter (not the core type) is the correct place to clamp,
+and it MUST warn when it does. Extended persistence is the one setting where
+`death < birth` is not a bug — its relative and extended− bars carry it by
+construction — and it is out of scope (§1).
 
-**I8 exists because §4.2 already assumes it.** `DiagramBatch.__getitem__`
-returns a `PersistenceDiagram` whose arrays are views into the batch's shared
-buffer, not copies, and that is only safe if nothing can write through one
-view and corrupt a sibling diagram or the batch itself. Every method that
-looks like a mutation (`finitize`, anything in §3.2) MUST construct and return
-a new `PersistenceDiagram` rather than modify `self`. This SHOULD be enforced
-the same way `DiagramMeta` already is (`@dataclass(frozen=True)`, §8); an
-implementation that relies on the array API standard's read-only view support
-instead MUST document that as an equivalent guarantee.
+**I8 exists because §4.2 already assumes it, and it takes three separate
+obligations to deliver.** `DiagramBatch.__getitem__` returns a
+`PersistenceDiagram` whose arrays are views into the batch's shared buffer, not
+copies, and that is only safe if nothing can write through one view and corrupt
+a sibling diagram or the batch itself.
+
+- **No method of either type may mutate.** Every method that looks like a
+  mutation (`finitize`, anything in §3.2) MUST construct and return a new
+  `PersistenceDiagram` rather than modify `self`. `DiagramBatch` is under the
+  same rule, stated as B8 (§4.2): its buffers *are* every member diagram's
+  arrays, so a batch-level in-place write is a write to N diagrams at once.
+- **`@dataclass(frozen=True)` is the mechanism, and it is not sufficient by
+  itself.** Both types SHOULD be frozen, as `DiagramMeta` already is (§8).
+  What frozen buys is that `d.births = other` raises; what it does not touch
+  is `d.births[0] = 5.0`, which reaches the array through an attribute the
+  dataclass never sees assigned. **The array API standard supplies nothing
+  that closes the gap, having considered it and declined.** It specifies no
+  read-only array, no writeability flag and no immutable view; it lists
+  `__setitem__` among the array object's methods; and its
+  copies-views-and-mutation topic records read-only views as a rejected option,
+  "hard to implement" and a backward-compatibility problem "for current strided
+  array libraries", offering in their place the advice to avoid mutating
+  anything that might be a view.
+- **Public construction MUST NOT alias an array the caller retains.** This is
+  the hole the other two leave open, and the one I8 was added for: a caller who
+  passes an array to `from_array` (§11) or to the constructor, keeps their own
+  reference, and writes through it afterwards has mutated a constructed
+  diagram, without any method of ours having run. Every **public** construction
+  path — the `PersistenceDiagram` constructor, every `from_*` adapter, and
+  `DiagramBatch.from_diagrams` — MUST therefore copy the arrays it is given
+  rather than store them. The cost is one copy at a boundary that is already
+  copying in the common case (§6.1 has adapters upcast `float32`, and
+  `from_diagrams` concatenates), and it is what makes the immutability the rest
+  of this section reasons from actually true of a constructed object.
+  **`DiagramBatch` MUST copy the `metas` sequence on the same rule**, B1 (§4.2)
+  being stated over its length: a caller who appends to a list they passed in
+  would otherwise break an invariant after the construction that enforced it.
+  The elements need no copying — `DiagramMeta` is frozen (§8) — only the
+  sequence holding them.
+
+**`DiagramBatch.__getitem__` is the deliberate exception to the third rule and
+MUST NOT be implemented through the public path.** It aliases on purpose (§4.2)
+and is safe for precisely the reason a caller-supplied array is not: both ends
+of the alias are objects this document forbids anyone to write to, and neither
+is reachable by a caller who held a reference before the batch existed.
+
+**What remains unenforceable MUST be documented rather than implied.** After
+all three rules, `d.births[0] = 5.0` still runs on every backend, because no
+array library in scope offers a way to stop it. I8 is a contract on callers at
+that last step, not a guarantee the type can make, and the class docstring MUST
+say so — a reader who has been told the type is immutable and finds that a
+subscript assignment works will conclude the immutability is nominal
+everywhere, including at the two places above where it is real.
 
 ### 3.2 Accessors
 
@@ -248,13 +313,16 @@ converting at the I/O boundary via `np.asarray` and returning NumPy-backed
 diagrams on load — serialization is not a numerical kernel, so there's
 nothing to gain from making it generic, but the conversion MUST happen at
 that boundary only, never in the constructor or an adapter. This does not
-make `numpy` a dependency of the package: `diagrams/core.py` and
-`diagrams/adapters.py` MUST import nothing beyond the standard library, save
-for the single lazy import §3.3's namespace resolution rule carries, which no
-caller can reach without having installed the backend that triggers it.
-`numpy` is used **only** inside `save`/`load`, imported lazily there rather
-than at module scope, so everything except serialization works with zero
-third-party dependencies (§10.1 requirement 2).
+make `numpy` a dependency of the package. **What constrains `core.py` and
+`adapters.py` is §10.1 requirement 2**, which sets the closure over what a
+caller can reach rather than over which files may import what: nothing
+third-party on any path reachable without a backend the caller installed
+themselves, and every exception lazy, function-scoped, declared as an install
+extra, and failing actionably on both absence and an unsatisfied floor. §3.3's
+namespace resolution rule, `save`/`load`'s `numpy` and §10.3's `to_parquet`
+are the three that currently meet it. `numpy` is used **only** inside
+`save`/`load`, imported lazily there rather than at module scope, so
+everything except serialization works with zero third-party dependencies.
 
 **The floor is `numpy>=2.0`, and it is declared rather than assumed.**
 Array-API support in NumPy's main namespace landed in 2.0; a `numpy` older
@@ -509,15 +577,20 @@ class DiagramBatch:
 array API standard does not require an array object to implement `__len__`,
 so `len(offsets)` and `len(dims)` are NumPy habits that §3.3's whole argument
 rules out; `core.py` reads `.shape[0]` throughout. Where this document writes
-`len(...)` of an array — I1, B1, B3, and §4.3's batch total — it is
-shorthand for `shape[0]` and MUST be implemented as such. `len(batch)` and
-`len(diagrams)` are ordinary Python and unaffected.
+`len(...)` of an array — I1, B3, B1's `offsets`, and §4.3's batch total — it is
+shorthand for `shape[0]` and MUST be implemented as such. `len(batch)`,
+`len(diagrams)` and B1's `len(metas)` are ordinary Python over ordinary
+sequences and unaffected; B1 is the one invariant spanning both, and each side
+takes the spelling its own operand requires.
 
 `__getitem__` MUST return a **view**: a `PersistenceDiagram` whose arrays are
-slices into the batch's own buffers, not a copy. This is safe only because
-`core.py` gives `PersistenceDiagram` no mutating methods (I8, §3.1); there is
-no aliasing hazard from two objects sharing memory when neither can be written
-to after construction.
+slices into the batch's own buffers, not a copy. This is safe on three
+conditions (§3.1): neither type has a method that writes in
+place (I8, B8), a batch's buffers were copied at construction rather than
+aliased from a caller's arrays (I8's third rule, which `from_diagrams` gets for
+free from `concat`), and the residual hole — a caller subscript-assigning into
+`b.dims` or `b[i].births`, which no array library in scope can prevent — is
+documented as a contract rather than presented as a guarantee.
 
 **`offsets` has its own invariants, and `core.py` MUST enforce them at
 `DiagramBatch` construction, the same way §3.1 enforces I1 through I9 for a
@@ -525,19 +598,42 @@ single diagram:**
 
 | # | Invariant | Rationale |
 |---|---|---|
-| B1 | `len(offsets) == len(batch) + 1` | fencepost: `n` diagrams need `n+1` boundaries |
+| B1 | `len(offsets) == len(metas) + 1` | fencepost: `n` diagrams need `n+1` boundaries. Stated against `metas`, not `len(batch)`, for the reason below |
 | B2 | `offsets[0] == 0` | buffer has no unowned leading bars |
 | B3 | `offsets[-1] == total_bars` (i.e. `len(dims)`) | buffer has no unowned trailing bars; bounds the last diagram's slice |
 | B4 | `offsets` is non-decreasing | row ranges must not overlap or invert |
 | B5 | `namespace_of(offsets)` matches `dims`, `births`, `deaths` | §3.3; resolved by the one rule (D18); "matches" is identity, required of supported backends (D16) |
 | B6 | `offsets` is rank-1 (`ndim == 1`) | I9's rationale, applied to `offsets`: a wrong-rank array of the right length passes B1 unnoticed |
 | B7 | `offsets.dtype` is the namespace's own `int64` | the class body above already says `int64`; stated as an invariant so it is enforced and citable like the rest |
+| B8 | `DiagramBatch` is immutable after construction — no method may write to `dims`, `births`, `deaths` or `offsets` in place, none may rebind them, and `metas` is not mutated | I8 one field-set over; these buffers *are* the member diagrams' arrays, so one batch-level write is N diagram-level writes |
 
 B6 and B7 were implicit before: the class body declares `offsets` `int64` of
 shape `(len(batch)+1,)`, and B1 through B5 then quietly assume both. B1's
 `len(offsets)` reads `shape[0]`, which is happy to answer for a rank-2 array —
 exactly the gap I9 was added to close for `dims`/`births`/`deaths`, and the
 same gap, one field over. Neither is a new requirement, only a stated one.
+
+**B1 is stated against `metas` because the `len(batch)` form was a check that
+could not fail.** `__len__` is defined in the class body above as
+`offsets.shape[0] - 1`, so `len(offsets) == len(batch) + 1` expands to
+`offsets.shape[0] == offsets.shape[0]`: a fencepost invariant with no
+fencepost in it. `metas` is what the fencepost actually binds. It is the one
+stored field no other invariant reaches — B2 through B7 are all about
+`offsets` and the buffers — so a three-diagram batch carrying two
+`DiagramMeta`s satisfies every one of them, and `b[2].meta` then raises
+`IndexError` from somewhere deep in `__getitem__`, or, on any implementation
+that zips or cycles, `b[1].meta` quietly returns the wrong diagram's
+provenance. That is §9's silent-wrongness category arriving by our own hand, in
+the field §8 exists to make auditable. Where this document writes `len(batch)`
+elsewhere — §4.3's `bar_counts` shape, §8.2's hash length, §10.2's `offsets`
+length — it is naming a derived quantity, not restating B1.
+
+**B8 is what this section has been assuming throughout**: every argument here
+for why a zero-copy `__getitem__` is safe is an argument about what cannot be
+written to, and it is `DiagramBatch` that is on the other end of those views.
+§3.1's I8 discussion carries the enforcement mechanisms for both types,
+including which part of the guarantee is a caller contract rather than
+something either type can enforce.
 
 Without B1 through B7, `__getitem__`'s slice arithmetic can silently read the
 wrong range, or read past the end of the buffer, which is the same category of
@@ -753,9 +849,11 @@ distinction the two exceptions carry in every other Python API a caller of
 this one will have used, and §6.3's `allclose` and §8's `same_provenance`
 already raise `TypeError` on a wrong-typed argument one signature over.
 `ValueError` is for an `at` of the right type carrying a value this method
-cannot use — an unrecognised mode name, or the non-finite float the next
-paragraph rules out. The split is by what is wrong with the call, not by
-which check happened to catch it.
+cannot use — an unrecognised mode name, the non-finite float the next paragraph
+rules out, a substituted death below an essential bar's birth that the paragraph
+after it rules out, or `at="max_finite_death"` on a diagram that has no finite
+death to take a maximum over. The split is by what is wrong with the call, not
+by which check happened to catch it.
 
 **`at=<float>` MUST be finite.** `at=+inf` substitutes an infinity for an
 infinity: nothing changes, every essential bar is still essential, and
@@ -772,8 +870,43 @@ record described work that reached no bar, here it describes work that
 reached every essential bar and changed none of them. `at=nan` is excluded by
 I5 in any case, but only incidentally, and with an error naming death times
 rather than the argument the caller actually got wrong; both MUST raise on
-the argument. `at="max_finite_death"` needs no such check — I5 already
-guarantees the maximum it takes is over finite values.
+the argument.
+
+**The substituted death MUST NOT fall below the birth of any bar it replaces**,
+and `finitize` MUST raise `ValueError` when it does. This binds **both**
+substituting modes, not only the explicit float. I6 is checked exactly (§3.1),
+so a substituted death less than some essential bar's birth produces
+`death < birth` and no valid diagram exists to return: `finitize` either raises
+or is unimplementable. The check is
+`substituted >= xp.max(births[essential])`, over the essential bars alone, since
+every other bar keeps the death it already had and already satisfies I6. It is
+vacuous on a diagram with no essential bars, which the return-unchanged rule
+above has already returned before this point is reached.
+
+The two modes reach it differently and the error MUST say which. For
+`at=<float>` this is not a hazard a caller can be expected to see coming: `at`
+is naturally read as "the value I want infinity replaced by", and on a
+filtration whose births are all positive, a plausible `at=0.0` is a
+`ValueError` rather than the drop-to-the-diagonal it looks like. For
+`at="max_finite_death"` the offending value is one this method computed itself,
+so the message MUST name the computed maximum as well as the birth it fell
+below — a caller who passed no number has none to correlate a complaint
+against. That mode reaches the condition whenever the longest-lived finite bar
+dies before the last essential bar is born: a Rips filtration truncated at
+`max_edge_length` with an H1 cycle still open at the cutoff is the ordinary
+case, the finite deaths all sitting below the cycle's birth. Leaving this to
+I6 at construction was the alternative and it is the one §5 already rejects for
+`at=nan` — an error naming death times rather than the argument the caller
+actually got wrong.
+
+**`at="max_finite_death"` MUST also raise `ValueError` on a diagram whose bars
+are all essential**, with an error naming the mode and the absence of any finite
+death. This is the separate case where there is no maximum to take rather than
+one that lands too low. I5 guarantees no `NaN` and no `-inf`; it does not
+guarantee that a finite death exists at all. `d.dim(k)` on a degree whose only
+class is essential reaches this directly, and so does any H0 diagram of a
+filtration whose complex is connected from its first value — a cubical or
+lower-star filtration on connected data, not a constructed edge case.
 
 **`finitize` overwrites `essential_bars`, and MUST NOT write
 `provenance["essential_bars_source"]`, which is the adapter's (§8).**
@@ -968,7 +1101,9 @@ Ripser's `float32` reality: a cross-backend test MUST pass an explicit
 precision difference. A default that silently absorbs `1e-6` would hide genuine
 disagreement everywhere else.
 
-`inf == inf` compares equal at both levels. `NaN` cannot occur (I4, I5).
+`inf == inf` compares equal at both levels. `NaN` cannot occur (I4, I5). `==`
+gets this from IEEE equality directly; `allclose` gets it from an explicit
+clause below, its tolerance formula being unable to deliver it.
 
 **Comparing two diagrams backed by different array namespaces MUST raise
 `ValueError`, at both levels and in both methods.** I7 constrains the three
@@ -1031,10 +1166,11 @@ this section exists to prevent.
 **The implementation MUST NOT introduce a dependency.** §3.3 and §10.1
 requirement 2 give this module the standard library and the caller's
 namespace, so `scipy.sparse.csgraph.maximum_bipartite_matching` is
-unavailable, and a lazy import on a comparison path is a worse trade than
-requirement 2's narrow one at the `save`/`load` boundary. An augmenting-path
+unavailable — requirement 2 names comparing a diagram among the paths that
+MUST NOT reach a third-party library, so this is a path already closed rather
+than a trade to weigh. An augmenting-path
 matching is sufficient at the sizes this method serves; Hopcroft–Karp's
-asymptotics are not needed. Edge construction is O(n²), and `allclose` is a
+asymptotics are not needed. Edge construction is $O(n^{2})$, and `allclose` is a
 verification surface rather than a numerical inner loop.
 
 **This is not bottleneck distance and MUST NOT be refactored into it.** "Does
@@ -1050,6 +1186,19 @@ MUST NOT be built on this method.
 `numpy.allclose`, which scales `rtol` by its second argument alone and so
 permits `d1.allclose(d2)` and `d2.allclose(d1)` to disagree at the boundary.
 The divergence MUST be documented in the method's own docstring.
+
+**`+inf` deaths are matched exactly and MUST NOT be put through that formula.**
+A matched pair agrees on `death` iff both deaths are `+inf`, or both are finite
+and satisfy the tolerance; exactly one `+inf` never agrees, at any `atol` or
+`rtol`. Without this clause the formula contradicts §6.3's own "`inf == inf`
+compares equal at both levels" three paragraphs up, and does so on the common
+case rather than a corner: `|inf - inf|` evaluates to `NaN`, every comparison
+against `NaN` is `False`, and a diagram carrying an essential bar is therefore
+not `allclose` to itself. `births` need no counterpart clause — I4 makes every
+birth finite — and `NaN` cannot occur on either coordinate (I4, I5), so this is
+the whole of the non-finite handling `allclose` requires. `==` needs no clause
+at all: IEEE equality gives `inf == inf` directly, which is why the
+contradiction was reachable only on the approximate side.
 
 **`allclose` is reflexive and symmetric but not transitive, and MUST be
 documented as not an equivalence relation.** `==` is one, and callers will
@@ -1137,11 +1286,14 @@ respects segment boundaries.
 
 ## 8. Metadata and provenance
 
-Metadata is not decoration. A diagram whose filtration and scale are unknown
-cannot be interpreted, and this document commits twice over to a diagram being
-checkable after the fact — §8.1's content hash, and §10.1 requirement 4's
-byte-determinism — neither of which is worth much attached to an artifact
-whose provenance was never recorded.
+Metadata is not decoration. A diagram records the outcome of a computation and
+not the computation: two diagrams with identical bars can come from different
+filtrations, different backends, different scale parameters and different
+coefficient fields (§9.3), and nothing in the bars distinguishes them. This
+document also commits twice over to a diagram being checkable after the fact —
+§8.1's content hash, and §10.1 requirement 4's byte-determinism — neither of
+which is worth much attached to an artifact whose provenance was never
+recorded.
 
 ```python
 @dataclass(frozen=True)
@@ -1153,12 +1305,36 @@ class DiagramMeta:
     params:          Mapping[str, Any]  # max_edge_length, max_dimension,
                                          # reduced_homology, ...
     provenance:      Mapping[str, Any]  # adapter-recorded facts; see below
-    space:           str | None   # free-text description of the underlying data
+    description:     str | None   # free-text description of the underlying data
 ```
 
 All fields are optional — a diagram typed in by hand from a paper is a valid
 diagram — but `from_*` adapters MUST populate `backend`, `backend_version`, and
 `provenance`.
+
+**An adapter MUST also populate `filtration` where its own input form
+determines it, and MUST NOT guess otherwise.** One adapter is in that
+position: `ripser(X)` and `Rips().fit_transform(X)` compute a Vietoris–Rips
+filtration and nothing else, so `from_ripser` MUST record
+`filtration = "rips"`, which is a fact about the call it was handed rather
+than an inference about what the caller meant. The others cannot: a GUDHI
+`SimplexTree` carries no record of what built it — Rips, alpha, cubical and
+lower-star all arrive as the same object — `from_giotto` receives a bare array,
+and `from_array` and `from_persim` have no backend to ask. Those MUST leave
+`filtration` at whatever the caller passed through `**meta`, `None` included.
+This is the same rule §11 applies to `coeff_field`, one field over: record what
+the adapter knows, mark what it assumed, invent nothing.
+
+**`description` is caller-supplied free text and carries no obligation on
+anyone.** No adapter can write it — none of the five receives the underlying
+data, only a computed result — no clause in this document reads it, and it
+takes no part in `==`, `allclose`, `content_hash`, or `same_provenance`, which
+excludes it by name for this reason (below). It is here because a diagram typed
+in from a paper has somewhere to say what it is a diagram *of*, and for nothing
+else. It MUST NOT acquire a machine-readable meaning — an enum, a parsed
+grammar, an equality that turns on it — without a format-version bump (§10.1
+requirement 3). It is the only `DiagramMeta` field no comparison in this
+document reads, and `save`/`load` still round-trip it like any other.
 
 `provenance` is the honest-accounting channel. Reserved keys:
 
@@ -1173,8 +1349,11 @@ diagram — but `from_*` adapters MUST populate `backend`, `backend_version`, an
 | `padding_removed` | count of trivial rows stripped as suspected batch padding |
 
 Every value in `params` and `provenance` MUST be JSON-representable —
-`str`, `int`, `float`, `bool`, `None`, or a list or `str`-keyed mapping of
-those. §10.2 stores both as UTF-8 JSON in `meta.json`, so a mapping holding a
+`str`, `int`, **finite** `float`, `bool`, `None`, or a list or `str`-keyed
+mapping of those. Non-finite floats are excluded by that word and not by
+implication: `inf` and `NaN` are Python `float`s with no JSON spelling, and
+`max_edge_length` on an untruncated Rips filtration is an `inf` every GUDHI
+caller has. §10.2 stores both as UTF-8 JSON in `meta.json`, so a mapping holding a
 NumPy scalar, a `Path`, or a backend object is a diagram that satisfies §3.1
 and §8 completely and cannot be saved. Without this constraint the type
 admits diagrams that requirement 1 (§10.1) cannot round-trip, and the failure
@@ -1272,12 +1451,12 @@ stays optional, as the prose above already has it; what changes is that an
 adapter is no longer allowed to leave it silent. Where the backend takes a
 coefficient parameter, §11 requires the adapter to record the value the caller
 passed, or the backend's own documented default if the caller passed nothing —
-GUDHI's ℤ/11, Ripser's ℤ/2 (§9.3) — and to say which of the two it did. The
+GUDHI's $\mathbb{Z}/11$, Ripser's $\mathbb{Z}/2$ (§9.3) — and to say which of the two it did. The
 condition D15 tested `order` against is what `order` failed and this passes:
 **the backend's default is a fact the adapter knows, the caller may not, and no
 later inspection can recover** — A.5 measures that no backend returns the field
 it computed with, so an unrecorded value is unknown rather than conventionally
-ℤ/2, and a value recorded without its source is a number a reader cannot tell
+$\mathbb{Z}/2$, and a value recorded without its source is a number a reader cannot tell
 was chosen or assumed. Recording both costs no signature change and no
 friction in the common case, and it leaves the diagram never *silently*
 ambiguous, which is the whole of what a required argument would have bought.
@@ -1290,6 +1469,30 @@ is available for the cases that genuinely care, and `DiagramBatch` gets the
 same method: `b1.same_provenance(b2)` requires `len(b1) == len(b2)` and
 `b1[i].same_provenance(b2[i])` for every `i` in sequence, order-sensitive the
 same way `==` and `allclose` are (§6.3).
+
+**`same_provenance` compares every `DiagramMeta` field except `description`,
+each by `==`, and this MUST be specified rather than left to a dataclass's
+generated comparison.** `filtration`, `backend`, `backend_version` and
+`coeff_field` compare as scalars; `params` and `provenance` compare as
+mappings, which is well-defined because §8 already requires every value in
+them to be JSON-representable, and exact because it is the same equality a
+`load` has to reproduce for §10.1 requirement 1's second clause. The method
+returns `bool`, raises `TypeError` on an argument that is not a diagram (§5
+relies on this), and is exempt from §6.3's cross-namespace `ValueError`,
+touching no array.
+
+**`description` is excluded, and the exclusion is what keeps §8's own rule
+true.** This section requires `description` to acquire no machine-readable
+meaning without a format-version bump; a field that can flip
+`same_provenance` from `True` to `False` has one. Two diagrams recording the
+same filtration, backend, version, field, parameters and provenance differ in
+nothing a reader is entitled to act on, and the free text one of them carries
+about what the data *was* is not a sixth fact about the computation. A caller
+who wants it compared has the field and can compare it.
+
+The default a frozen dataclass would generate — compare all seven — is
+therefore wrong here in exactly one field, which is the reason to write the
+rule down rather than inherit it.
 
 ### 8.1 Content hash
 
@@ -1465,13 +1668,59 @@ turned warnings off.
 **Requirement on `core/distances.py`.** Before delegating, it MUST partition
 both diagrams by `essential`. If the essential-bar counts differ **per
 dimension**, the distance is `+inf` and MUST be returned as such without calling
-the backend. If they agree, delegate on the finite parts only, handle +inf bars
-internally, and combine responsibly. It MUST NOT pass a diagram containing `inf`
-to persim.
+the backend. If they agree, it MUST delegate the finite parts, and it MUST NOT
+pass a diagram containing `inf` to persim under any circumstances.
+
+**The essential part is then computed here rather than delegated — the one
+place this document requires a consumer to implement part of a distance rather
+than call one (D19).** The bottleneck distance is
+
+$$
+d_{B}(D_{1}, D_{2}) = \inf_{\gamma} \sup_{p \in D_{1}} \lVert p - \gamma(p) \rVert _{\infty}
+$$
+
+over bijections $\gamma : D_{1} \cup \Delta \to D_{2} \cup \Delta$, where the
+cost of sending a bar $p = (b, d)$ to the diagonal is
+
+$$
+\lVert p - \bar{p} \rVert _{\infty} = \frac{d - b}{2}
+$$
+
+That cost is $+\infty$ for an essential bar, and so is
+$\lVert p - q \rVert _{\infty}$ for $p$ essential and $q$ finite. An essential
+bar can therefore be matched only to another essential bar, at cost
+$\lvert b_{1} - b_{2} \rvert$. Within each dimension:
+
+- **Essential bars pair by sorted birth.** Sort each side's essential births
+  ascending, $\beta^{1}_{1} \le \cdots \le \beta^{1}_{m}$ and
+  $\beta^{2}_{1} \le \cdots \le \beta^{2}_{m}$ — equal in count, or the
+  `+inf` above already returned — and pair them by index. Sorted pairing
+  minimises the largest $\lvert \beta^{1}_{i} - \beta^{2}_{i} \rvert$ over
+  one-dimensional data, so no search is needed:
+
+$$
+d_{\mathrm{ess}} = \max_{1 \le i \le m} \lvert \beta^{1}_{i} - \beta^{2}_{i} \rvert
+$$
+
+  with $d_{\mathrm{ess}} = 0$ when $m = 0$.
+
+- **Combine with $\max$, never a sum:**
+
+$$
+d_{B}(D_{1}, D_{2}) = \max \left( d_{\mathrm{ess}}, \; d_{B}\left( D_{1}^{\mathrm{fin}}, D_{2}^{\mathrm{fin}} \right) \right)
+$$
+
+  the second term being persim's answer on the two finite sub-diagrams.
+  Bottleneck is a supremum over a single matching, and the essential pairing
+  being forced makes the two sub-problems independent, so minimising each and
+  taking the larger is the same as minimising the whole.
 
 This is a guardrail: a negative result about a dependency, converted into a
-safety feature. It should be documented publicly; it is a genuine
-contribution and costs us nothing.
+safety feature, worth documenting publicly. It is also a named exception to the
+project's delegation rule rather than a drift away from it, which is why it
+carries a decision row; the implementation owes the equation citation
+`CLAUDE.md` requires of numerical code in `core/`, and its tests owe the
+separate-session rule that file states for numerical code.
 
 ### 9.2 giotto-tda 0.6.2 does not run on current scikit-learn
 
@@ -1523,8 +1772,8 @@ NOT be read while implementing `compat/`.*
 
 | Backend | Parameter | Default |
 |---|---|---|
-| GUDHI | `SimplexTree.persistence(homology_coeff_field=...)` | **11** — ℤ/11 |
-| Ripser | `ripser(..., coeff=...)` | **2** — ℤ/2 |
+| GUDHI | `SimplexTree.persistence(homology_coeff_field=...)` | **11** — $\mathbb{Z}/11$ |
+| Ripser | `ripser(..., coeff=...)` | **2** — $\mathbb{Z}/2$ |
 
 Measured; Appendix A.5 carries the run, the environment, and the finding that
 **neither backend returns the field it used**, so nothing in either returned
@@ -1571,8 +1820,8 @@ call parameter on each (A.5) — so this costs nothing, and it removes the one
 place in this document's own test suite where the hazard is otherwise live.
 
 **This clause does not add a test; it makes a test §11.2 already requires
-test what it claims.** Unpinned, that comparison sets GUDHI's ℤ/11 against
-Ripser's ℤ/2 — two homology theories, not one computation done twice. On
+test what it claims.** Unpinned, that comparison sets GUDHI's $\mathbb{Z}/11$ against
+Ripser's $\mathbb{Z}/2$ — two homology theories, not one computation done twice. On
 torsion-free input, which synthetic test data almost always is, they agree
 anyway, so the test passes, establishes nothing, and would go on passing
 through a genuine regression in either adapter. Pinning both sides is what
@@ -1594,8 +1843,9 @@ diagram it is handed, the other what our own test asks the backends for.
 The five requirements below are normative, and each states an obligation on
 the on-disk format and on `save`/`load`.
 
-1. **Round-trips exactly.** `load(dump(d)) == d` MUST hold, including `inf` and
-   multiplicity, **and `load(dump(d)).same_provenance(d)` — metadata
+1. **Round-trips exactly.** With `save(d, p)` having written the file,
+   `load(p) == d` MUST hold, including `inf` and multiplicity, **and
+   `load(p).same_provenance(d)` — metadata
    round-trips too.** The second clause is not redundant. §8 requires `meta`
    to take no part in `==`, so a `load` that silently discarded every byte of
    `params` and `provenance` would satisfy the first clause completely. §5
@@ -1605,20 +1855,46 @@ the on-disk format and on `save`/`load`.
    there is no such diagram unless `load` preserves provenance. The two
    clauses cover the two halves of a diagram that `==` deliberately splits,
    and requirement 1 needs both.
+
+   **Both clauses bind `DiagramBatch` on the same terms**: with `save(b, p)`
+   having written the file, `load(p) == b` and `load(p).same_provenance(b)`
+   MUST hold for every batch this document admits, the empty one included
+   (§4.2). Batch equality and `same_provenance` are order-sensitive across
+   diagrams (§6.3, §8), so a `load` that recovered every diagram intact and
+   in the wrong order satisfies neither clause, which is the property that
+   makes this worth stating separately rather than reading as implied by the
+   single-diagram case: `offsets` and the `metas` list are the two things a
+   batch round-trip can lose, and neither exists in the previous case. §11.2
+   tests the batch path as its own case.
+
+   **The `==` clause is stated over NumPy-backed objects, because that is what
+   `load` returns** (§3.3). §6.3 makes a cross-namespace `==` raise
+   `ValueError` deliberately, so `load(p) == d` on a JAX-backed `d` raises
+   rather than answering `False` — the comparison is not weaker for other
+   namespaces, it is unavailable, and requirement 1 would otherwise be a MUST
+   no conforming implementation could satisfy. `save` MUST still accept a
+   diagram or batch backed by any namespace, converting at the I/O boundary
+   only (§3.3); what a caller wanting the comparison does is convert at their
+   own boundary first, which §6.3 already names as the remedy. **The
+   `same_provenance` clause carries no such restriction** and binds every
+   namespace: §6.3 exempts it from the cross-namespace raise, it touching no
+   array. §11.2's round-trip cases are NumPy-backed for this reason, and are
+   the one part of that suite §3.3's `array_api_strict` run cannot cover;
+   the invariant, accessor and `content_hash` tests are unaffected and stay
+   under it.
 2. **Zero-dependency by default, with narrow, lazily-imported exceptions.**
    `pip install akriti` MUST resolve to nothing third-party, and importing the
    package, or constructing, inspecting, or comparing a diagram, MUST NOT
    reach a third-party library on any path a caller can take without having
-   installed a backend themselves. The single normative on-disk format's
-   `save`/`load` implementation MAY depend on one third-party library,
-   provided the import is lazy and function-scoped, confined to those two
-   functions, and nothing outside `save`/`load` requires it. Any library
-   admitted under this requirement MUST be declared as an install extra
-   carrying a version floor, and its lazy import MUST fail actionably on both
-   absence and an unsatisfied floor. §3.3's namespace resolution rule is the
-   only other exception and is held to the same terms: `array-api-compat` in
-   `akriti[torch]`, imported lazily and reached only by a caller who has
-   passed in an array from the backend that needs it.
+   installed a backend themselves. Beyond that, a function MAY depend on a
+   third-party library where **every** one of the following holds: the import
+   is lazy and function-scoped; nothing outside the functions that need it
+   requires it; the library is declared as an install extra carrying a version
+   floor; and the import fails actionably on both absence and an unsatisfied
+   floor. `numpy` in `save`/`load` (`akriti[io]`), `pyarrow` in `to_parquet`
+   (`akriti[parquet]`, §10.3), and `array-api-compat` in §3.3's namespace
+   resolution (`akriti[torch]`, reached only for an array from a backend the
+   caller installed) are what currently meets it.
 3. **Self-describing and versioned.** The format MUST identify itself and
    carry the version of this specification that wrote it.
 4. **Deterministic.** Identical diagrams MUST produce identical bytes.
@@ -1642,7 +1918,7 @@ attached somewhere; this requirement is satisfied by that pattern, not by the
 container format.
 
 **Requirement 4 exists for artifact-level reproducibility**, not for
-round-tripping and not for `content_hash`. `load(dump(d)) == d` (requirement
+round-tripping and not for `content_hash`. `load(p) == d` (requirement
 1) needs only one save-then-load cycle to recover the original diagram; it
 says nothing about whether two separate calls to `save(d)` produce matching
 bytes. `content_hash` (§8.1) is computed from the diagram's own
@@ -1726,25 +2002,97 @@ and left the two stdlib candidates that clear requirement 2 outright,
 resolution. `bars.npz` below is a requirement rather than a working default.
 
 ```
-meta.json      UTF-8 JSON, sorted keys, the DiagramMeta plus a format version
-               — the format version is what satisfies §10.1 requirement 3
+meta.json      UTF-8 JSON, the schema below
 bars.npz       npz with arrays: births, deaths, dims  (canonical order, §7)
 ```
 
-For a `DiagramBatch`, `bars.npz` additionally carries `offsets`, an
-`int64` array of length `len(batch)+1` giving the CSR-style row range of each
-diagram, and `meta.json` carries a list of per-diagram metadata. Ragged, exact,
-no padding.
-
-`inf` lives in `bars.npz`, where NumPy represents it correctly, and never in the
-JSON. This is the reason for the split.
+An `.akd` archive MUST contain exactly these two members, under exactly these
+names, written in this order. `inf` lives in `bars.npz`, where NumPy
+represents it correctly, and never in the JSON. This is the reason for the
+split.
 
 ```python
-akriti.diagrams.save(d, "sample.akd")
-d = akriti.diagrams.load("sample.akd")
+akriti.diagrams.save(d, "sample.akd")     # d: PersistenceDiagram or DiagramBatch
+obj = akriti.diagrams.load("sample.akd")  # -> whichever kind was saved
 ```
 
+**`meta.json` schema.** Requirement 3 turns on this file, so it is specified
+here rather than left to the implementation, the same reason §8.1 fixes a hash
+message byte for byte:
+
+```json
+{
+  "format": "akriti.diagrams.akd",
+  "format_version": 0,
+  "spec": "RFC-0001",
+  "spec_version": "0.1.0",
+  "kind": "diagram",
+  "meta": { "filtration": "rips", "backend": "ripser", "...": "..." }
+}
+```
+
+| Key | Type | Rule |
+|---|---|---|
+| `format` | `str` | Exactly `"akriti.diagrams.akd"`. This is requirement 3's self-identification, and it MUST be a fixed string rather than anything derived, so a reader can recognise the file without parsing the rest |
+| `format_version` | `int` | The version of *this layout*, currently `0` — pre-publication. Incremented whenever a change would make an older `load` misread a newer file. The one version key `load` is allowed to branch on |
+| `spec` | `str` | Which specification defines the file: `"RFC-0001"`. Separate from `format` so that a format defined by some later RFC is distinguishable from a later revision of this one |
+| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"0.1.0"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
+| `kind` | `str` | `"diagram"` or `"batch"`. Nothing else is valid |
+| `meta` | object | Present iff `kind == "diagram"`: one `DiagramMeta` as a JSON object, its own keys being the field names of §8's dataclass |
+| `metas` | array | Present iff `kind == "batch"`: the per-diagram `DiagramMeta` objects, in batch order |
+
+**`load` MUST dispatch on `kind`, and MUST NOT infer the type from the
+payload.** Deciding by whether `bars.npz` happens to contain an `offsets`
+array reads a fact about the arrays as if it were a fact about what was saved,
+so a diagram file that acquires an `offsets` key loads as a batch and a batch
+file that loses one loads as a diagram — clean, plausible and wrong in both
+directions, from a file the reader cannot see is malformed.
+
+`load` MUST also, before returning anything:
+
+- reject a `format` that is not the exact identifier, a `spec` that is not
+  `"RFC-0001"`, and a `format_version` it does not implement, in all three
+  cases by raising rather than attempting a best-effort read — `spec` exists
+  to distinguish a file some later RFC defines from a later revision of this
+  one, which it can only do if `load` acts on it;
+- reject a `kind` inconsistent with the members present — `"diagram"` with
+  `metas`, `"batch"` without `offsets` in `bars.npz`, either with both `meta`
+  and `metas`;
+- check B1 for a batch (`len(metas) == offsets.shape[0] - 1`) before
+  constructing one, since §4.2's invariants are enforced at construction and a
+  file is exactly the untrusted input they exist for;
+- ignore unrecognised keys within a `format_version` it does implement, which
+  is what lets a later revision add an advisory field without a version bump.
+
+**Serialization of `meta.json` is pinned, not left to a JSON library's
+defaults**, because requirement 4 makes the bytes load-bearing: UTF-8, keys
+sorted at every level, no insignificant whitespace, and non-finite floats
+rejected rather than emitted. In CPython that is
+`json.dumps(obj, sort_keys=True, ensure_ascii=False, allow_nan=False,
+separators=(",", ":")).encode("utf-8")`. `allow_nan=False` is a backstop
+rather than the rule: §8 excludes non-finite floats from `params` and
+`provenance` outright, and adapters MUST convert such a value to a string at
+the point of recording, on the rule §8 already states for `source_dtype`. What
+`allow_nan=False` adds is that a mapping reaching `save` any other way fails
+there, rather than emitting the `Infinity` token §10.1 rejects JSON for.
+
+For a `DiagramBatch`, `bars.npz` additionally carries `offsets`, an `int64`
+array of length `len(batch)+1` giving the CSR-style row range of each diagram.
+Ragged, exact, no padding.
+
 ### 10.3 Interoperable escape hatches
+
+**All three live in `adapters.py`, not in `io.py` and not in `core.py`.** They
+are the export direction of the job §11 does on the import side — translating
+between this type and a representation someone else defined — and
+`to_arrays()` returns the exact format `from_persim` and `from_ripser`
+consume. `to_csv()` and `from_array` matter most: the column-name rule below
+makes them a round-trip pair, and a pair split across two modules is two
+things that can drift apart. `io.py` keeps the one format this document makes
+normative, `.akd` and its `save`/`load`. §10.1 requirement 2 binds the lazy
+`pyarrow` import wherever the function sits, so the placement costs nothing
+against the closure. `core.py` MAY expose them as methods (`d.to_csv(...)`)
+delegating to `adapters.py`.
 
 Non-normative, and all three MUST warn about what they lose:
 
@@ -1752,32 +2100,106 @@ Non-normative, and all three MUST warn about what they lose:
   de-facto community format (what Ripser returns and persim consumes) and is
   what people will paste into other tools.
 - `to_csv()` → three columns `dim,birth,death`, with `inf` written as the
-  literal `inf`. For humans and for spreadsheets.
+  literal `inf`, **preceded by a header row naming them**. For humans and for
+  spreadsheets.
 - `to_parquet()` → a `pyarrow.Table` with the same three columns and order as
   `to_csv()` (`dim` int32, `birth`/`death` float64), so `inf` round-trips
   exactly — Parquet's `double` is IEEE 754, unlike JSON's. Requires
   `pip install akriti[parquet]  # pyarrow (Apache 2.0)` (D8); `pyarrow` MUST
-  be a lazy, function-scoped import inside `to_parquet()`, with a friendly
-  `ImportError` if missing — the same pattern `save`/`load` already uses for
-  `numpy` (§10.1). For a `DiagramBatch`, an integer `diagram_id` column
+  be a lazy, function-scoped import inside `to_parquet()`, on §10.1
+  requirement 2's terms. For a `DiagramBatch`, an integer `diagram_id` column
   is prepended rather than an `offsets` array — Parquet's natural unit is the
-  row, not a CSR buffer. Carries none of `DiagramMeta`: no `backend`, no
-  `provenance`, no `params`. This is a bars-only interchange table for
-  R/pandas/Polars pipelines (§1's R-bridging goal), not a `.akd` replacement.
+  row, not a CSR buffer — and `to_csv()` prepends the same column for the same
+  reason. Carries none of `DiagramMeta`: no `backend`, no `provenance`, no
+  `params`. This is a bars-only interchange table for R/pandas/Polars
+  pipelines (§1's R-bridging goal), not a `.akd` replacement.
+
+**The header row is what carries the column order back to `from_array`.**
+`to_csv()` writes `dim,birth,death`, the order a human wants;
+`from_array`'s `(n,3)` is `(birth, death, dim)`, matching giotto deliberately
+(§11). Handing one to the other transposes two columns and reports nothing —
+§10.1 requirement 5 and D12 both lean on `to_csv()` being this format's
+human-readable surface, and a surface that cannot come back in through the
+library's own array adapter is a weaker thing than either argument assumed.
+**`from_array` MUST therefore take the column order from a `columns` argument
+wherever the caller has one** — a sequence of strings naming `arr`'s columns in
+order, which is exactly what a header row is and exactly what `to_csv()` now
+writes:
+
+```python
+from_array(arr, *, columns=None, dim=None, **meta)   -> PersistenceDiagram
+```
+
+Recognised names are `birth`, `death` and `dim`, matched case-insensitively.
+`columns` MUST have one entry per column of `arr`, and a length disagreement
+MUST raise. A name that is not one of the three MUST raise rather than fall
+through to position — a name that went unrecognised is the one case where the
+positional reading has been actively contradicted.
+
+**A separate argument, not names carried on the array itself.** A NumPy
+structured or record array is the obvious alternative and MUST NOT be the
+mechanism: the array API standard defines no structured dtype and no way to ask
+an array for its field names, so recognising one means reaching for
+`.dtype.names` — a NumPy-shaped idiom applied to an array the caller handed in,
+which is what §3 forbids `adapters.py`, and which no other backend here
+answers. Loaders also differ in whether they carry names at all, which is why
+this is an argument rather than something inferred from the input.
+
+**`diagram_id` is deliberately not among the recognised names, so a batch
+written by `to_csv()` does not read back through this adapter.** `from_array`
+returns a `PersistenceDiagram` (§11), and a return type that became a
+`DiagramBatch` on the presence of a column is exactly the hazard §11 rules out
+for `from_giotto`: the adapter's own result type depending on a runtime
+property of the data. A `columns` entry naming `diagram_id` MUST raise naming
+the column and pointing at `.akd`, which is the batch round trip (§10.1
+requirement 1). The asymmetry is deliberate and bounded — `to_csv()` on a batch
+exports to other people's tools, and this document's own batch round trip is
+the normative format.
+
+**`columns=None` keeps `(birth, death, dim)`, and §3.1 is what makes that
+safe to default to.** It is the documented order and giotto's, so it is the
+right reading for a bare `(n,3)` array of bars from anywhere. Where the default
+is wrong — a headerless file in `to_csv()`'s own order — the `death` column
+lands in `dims`, and a column holding `inf`, or any non-integral value, fails
+I2 and I3 at construction rather than producing a diagram. That is not a proof:
+a diagram with no essential bars whose coordinates are all small non-negative
+integers survives the transposition and constructs cleanly. It is D16's trade
+taken in D16's direction — a default that fails loudly on nearly every real
+input beats refusing every nameless array — and the residual case is why the
+header is a MUST on the writing side rather than a convenience.
 
 ---
 
 ## 11. Adapter contract
 
-Signature for all five, with two deviations, both on `from_giotto`:
+Signature for all five, with five deviations across three adapters:
 
 ```python
-from_gudhi(obj, **meta)   -> PersistenceDiagram
-from_ripser(obj, **meta)  -> PersistenceDiagram
-from_giotto(arr, *, reduced_homology, **meta)  -> DiagramBatch
-from_persim(obj, **meta)  -> PersistenceDiagram
-from_array(arr, **meta)   -> PersistenceDiagram
+from_gudhi(obj, *, dim=None, **meta)                  -> PersistenceDiagram
+from_ripser(obj, **meta)                              -> PersistenceDiagram
+from_giotto(arr, *, reduced_homology, **meta)         -> DiagramBatch
+from_persim(obj, **meta)                              -> PersistenceDiagram
+from_array(arr, *, columns=None, dim=None, **meta)    -> PersistenceDiagram
 ```
+
+**`dim` is keyword-only on the two adapters whose input may carry no degree,
+and MUST be supplied exactly when it does not.** Both adapters
+MUST raise `TypeError` when handed a degreeless input without `dim=`, and MUST
+raise `TypeError` when handed a degree-carrying input *with* it — GUDHI's
+`list` form and `from_array`'s `(n,3)` both carry every degree already, so a
+`dim=` alongside one is either redundant or a contradiction and neither is
+worth resolving by guessing.
+
+`**meta` is not the channel for this and MUST NOT be used as one. It populates
+`DiagramMeta` (§8), and `dim` is bar data rather than metadata; routed through
+`**meta` a misspelling becomes an accepted metadata key rather than a
+`TypeError`, and the degree — what I3 constrains and `d.dim(k)` selects on
+— would arrive by the same door as a free-text `description`.
+
+**`columns` is `from_array`'s second deviation, and it is bar data on the same
+grounds**: a sequence of strings naming `arr`'s columns in order, defaulting to
+`None` for the positional `(birth, death, dim)` reading. §10.3 specifies it,
+because what it exists for is reading `to_csv()` output back in.
 
 `from_giotto` alone takes a required keyword-only argument outside `**meta`.
 This is deliberate, not an inconsistency to fix later: `reduced_homology`
@@ -1799,8 +2221,26 @@ the adapter's own return type is allowed to depend on how many samples the
 particular call happened to carry.
 
 Every adapter MUST: validate against §3.1; populate `backend`,
-`backend_version`, `provenance`; preserve backend row order; and never
-finitize, sort, or deduplicate.
+`backend_version`, `provenance`, and `filtration` where its own input form
+determines it (§8 — `from_ripser` is the one that does); preserve backend row
+order; and never finitize, sort, or deduplicate.
+
+Every adapter MUST also reject an input form not in the table below rather than
+attempt it. `from_gudhi` is where this bites, and the rejection it can perform
+is narrower than the exclusion it enforces. `extended_persistence()` returns a
+**4-tuple** of `list[(dim, (b, d))]` (§1), structurally distinct from
+`persistence()`'s flat list, so `from_gudhi` MUST reject that tuple outright
+and MUST name the scope exclusion rather than the shape.
+
+**One of its four members, passed alone, is indistinguishable from ordinary
+output, and this document does not require an adapter to detect what it cannot
+see.** The relative and extended− members raise at construction on I6, with an
+error about death times rather than about scope; the ordinary and extended+
+members satisfy every invariant and construct cleanly into a diagram whose bars
+this type cannot mark as extended. `from_gudhi`'s docstring MUST state this
+residual case, since it is the one place in the adapter contract where a
+rejected input form can arrive undetected. Closing it needs the fourth per-bar
+field §1 rules out, so it stays open by the same decision.
 
 An adapter that records `provenance["essential_bars"]` MUST record
 `provenance["essential_bars_source"]` with the same value in the same
@@ -1824,8 +2264,8 @@ verify the caller left the default in place: a caller who passed
 `from_gudhi` gets a diagram recording 11. That is a marked assumption rather
 than a silent one — the source key is what a reader checks before trusting the
 value — and it is strictly better than the alternative it replaces, which is a
-diagram carrying nothing and a reader defaulting to ℤ/2 on a backend that uses
-ℤ/11. Adapter documentation SHOULD tell callers to pass the field through
+diagram carrying nothing and a reader defaulting to $\mathbb{Z}/2$ on a backend that uses
+$\mathbb{Z}/11$. Adapter documentation SHOULD tell callers to pass the field through
 whenever they set it on the backend.
 
 `from_array` and `from_persim` are out of scope for this clause, having no
@@ -1840,11 +2280,11 @@ Measured input formats (Appendix A):
 
 | Source | Accepted input | Notes |
 |---|---|---|
-| GUDHI | `SimplexTree.persistence()` → `list[(dim, (b, d))]`; also `persistence_intervals_in_dimension(k)` → `(n,2)` | `inf` faithful. Both forms MUST be accepted; the `list` form carries all degrees at once. |
-| Ripser | `ripser(X)` → `dict` with `"dgms"`; `Rips().fit_transform(X)` → `list[(n,2)]` | Index in the list *is* the degree. `inf` faithful. `float32` precision (§6.2). |
+| GUDHI | `SimplexTree.persistence()` → `list[(dim, (b, d))]`; also `persistence_intervals_in_dimension(k)` → `(n,2)` with explicit `dim=k` | `inf` faithful. Both forms MUST be accepted; the `list` form carries all degrees at once and MUST be rejected if given `dim=`. `extended_persistence()`'s 4-tuple is a third form and MUST be rejected outright; note: a single member of it passed alone is undetectable (§1, §11). |
+| Ripser | `ripser(X)` → `dict` with `"dgms"`; `Rips().fit_transform(X)` → `list[(n,2)]` | Index in the list *is* the degree. `inf` faithful. `float32` precision (§6.2). The one adapter that knows its own `filtration` (§8). |
 | giotto | `(n_samples, n_bars, 3)` array, columns `(birth, death, dim)` | Essential bars lost (§5.1). Padding ambiguity (§4). Always returns a `DiagramBatch`, length 1 when `n_samples == 1`. |
 | persim | `list[(n,2)]`, degree by index | Same shape as Ripser's `dgms`. |
-| array | `(n,2)` with explicit `dim=`, or `(n,3)` with `(birth, death, dim)` | The `(n,3)` column order matches giotto's, deliberately. |
+| array | `(n,2)` with explicit `dim=`, or `(n,3)` with `(birth, death, dim)` | The `(n,3)` column order matches giotto's, deliberately, and is what `columns=None` reads. A `columns=` sequence names the array's columns instead and wins over position (§10.3), which is what makes `to_csv()` output readable back in. |
 
 ### 11.1 The giotto padding decision
 
@@ -1905,11 +2345,34 @@ suite MUST include, at minimum:
   other's partner and returns `False`; the matching §6.3 requires returns
   `True`. This is the case that motivated the matching, and a suite without
   it passes identically against either implementation.
+- **`allclose` on essential bars, both directions** (§6.3): a diagram carrying
+  an essential bar is `allclose` to itself, at the default tolerance and at
+  every other; and two diagrams alike but for one death being `+inf` on one
+  side and finite on the other are not `allclose`, at any `atol` or `rtol`
+  however wide. The first is the case §6.3's tolerance formula gets wrong on
+  its own — `|inf - inf|` is `NaN` and every comparison against `NaN` is
+  `False` — so a suite without it passes against an implementation that has no
+  `+inf` clause at all, on the diagrams I5 makes ordinary.
 - `save`/`load` byte-determinism: dumping twice gives identical bytes.
+- **A `DiagramBatch` round-trip, as its own case** — both clauses of §10.1
+  requirement 1, with `save(b, p)`, `load(p) == b` and
+  `load(p).same_provenance(b)`. The suite MUST cover a batch whose diagrams
+  have different bar counts, so `offsets` is exercised rather than degenerate;
+  one containing an empty diagram, so a zero-length segment is; one of length
+  zero (§4.2's `xp= `constructor); and one whose diagrams are in an order that
+  no sort would produce, since both comparisons are order-sensitive across
+  diagrams (§6.3, §8) and a `load` that recovered every diagram into the wrong
+  slot passes a test built from identical members.
+- **`load` dispatches on `kind`, not on the payload** (§10.2): a saved diagram
+  loads as a `PersistenceDiagram` and a saved batch as a `DiagramBatch`,
+  including a length-one batch, which holds exactly the bars its member does
+  and is the case an `offsets`-sniffing implementation gets wrong. A file whose
+  `format` string, `format_version` or `kind` is unrecognised, and one whose
+  `kind` disagrees with the members present, MUST each raise rather than load.
 
 Property-based tests (Hypothesis) for the invariants and for both clauses of
-§10.1 requirement 1 — `load(dump(d)) == d` *and*
-`load(dump(d)).same_provenance(d)`, since the first passes on a `load` that
+§10.1 requirement 1 — with `save(d, p)`, `load(p) == d` *and*
+`load(p).same_provenance(d)`, since the first passes on a `load` that
 drops metadata entirely. They fit this layer unusually well: §3.1's and
 §4.2's invariants are universally quantified over every diagram the type
 admits, which is what a property-based test states directly and an
@@ -1934,7 +2397,7 @@ its member; and the same bars hash identically under two namespaces.
 
 ## 12. Decisions
 
-Fifteen decisions are on record: D1-D8 and D12-D18. **All fifteen are
+Sixteen decisions are on record: D1-D8 and D12-D19. **All sixteen are
 settled** (§12.2), each stating the outcome and pointing at the section that
 carries the normative requirement; §12.1 is empty. Superseded recommendations
 are logged in the history document rather than repeated here.
@@ -1978,8 +2441,9 @@ finds the state of the log stated rather than inferred from an absence.
 | **D14** | §6.3 required `allclose` to be approximate and order-insensitive but did not say how bars are paired. Sorting both sides canonically (§7) and comparing pairwise is exact in the sort and approximate in the comparison, and the two do not compose: bars whose births lie within tolerance of each other can canonicalise into different orders on two backends, and the comparison then returns `False` for diagrams that do have a partner for every bar within `rtol` — at the `2.7e-8` magnitude Appendix A.3 measures, on exactly the cross-backend case §6.2 defines `allclose` for. Does `allclose` become a matching over the multiset, or does §6.3 accept the conservative false negative and require it to be documented? And is the tolerance symmetric, or does `rtol` scale `other` as `numpy.allclose` does? | **Both resolved in §6.3.** `allclose` MUST be a matching: a bijection under which every matched pair shares a `dim` exactly and agrees on both coordinates within tolerance; equal bar counts are necessary and not sufficient. The tolerance MUST be symmetric, `atol + rtol * max(abs(a), abs(b))`, deliberately diverging from `numpy.allclose` and documented as such in the method's own docstring. `allclose` is reflexive and symmetric but not transitive, and MUST be documented as not an equivalence relation. Accepting the false negative was weighed and rejected: the caller's remedy for a spurious failure is to widen `rtol` until it passes, which relocates §6.3's silent loosening into user code where nobody reviews it. No sort key repairs the pairwise form — the history document carries that argument. No new dependency: an augmenting-path matching in the standard library is sufficient at these sizes. Not bottleneck distance, and §9's delegation rule is unaffected in both directions — `core/distances.py` MUST NOT be built on this method. |
 | **D15** | §8 reserves `provenance["order"]` with values `"backend"` and `"canonical"`, but names no writer for the second. §7 forbids adapters from sorting, so every `from_*` adapter records `"backend"`; `d.canonical()` is the operation that makes `"canonical"` true of a diagram, and §7 has it carry `meta` through unchanged, so a sorted diagram still reports `"backend"` and nothing ever writes the other value at all. Does `canonical()` become a second writer of `order`, does `save` write it (§10.2 emits `bars.npz` in canonical order regardless of what the in-memory diagram reports), or does the key not earn its place now that §7 makes row order advisory to a reader and load-bearing for nobody? | **The key goes.** §8's reserved-key table drops `order`; §7 and `core.py` drop their references to it. What decides it is not the missing writer but a property every other reserved key has and this one does not: **the rest record facts that vanish if unrecorded.** `source_dtype` is lost the moment the array is upcast, `clamped_rows` the moment the rows are repaired, `padding_removed` the moment they are stripped; `essential_bars_source` records a then-versus-now distinction no later inspection can recover. Whether rows are in canonical order is recoverable from the arrays themselves, exactly, in one pass, forever. `order` is a cached answer to an always-computable question, and one that goes stale: anything reordering rows while carrying `meta` through unchanged leaves a diagram reporting `"canonical"` while not being canonical — clean, plausible and wrong, §9's own category, arrived at by our hand rather than a dependency's. **Having `save` write it is worse rather than better**: §10.2 emits `bars.npz` in canonical order unconditionally, so the key would be a constant in every file on disk — no information, and a claim about the in-memory diagram it came from that may be false. And §7 leaves no consumer who could act on it either way, every consumer being required to treat row order as arbitrary, so a reader seeing `"canonical"` is forbidden to do anything differently. **The one genuine order fact is a different key**, and §8 records it so this is not reopened: whether the *backend's own output* was already canonical is not derivable, is exactly the GUDHI-versus-Ripser disagreement §7 documents and A.3 measures, and is unrecoverable once anything sorts. `order` as specified never captured it — every adapter records `"backend"` regardless of what the backend did — so it is a key to build at adapter time if order provenance is ever wanted, not this one repaired. |
 | **D16** | I7, B5 and §4.2's `from_diagrams` check are all written as `is` on `__array_namespace__()`, and `core.py` implements them that way. The array API standard requires that method to return "an object representing the namespace"; it does not require the same object on every call, and it takes an `api_version` argument that a backend could legitimately answer with different wrapper objects. NumPy and `array_api_strict` return the module itself, so identity holds there and the assumption is invisible. Does the RFC require namespace *identity*, or a weaker equivalence — and if weaker, what is the portable test, given the standard defines no namespace equality? | **Require identity, state it as a supported-backend constraint, and verify it in CI (§3.3).** What decides it is the **direction of the failure**, not the theory — the standard does not guarantee identity, and no portable surrogate exists, both as this row observed. `is` fails by raising `ValueError` on arrays that legitimately share a namespace: conservative, loud, immediately diagnosable, impossible to mistake for a correct answer. Every available surrogate — `__name__`, a sentinel dtype, anything else the standard leaves — is a weaker test that can *match across genuinely different namespaces*, admitting a JAX/NumPy mix into one diagram, which is the silent direction and defeats exactly what I7 exists to prevent. Given a conservative check with a documented constraint against a clever one that fails open, take the first. §3.3 therefore states plainly that akriti requires `__array_namespace__()` to return a consistent object for a given backend — a constraint on supported backends, not a property claimed of the standard. **Made verified rather than assumed:** a CI test MUST assert identity holds for each supported backend, which is §3.3's own "conformance is tested, not intended" and the same treatment §7's `hasattr(xp, "lexsort")` trap gets — a standing regression test rather than prose. If a backend ever returns a fresh wrapper per call the test fails and D16 reopens as a real decision, instead of breaking silently in someone's pipeline. I7, B5 and §4.2's `from_diagrams` check were unchanged by this row; only their rationale cells moved from citing an open question to citing a requirement. D18 has since respelled I7's and B5's comparison over §3.3's resolution rule rather than over `__array_namespace__` directly, which is a change of mechanism and not of this requirement: what `is` compares moved, what it means did not. |
-| **D17** | §8's `DiagramMeta` block annotates `coeff_field` with "affects the diagram, must be recorded", and that comment is the only place the field appears anywhere in this document. The prose immediately below it says the opposite — "All fields are optional", with `from_*` adapters required to populate `backend`, `backend_version` and `provenance` and nothing else — and §8.1's `content_hash` covers bars and never metadata, so no other clause depends on the value being present either. The comment's underlying claim is sound: homology over ℤ/2 and ℤ/3 differ wherever there is torsion, so a diagram whose coefficient field is unknown is uninterpretable in the way §8's opening sentence says one whose filtration is unknown is. But the three fields §8 does require are all derivable from the adapter itself, and this one is not — §11's adapters receive a computed result plus `**meta`, not the call that produced it. Does `coeff_field` become a required keyword-only argument on the adapters whose backend takes a coefficient parameter, on the `from_giotto`/`reduced_homology` precedent (§5.1, §11); does §8 require it only where the backend's returned object exposes it; or does the comment's normative clause go, leaving the field optional as the prose already has it? | **Resolved on a fourth option this row did not frame: record the field, do not require it.** `coeff_field` stays optional and no adapter signature changes. §11 requires `from_gudhi` and `from_ripser` to record it in the same construction as the rest of the provenance — the caller's value where one was passed, that backend's documented default (GUDHI 11, Ripser 2) where none was — together with a new reserved `provenance["coeff_field_source"]` of `"caller"` or `"backend_default"` (§8). §8's comment loses its normative clause, so "All fields are optional" is now true as written rather than contradicted seven lines above, and what survives of the obligation is an adapter recording requirement rather than a demand on our callers. **Option 2 was measured out of existence by Appendix A.5**: no backend returns the field it computed with, so "require it where the returned object exposes it" would require it nowhere. **Option 1 is rejected on severity, not on shape.** The `reduced_homology` precedent is exact in shape and the difference in severity is what decides it — `reduced_homology` guards a demonstrated failure, giotto returning 39 H0 bars where GUDHI and Ripser return 40 (A.1, §5.1), while a coefficient field only bites where the data carries torsion, which for the domains this library targets is close to never: dynamical orbits in ℝ², single-cell blobs and rings in ℝ³, molecular graphs. Torsion in low degrees wants projective planes, Klein bottles, lens spaces. Option 1 breaks three signatures and puts a mandatory argument on every `from_gudhi` and `from_ripser` call to guard something most users cannot reach — friction charged to everyone and repaid to almost nobody. **Option 3 is rejected because A.5 made the comment's underlying claim stronger than it looked**: an unrecorded field is not conventionally ℤ/2, since the two backends we lean on hardest disagree by default and nothing in the artifact says which produced it. That is a diagram uninterpretable in the way §8's opening sentence describes, not one missing a nice-to-have. **The pattern is §8's own** — `essential_bars` / `essential_bars_source`, applied to the same then-versus-now problem. D15 tested `provenance["order"]` against this shape and correctly failed it, §7 fixing every adapter's answer at `"backend"` so that there was no adapter-time verdict worth a second key; here there is one, because the backend's default is a fact the adapter knows, the caller may not, and A.5 shows nothing recovers it afterwards. **One risk, pinned rather than accepted:** recording a backend default is a claim about a backend, and claims about backends go stale, which is what §9 is a whole section about. §9.3 now requires both defaults to be asserted in CI and §11.2 carries that test, so an upstream change breaks the build instead of silently corrupting the provenance of every diagram recorded afterwards. **Two residual limits, recorded rather than left to be found later.** `"backend_default"` is an assumption and is marked as one: a caller who sets a non-default field on GUDHI and does not pass it on to `from_gudhi` gets a diagram recording 11 (§11), which is a marked assumption where the status quo was a silent one. And `from_giotto` is excluded for now on evidence rather than principle — A.5 could not measure giotto's default (§9.2) and this document does not assert a backend default it has not measured; `from_array` and `from_persim` are out of reach permanently, having no backend and computing no homology respectively. **The condition to reopen against** is where the argument is least confident: it turns on torsion being rare in this library's target data, which is a judgment about users we do not have yet rather than a measurement. If §1's general-purpose framing means the projective-plane user should be assumed to exist, option 1 gets much stronger — three signatures once against a wrong default forever. |
+| **D17** | §8's `DiagramMeta` block annotates `coeff_field` with "affects the diagram, must be recorded", and that comment is the only place the field appears anywhere in this document. The prose immediately below it says the opposite — "All fields are optional", with `from_*` adapters required to populate `backend`, `backend_version` and `provenance` and nothing else — and §8.1's `content_hash` covers bars and never metadata, so no other clause depends on the value being present either. The comment's underlying claim is sound: homology over $\mathbb{Z}/2$ and $\mathbb{Z}/3$ differ wherever there is torsion, so a diagram whose coefficient field is unknown is uninterpretable in the way §8's opening sentence says one whose filtration is unknown is. But the three fields §8 does require are all derivable from the adapter itself, and this one is not — §11's adapters receive a computed result plus `**meta`, not the call that produced it. Does `coeff_field` become a required keyword-only argument on the adapters whose backend takes a coefficient parameter, on the `from_giotto`/`reduced_homology` precedent (§5.1, §11); does §8 require it only where the backend's returned object exposes it; or does the comment's normative clause go, leaving the field optional as the prose already has it? | **Resolved on a fourth option this row did not frame: record the field, do not require it.** `coeff_field` stays optional and no adapter signature changes. §11 requires `from_gudhi` and `from_ripser` to record it in the same construction as the rest of the provenance — the caller's value where one was passed, that backend's documented default (GUDHI 11, Ripser 2) where none was — together with a new reserved `provenance["coeff_field_source"]` of `"caller"` or `"backend_default"` (§8). §8's comment loses its normative clause, so "All fields are optional" is now true as written rather than contradicted seven lines above, and what survives of the obligation is an adapter recording requirement rather than a demand on our callers. **Option 2 was measured out of existence by Appendix A.5**: no backend returns the field it computed with, so "require it where the returned object exposes it" would require it nowhere. **Option 1 is rejected on severity, not on shape.** The `reduced_homology` precedent is exact in shape and the difference in severity is what decides it — `reduced_homology` guards a demonstrated failure, giotto returning 39 H0 bars where GUDHI and Ripser return 40 (A.1, §5.1), while a coefficient field only bites where the data carries torsion, which for the domains this library targets is close to never: dynamical orbits in $\mathbb{R}^{2}$, single-cell blobs and rings in $\mathbb{R}^{3}$, molecular graphs. Torsion in low degrees wants projective planes, Klein bottles, lens spaces. Option 1 breaks three signatures and puts a mandatory argument on every `from_gudhi` and `from_ripser` call to guard something most users cannot reach — friction charged to everyone and repaid to almost nobody. **Option 3 is rejected because A.5 made the comment's underlying claim stronger than it looked**: an unrecorded field is not conventionally $\mathbb{Z}/2$, since the two backends we lean on hardest disagree by default and nothing in the artifact says which produced it. That is a diagram uninterpretable in the way §8's opening sentence describes, not one missing a nice-to-have. **The pattern is §8's own** — `essential_bars` / `essential_bars_source`, applied to the same then-versus-now problem. D15 tested `provenance["order"]` against this shape and correctly failed it, §7 fixing every adapter's answer at `"backend"` so that there was no adapter-time verdict worth a second key; here there is one, because the backend's default is a fact the adapter knows, the caller may not, and A.5 shows nothing recovers it afterwards. **One risk, pinned rather than accepted:** recording a backend default is a claim about a backend, and claims about backends go stale, which is what §9 is a whole section about. §9.3 now requires both defaults to be asserted in CI and §11.2 carries that test, so an upstream change breaks the build instead of silently corrupting the provenance of every diagram recorded afterwards. **Two residual limits, recorded rather than left to be found later.** `"backend_default"` is an assumption and is marked as one: a caller who sets a non-default field on GUDHI and does not pass it on to `from_gudhi` gets a diagram recording 11 (§11), which is a marked assumption where the status quo was a silent one. And `from_giotto` is excluded for now on evidence rather than principle — A.5 could not measure giotto's default (§9.2) and this document does not assert a backend default it has not measured; `from_array` and `from_persim` are out of reach permanently, having no backend and computing no homology respectively. **The condition to reopen against** is where the argument is least confident: it turns on torsion being rare in this library's target data, which is a judgment about users we do not have yet rather than a measurement. If §1's general-purpose framing means the projective-plane user should be assumed to exist, option 1 gets much stronger — three signatures once against a wrong default forever. |
 | **D18** | `torch.Tensor` does not implement `__array_namespace__`. array-api-compat's own documentation says so outright — "we do not wrap the `torch.Tensor` object. It is missing the `__array_namespace__` and `to_device` methods" — PyTorch's tracker (gh-58743, open, last touched 2026-03-16) holds the attribute back deliberately as "the attribute that declares compliance", to be added at near-full conformance, and it is absent from the torch 2.13 `Tensor` reference. §3 defined `Array` as any object implementing that method, so **no diagram could be torch-backed**; four sites illustrated a second namespace with torch counterfactually; and D16's CI test was written against "every backend this project supports", of which `akriti[torch]` is one, where it raises `AttributeError` before reaching the identity question. JAX is unaffected — `jax.Array` has implemented the method natively since 0.4.32. Resolving through `array_api_compat.array_namespace` closes the gap. Does that resolver go in front of **(1) every backend**, or **(2) torch alone**, behind `akriti[torch]`, with the native method preferred wherever it exists? | **Option 2: the resolver in front of torch alone, the native method preferred wherever it exists.** §3.3 carries the rule as a single resolution function, and §3's `Array` definition now turns on that rule rather than on the method directly. **What decides it is §10.1 requirement 2, not performance.** Under option 1 `diagrams/core.py` cannot resolve *any* namespace without array-api-compat, so it stops being an extra and `pip install akriti` stops resolving to nothing third-party — undoing the closure D6 was superseded to establish, weeks after establishing it. Under option 2 the import is lazy, function-scoped and reachable only by a caller who passed in an array from a backend they installed themselves, which is the `numpy`-in-`io.py` pattern §3.3 already uses. **The two arguments that look decisive were measured and neither discriminates** (Appendix A.7): array-api-compat ships no JAX wrapper, so JAX pays nothing structurally; NumPy pays one Python frame on the 11 of 26 namespace functions carrying a wrapper and nothing on the other 15, putting §7's `canonical()` at 1.17× at 40 bars and 1.00× from 100k up; and on `numpy` 2.5 the wrappers are largely vestigial, leaving one live correction, the `sort`/`argsort` stable default, which §7 already buys by passing `stable=True` explicitly. **The constraint binding either option** is measured rather than argued: `array_namespace()` on a NumPy array returns `array_api_compat.numpy`, *not* `numpy` (A.7.5), so resolution MUST go through exactly one function — otherwise one backend yields two namespace objects and I7's `is` raises on arrays that legitimately share a namespace, D16's loud failure fired by our own inconsistency rather than a backend's. **A third arrangement, preferring compat wherever it happens to be installed, is excluded outright**: `d.xp` MUST depend on the input and never on the environment. **The fallback is not a lower bar for backends that skip the method** — it supplies a conforming namespace for a backend that conforms in substance without having declared it, and the arrangement expires by itself, since the first branch takes torch the moment the declaration lands. **One risk, pinned rather than accepted.** That landing is expected, not hypothetical, and on that release `d.xp` changes from `array_api_compat.torch` to `torch` on a version bump, so two diagrams built under adjacent torch versions fail `is` while being by any reasonable reading the same kind of thing. §3.3 therefore requires a CI test asserting which branch torch takes, so the release that adds the attribute breaks the build rather than quietly changing what `d.xp` returns — the shape of D16's identity assertion and §9.3's coefficient-field defaults, and the same reasoning, that a fact about a backend is exactly what changes without telling us. **Consequential edits this resolution forces**, none of which option 1 would have: the counterfactual torch illustrations move to JAX at §3.3, §4.2, §6.3 and D16's own cell — five sites rather than the four the open row named, §3.3 restating D16's illustration as well as carrying its own; D16's identity test narrows to backends implementing the method natively, a backend reached through the fallback having no method to call and a namespace that is a module, identical across calls because Python caches imports rather than because the backend promises anything; and §10.1 requirement 2 generalises from one lazily-imported exception to the class of them. **The resolver's reach is bounded, and the bound is where this document lives.** `array_api_compat` returns the backend's own object rather than a wrapped one, and its conformance record against the standard's test suite (`torch-xfails.txt`, A.7.6) lists `__eq__`, `__sub__`, `__getitem__` and masked indexing as failing for torch under the heading "We cannot wrap the tensor object". Those are §3.2's and §4.3's accessors exactly — `essential`, `dim(k)`, `persistence`, `bar_counts`, `finite`. **This row does not claim the divergence misses us.** The plausible argument that it does — I2 and §6.1 fix every operand's dtype, so nothing here has promotion rules to disagree about — is unverified, and the xfails are structural rather than dtype-specific. §3.3 therefore requires a cross-namespace test of the five accessors, on the `stable=True` precedent, and states that until it runs a torch-backed diagram is namespace-correct and not established as object-correct. **The evidence is weaker here than elsewhere in this document and A.7.6 says so**: nothing in that appendix was run against torch. **The condition to reopen against** is a second backend needing the fallback. The argument rests on the cost falling on `akriti[torch]` alone and on the fallback being a shim for one missing declaration; two backends in that state is a different question from this one. |
+| **D19** | §9.1 requires `core/distances.py` to compute the essential part of the bottleneck distance itself. `CLAUDE.md` forbids that outright — never reimplement bottleneck or Wasserstein distance, delegate — and §6.3 restates the rule from the other side. Is this an exception, or does the requirement go? | **An exception, named and bounded here so it is not read as drift.** Delegating the whole distance means delegating to a known-wrong answer: persim drops essential bars and returns a finite number for diagrams that are infinitely far apart (§9.1, A.4). What §9.1 requires instead is not a persistence computation but a one-dimensional matching on birth values, whose optimum is a sort. **The exception is bounded to exactly that**: matched essential bars cost the largest birth gap, unequal essential counts per dimension cost `+inf`, and the finite part is still persim's. §6.3's rule is unaffected in both directions — `allclose` implements no distance, and `core/distances.py` MUST NOT be built on `allclose`. **Two obligations ride with it**: the implementation cites the equation `CLAUDE.md` requires of numerical code in `core/`, and its tests are written in a separate session from it. **Reopen when persim handles `inf` correctly** — the issue D5 requires us to file is the same one that would close this row — or if any second formula is ever proposed for `core/` on this row's precedent, which is the drift this row exists to make visible. |
 
 ---
 
@@ -2092,8 +2556,8 @@ is a call parameter and is absent from the returned object, so an adapter
 cannot recover it from its input — the value exists only in the caller's own
 call.
 
-**The defaults also disagree: GUDHI computes over ℤ/11, Ripser over ℤ/2.** An
-unrecorded `coeff_field` is therefore not conventionally ℤ/2; it is genuinely
+**The defaults also disagree: GUDHI computes over $\mathbb{Z}/11$, Ripser over $\mathbb{Z}/2$.** An
+unrecorded `coeff_field` is therefore not conventionally $\mathbb{Z}/2$; it is genuinely
 unknown, and two diagrams of the same data from these two backends differ
 wherever the data has torsion. This is D17's option 2 — "require it only
 where the returned object exposes it" — measured out of existence.
@@ -2320,8 +2784,9 @@ environments deliberately do not have (§3.3), so it belongs in the
 - **2026-08-05 (39)** — Normative, and supersedes entry 38's decision to leave §3.1's I8 note as written. Its lowercase "should be enforced" is promoted, making it the only clause in the document to carry the weaker of the two obligation keywords: `@dataclass(frozen=True)`, as §8 already does for `DiagramMeta`, becomes the preferred enforcement of the no-mutation rule rather than an unmarked suggestion. The alternative the same sentence names — the array API standard's read-only view support — gains a full obligation to document itself as an equivalent guarantee, rather than sitting in prose that entry 38's caps-only rule had just drained of force. Preferred mechanism on the weaker keyword, the requirement attaching to the sanctioned deviation on the stronger one.
 - **2026-08-05 (40)** — Linted all twelve tables into one compact form, completing what entry 36 began on §12.1 and §12.2. Cell text is untouched. No normative content changed.
 - **2026-08-06 (41)** — Review pass on PR #10. **Normative in five places.** Resolved **D14**: §6.3's `allclose` MUST be a matching over the multiset — a bijection sharing `dim` exactly and agreeing on both coordinates within tolerance — with a symmetric tolerance `atol + rtol * max(abs(a), abs(b))` diverging from `numpy.allclose` and documented as such, no new dependency, no refactor into bottleneck distance, and documented as not an equivalence relation; §11.2 gains the test that separates it from the rejected sorted-pairwise form. Resolved **D13**: multiparameter persistence is an explicit non-goal, stated in §1 as normative scope; §3.2's `d.h0`/`d.h1` note drops its multiparameter clause. Reinstated **D6** in §12.2 as superseded rather than deleted: `numpy` stays out of the required closure but moves to `akriti[io]` at `>=2.0`, so §10.1 requirement 2 now requires a lazily-imported library to be a declared extra with a floor, and §3.3 requires the lazy import to check the version and name the extra on both failure paths. Completed entry 38's keyword sweep: §3's array-API rule, §11's `TypeError`, §10.1's five requirements and requirement 4's mechanism paragraph, §8's `essential_bars_source` writer prohibition and §9.2's clean-room note all take uppercase keywords. Entry 38 found one orphan of six; the sweep was run three times by three readers and did not converge on the first pass. **D17** probed, not resolved: new Appendix A.5 measures that no backend returns the coefficient field it computed with, which removes one of the three options and leaves a judgment the lead still owes. §12's count moves to fourteen, four open.
-- **2026-08-07 (42)** — Second review pass on PR #10, acting on the lead's three replies. **Resolves D12, D15 and D16; §12.1 is down to D17 alone.** **D12** — `bars.npz` stays, and §10.2's payload stops being provisional. Resolved on the bar-count figure the row said it turned on, now Appendix A.6: H0 equals the input point count exactly, so bars scale linearly in cloud size and a 5,000-sample batch is ~4.7M bars; at 1M bars CSV costs ~2.1× the bytes and ~78× the load, sqlite3 ~1.3× and ~42×. The reason is *not* that CSV loses on inspectability — it wins there — but that requirement 5 is already satisfied by `meta.json` and §10.3's `to_csv()`, and does not need satisfying a third time. The one surviving argument for CSV (a stdlib payload would drop the `[io]` extra altogether) is recorded in §12.2 as the condition to reopen against, rather than waved away; sqlite3 is closed out. **D15** — `provenance["order"]` is removed. Every other reserved key records a fact that vanishes if unrecorded; canonical order is recoverable from the arrays in one pass, so `order` is a cached answer to an always-computable question and one that goes stale. §8 keeps a short note naming the order fact that is *not* derivable — whether the backend's own output was already canonical — as a different key to build if it is ever wanted, so this is not reopened. **D16** — namespace comparison is identity, stated in §3.3 as a constraint on supported backends rather than a property of the standard, and **verified in CI** rather than assumed. Decided on the direction of the failure: `is` fails loudly on arrays that legitimately share a namespace, while every available surrogate can match across genuinely different ones, which is the silent direction I7 exists to prevent. I7, B5 and §4.2's check are unchanged; only their rationale cells move from citing an open question to citing a requirement. **New §9.3**, at the lead's request and independent of D17: GUDHI defaults to ℤ/11 and Ripser to ℤ/2, neither returns the field it used (A.5), so two diagrams of the same cloud from our two primary backends are not diagrams of the same thing — and §6.3's cross-backend `allclose` is where that bites, returning `True` on torsion-free data. §9's preamble now counts three hazards, the third being a disagreement between correct delegates rather than a defect in one. **One addition beyond what was asked**, flagged for the lead to strike: §9.3 puts a MUST on §11.2's cross-backend test to pin the coefficient field on both sides. It constrains a test this RFC already requires rather than the adapter signatures D17 is about, and pinning is a call parameter on both backends, so it costs nothing — but it is new normative text the lead did not request. **New Appendix A.6** carries D12's figures, the lead's own measurements rather than a run of ours, with his caveat that two alpha-complex datasets fix an order of magnitude and not a distribution. `rfcs/evidence/bar_counts.py` is his script, committed verbatim in behaviour; the format-benchmark script was reported without its source and is **not** checked in.
+- **2026-08-07 (42)** — Second review pass on PR #10, acting on the lead's three replies. **Resolves D12, D15 and D16; §12.1 is down to D17 alone.** **D12** — `bars.npz` stays, and §10.2's payload stops being provisional. Resolved on the bar-count figure the row said it turned on, now Appendix A.6: H0 equals the input point count exactly, so bars scale linearly in cloud size and a 5,000-sample batch is ~4.7M bars; at 1M bars CSV costs ~2.1× the bytes and ~78× the load, sqlite3 ~1.3× and ~42×. The reason is *not* that CSV loses on inspectability — it wins there — but that requirement 5 is already satisfied by `meta.json` and §10.3's `to_csv()`, and does not need satisfying a third time. The one surviving argument for CSV (a stdlib payload would drop the `[io]` extra altogether) is recorded in §12.2 as the condition to reopen against, rather than waved away; sqlite3 is closed out. **D15** — `provenance["order"]` is removed. Every other reserved key records a fact that vanishes if unrecorded; canonical order is recoverable from the arrays in one pass, so `order` is a cached answer to an always-computable question and one that goes stale. §8 keeps a short note naming the order fact that is *not* derivable — whether the backend's own output was already canonical — as a different key to build if it is ever wanted, so this is not reopened. **D16** — namespace comparison is identity, stated in §3.3 as a constraint on supported backends rather than a property of the standard, and **verified in CI** rather than assumed. Decided on the direction of the failure: `is` fails loudly on arrays that legitimately share a namespace, while every available surrogate can match across genuinely different ones, which is the silent direction I7 exists to prevent. I7, B5 and §4.2's check are unchanged; only their rationale cells move from citing an open question to citing a requirement. **New §9.3**, at the lead's request and independent of D17: GUDHI defaults to $\mathbb{Z}/11$ and Ripser to $\mathbb{Z}/2$, neither returns the field it used (A.5), so two diagrams of the same cloud from our two primary backends are not diagrams of the same thing — and §6.3's cross-backend `allclose` is where that bites, returning `True` on torsion-free data. §9's preamble now counts three hazards, the third being a disagreement between correct delegates rather than a defect in one. **One addition beyond what was asked**, flagged for the lead to strike: §9.3 puts a MUST on §11.2's cross-backend test to pin the coefficient field on both sides. It constrains a test this RFC already requires rather than the adapter signatures D17 is about, and pinning is a call parameter on both backends, so it costs nothing — but it is new normative text the lead did not request. **New Appendix A.6** carries D12's figures, the lead's own measurements rather than a run of ours, with his caveat that two alpha-complex datasets fix an order of magnitude and not a distribution. `rfcs/evidence/bar_counts.py` is his script, committed verbatim in behaviour; the format-benchmark script was reported without its source and is **not** checked in.
 - **2026-08-09 (43)** — Opened **D18** and added **Appendix A.7**, its evidence; §12's count moves to fifteen, two open. No other content changed. `torch.Tensor` does not implement `__array_namespace__` — array-api-compat's documentation says so, PyTorch's tracker holds the attribute back until near-full conformance, and it is absent from the torch 2.13 reference — so §3's definition of `Array` excludes torch tensors and no diagram can currently be torch-backed. D18 asks whether `array_api_compat.array_namespace` goes in front of every backend or torch alone. **This does not reopen D16**, whose identity requirement stands; what is wrong is its reach, since its CI test names a backend on which it raises `AttributeError` before reaching the identity question, and four sites illustrate a second namespace with torch counterfactually. Those four and the test's scope are left as they stand on D17's precedent, editing them in either direction being the answer. `rfcs/evidence/array_api_compat_overhead.py` carries the measurements, which are committed because two arguments that look decisive are not: JAX pays nothing (array-api-compat ships no JAX wrapper) and NumPy pays one Python frame on the 11 of 26 wrapped functions, §7's `canonical()` measuring 1.17x at 40 bars and 1.00x from 100k up; and on `numpy` 2.5 the wrappers are largely vestigial, leaving the `sort`/`argsort` stable default as the one live correction, which §7 already buys explicitly. §10.1 requirement 2 is what decides it. **Appendix A.7** carries the figures, on A.6's precedent that a decision log citing numbers it does not hold is one nobody can check later. Recorded in A.7.4 and the history document, not raised as a row: numpy's `sort`/`argsort` default to quicksort where the standard specifies stable, `array_api_strict` behaves correctly and so cannot catch a call site that omits the keyword, and §7 is therefore correct by discipline rather than construction — entry 20's `lexsort` precedent applies.
-- **2026-08-09 (44)** — Third review pass on PR #10, acting on the lead's four comments. **Resolves D17 on a fourth option the row did not frame — record the coefficient field, do not require it.** `coeff_field` stays optional and no adapter signature changes; §11 has `from_gudhi` and `from_ripser` record it in every construction, the caller's value where one was passed and that backend's documented default (GUDHI 11, Ripser 2) where none was, alongside a new reserved `provenance["coeff_field_source"]` of `"caller"` or `"backend_default"` (§8). §8's `coeff_field` comment loses its normative clause, so "All fields are optional" is true as written for the first time since entry 37 opened the contradiction. Option 1 is rejected on severity rather than shape — `reduced_homology` guards a demonstrated H0 loss where a coefficient field bites only on torsion, which this library's target domains do not carry — and option 3 on A.5, which makes an unrecorded field genuinely unknown rather than conventionally ℤ/2. `DiagramMeta` validates the new key at construction on the `essential_bars_source` pattern; §9.3 requires both backend defaults to be **asserted in CI**, since recording a default is a claim about a backend and claims about backends go stale; §11.2 carries that test and a both-directions test of the recording itself. §12.1 is down to D18 alone. **Two additions beyond what was asked**, flagged for the lead to strike: `from_giotto` is excluded from the recording requirement because A.5 could not measure giotto's default and this document does not assert a backend default it has not measured; and `"backend_default"` is documented as a marked assumption, since a caller who sets a non-default field on the backend and does not pass it to the adapter gets the default recorded. **A.6 stops reporting multipliers.** The 78× and 42× were a quotient by the fastest thing in the table and moved with how the `.npz` baseline was sampled — best-of-3 reads 149× and 99× on the lead's machine and 65× and 46× on a second — so the appendix now records absolute times, the sizes, and "two orders of magnitude", all of which survive re-measurement, and D12's row follows. A.6's table gains the script's own `Exact` column asserting `float64` round-trip and `inf` preservation per format, so correctness is checked in the table rather than asserted in prose. **`rfcs/evidence/payload_formats.py` is checked in**, the lead's script, verbatim in behaviour; every figure in A.6 now re-runs and the format table re-runs from this repository directly. **Three citations to an unpublished internal document are removed** — §3's and §8's, plus `.github/CODEOWNERS` — found by the lead on the grounds that this RFC is about to go out for public comment and `(§2.4)` reads as self-reference until a reader checks. §3's three bullets already carried their own argument; §8's claim is lifted inline onto §8.1 and §10.1 requirement 4; CODEOWNERS states the rule it was citing. A repository-wide grep confirms none remain.
+- **2026-08-09 (44)** — Third review pass on PR #10, acting on the lead's four comments. **Resolves D17 on a fourth option the row did not frame — record the coefficient field, do not require it.** `coeff_field` stays optional and no adapter signature changes; §11 has `from_gudhi` and `from_ripser` record it in every construction, the caller's value where one was passed and that backend's documented default (GUDHI 11, Ripser 2) where none was, alongside a new reserved `provenance["coeff_field_source"]` of `"caller"` or `"backend_default"` (§8). §8's `coeff_field` comment loses its normative clause, so "All fields are optional" is true as written for the first time since entry 37 opened the contradiction. Option 1 is rejected on severity rather than shape — `reduced_homology` guards a demonstrated H0 loss where a coefficient field bites only on torsion, which this library's target domains do not carry — and option 3 on A.5, which makes an unrecorded field genuinely unknown rather than conventionally $\mathbb{Z}/2$. `DiagramMeta` validates the new key at construction on the `essential_bars_source` pattern; §9.3 requires both backend defaults to be **asserted in CI**, since recording a default is a claim about a backend and claims about backends go stale; §11.2 carries that test and a both-directions test of the recording itself. §12.1 is down to D18 alone. **Two additions beyond what was asked**, flagged for the lead to strike: `from_giotto` is excluded from the recording requirement because A.5 could not measure giotto's default and this document does not assert a backend default it has not measured; and `"backend_default"` is documented as a marked assumption, since a caller who sets a non-default field on the backend and does not pass it to the adapter gets the default recorded. **A.6 stops reporting multipliers.** The 78× and 42× were a quotient by the fastest thing in the table and moved with how the `.npz` baseline was sampled — best-of-3 reads 149× and 99× on the lead's machine and 65× and 46× on a second — so the appendix now records absolute times, the sizes, and "two orders of magnitude", all of which survive re-measurement, and D12's row follows. A.6's table gains the script's own `Exact` column asserting `float64` round-trip and `inf` preservation per format, so correctness is checked in the table rather than asserted in prose. **`rfcs/evidence/payload_formats.py` is checked in**, the lead's script, verbatim in behaviour; every figure in A.6 now re-runs and the format table re-runs from this repository directly. **Three citations to an unpublished internal document are removed** — §3's and §8's, plus `.github/CODEOWNERS` — found by the lead on the grounds that this RFC is about to go out for public comment and `(§2.4)` reads as self-reference until a reader checks. §3's three bullets already carried their own argument; §8's claim is lifted inline onto §8.1 and §10.1 requirement 4; CODEOWNERS states the rule it was citing. A repository-wide grep confirms none remain.
 - **2026-08-09 (45)** — Fourth review pass on PR #10, acting on the lead's two comments. **Resolves D18 on option 2 — `array_api_compat.array_namespace` in front of torch alone, behind `akriti[torch]`, with the native method preferred wherever it exists. §12.1 is empty; all fifteen decisions are settled.** §3.3 carries the rule as a single resolution function whose answer depends on the input and never on the environment, and §3 defines `Array` against that rule rather than against `__array_namespace__` directly, so a diagram can be torch-backed for the first time. **§10.1 requirement 2 decides it**: under option 1 `diagrams/core.py` cannot resolve any namespace without array-api-compat, which stops being an extra, and `pip install akriti` stops resolving to nothing third-party — undoing the closure D6 was superseded to establish. Performance and conformance were both measured and neither discriminates (A.7). Preferring the wrapper wherever it happens to be installed is excluded: `array_namespace()` on a NumPy array returns `array_api_compat.numpy`, so a codebase holding both objects fires I7's `is` on arrays that legitimately share a namespace (A.7.5). The fallback is a shim for a missing declaration rather than a lower bar, and it expires by itself when gh-58743 lands. **That landing is pinned rather than awaited**: `d.xp` would change from `array_api_compat.torch` to `torch` on a version bump, so §3.3 requires a CI test asserting which branch torch takes, on §9.3's precedent for facts about backends. D16's identity test narrows to backends implementing the method natively; requirement 2 generalises from one lazily-imported exception to the class of them; and the counterfactual torch illustrations move to JAX at §3.3, §4.2, §6.3 and D16's own cell — **five sites, not the four the open row named**, §3.3 restating D16's illustration as well as carrying its own. **The resolver's reach is bounded in the text rather than left to be discovered**: `array_api_compat` returns the backend's own object, and its `torch-xfails.txt` lists `__eq__`, `__sub__`, `__getitem__` and masked indexing as failing the standard's conformance suite for torch under "We cannot wrap the tensor object" — which is §3.2's and §4.3's accessor surface exactly. §3.3 records the argument that I2 and §6.1 make this harmless, records that it is unverified, and requires a cross-namespace test of the five accessors on the `stable=True` precedent. New **A.7.6** states that nothing in the appendix was run against torch and tabulates the documentary evidence that stands in for it. **I7 and B5 moved too**, both having spelled the comparison as a direct `__array_namespace__()` call, which raises `AttributeError` on a torch tensor before reaching the identity question — D18's own finding about D16's test, sitting in the invariants rather than in a test and absent from the open row's list. **Nine citations to an unpublished internal document are removed** — §4, §5.1, §8.2, §9.1, §9.2, §11.2, §12's preamble, §12.2's D2 and this appendix's entry 6 — entry 44 having raised them and the lead having since confirmed that document does not publish alongside this one. Each took the highest of drop, lift inline, or state the rule that the site allowed; D2's is lifted, being the entire justification for `DiagramBatch` sitting in M1 scope. Six further sites outside this document are fixed in the same push and recorded in the history document. §3.3's "Three limits" count is deleted rather than corrected to a fourth wrong number, this pass having added a paragraph to a section that has carried a stale count since entry 35.
 - **2026-08-09 (46)** — Header only. The **Target** row read `M1 (2026-09-15) published for comment`, a date the project's scheduling has since retired: publication and M1 are independent, publishing turning on the spec being right rather than on `diagrams/` being finished, and 15 September leaves eighteen days before the 3 October AMS sessions — too few for maintainers to read, react and comment, on a comment window that is funding-critical rather than a documentation detail. The row now reads `published for comment 2026-08-23, ahead of M1`, decoupling the two dates in the header the way the schedule already decouples them. No normative content changed.
+- **2026-08-09 (47)** — Acting on items 1-13 of `RFC-0001-review.md`, all normative defects. Normative: §6.3's `allclose` matches `+inf` deaths outside the tolerance formula; §5's `finitize` rejects any substituted death below an essential bar's birth, in both substituting modes, and `at="max_finite_death"` on an all-essential diagram; B1 is restated against `metas`; **B8** states `DiagramBatch` immutability; **I8** requires public construction not to alias a caller's arrays or `metas`, and documents the subscript assignment nothing in scope can prevent; `from_gudhi` and `from_array` take a keyword-only `dim=`, and `from_array` a `columns=` sequence naming its input's columns; §8 requires `filtration` where the adapter's input form determines it, excludes non-finite floats from `params`/`provenance`, and defines what `same_provenance` compares, `description` excluded; §9.1 carries the essential-bar matching and combination rules; §10.1 requirement 1 binds `DiagramBatch`, its `==` clause scoped to NumPy-backed objects; requirement 2 generalises to any lazily-imported extra and replaces §3.3's rule naming two filenames; §10.2 specifies the `meta.json` schema and a `load` that dispatches on `kind` and rejects an unrecognised `spec`; §10.3 refuses `diagram_id` and moves the exporters to `adapters.py`; §11.2 gains the batch round-trip, `load`-dispatch and `allclose`-on-essential-bars cases. Scope: **extended persistence is a §1 non-goal** — no essential classes, four sub-diagrams, I6 violated only by the relative and extended− bars — with §11 rejecting the 4-tuple and documenting the member that arrives undetected. Opened and resolved **D19**, §9.1's departure from the delegation rule; sixteen decisions, all settled. Also: `DiagramMeta.space` becomes `description`, the header gains a **Version** row, a `dump()` that never existed is spelled `save`/`load`, and mathematical notation is LaTeX throughout. Full narrative: history document.
