@@ -2010,6 +2010,148 @@ section the earlier ones had no need for.
   both `$` forms and is the only renderer this document has: there is no docs
   pipeline, and CI does not lint Markdown.
 
+- **2026-08-10 (48)** — Fifth review pass, on contradictions and stale facts
+  rather than on defects. Normative in one place; the rest are corrections to
+  claims the document had outgrown.
+
+  **`essential_bars` becomes a closed enum, and the substituted value becomes
+  a number.** The key ranged over `"faithful"`, `"lost_upstream"`,
+  `"finitized_dropped"` and `"finitized_at:<value>"`, the last burying a float
+  in a string that any reader wanting it had to parse. The drop case is
+  structurally identical and had already been built the other way — a bare
+  `"finitized_dropped"` plus a numeric `essential_bars_dropped` (entry 26) —
+  so the substitution case now matches it: `"finitized_at"` plus
+  `essential_bars_finitized_at`, present iff that value, on §8's existing
+  qualifier-consistency rule. Two things fall out. `essential_bars` is a
+  four-value vocabulary rather than three values and a pattern, so
+  `DiagramMeta` can validate it at construction, which it now MUST — an
+  unrecognised value was legal in the primary key while its shadow
+  `essential_bars_source` rejected the same string, an asymmetry with no
+  argument behind it. And the new key needs no separate finiteness rule: §5
+  requires `at=<float>` to be finite and `max_finite_death` to have a finite
+  maximum to take, and §8 already excludes non-finite floats from
+  `provenance` on JSON grounds.
+
+  **A.3's arithmetic was off by a factor of ten.** `2.02e-7 / 2.69e-8` is
+  ~7.5, not ~71; the 71 was the leading digits of the same sentence's next
+  figure, `7.15e7`, which is correct. §6.2's precision argument cites this
+  appendix and states the same gap qualitatively, so nothing downstream moved.
+
+  **The linear-scaling claim was stronger than two rows support.** A.6
+  measured H0 equal to the point count exactly and concluded that bar count
+  scales linearly in cloud size. H0 does; the rest is unmeasured. The claim
+  weakens to "at least linearly", which is what H0-equals-point-count actually
+  gives, and D12's row and Appendix B's entry 42 follow it down. D12 is
+  untouched either way, since every direction that term moves makes CSV worse
+  — which is why this was a wording defect and not a decision defect.
+
+  **The replacement first named a direction, and the direction was wrong.**
+  The weakened claim initially carried "per point, H1-and-above runs
+  436/500 = 0.87 here and 351/150 = 2.34 there, if anything superlinear",
+  taken from the review comment that raised the item and re-asserted here
+  without being recomputed. It is backwards on its own two numbers: bars per
+  point *falls* as the cloud grows, 2.34 at 150 points against 0.87 at 500,
+  which is sublinear — a power fit through the pair gives an exponent of 0.18.
+  Neither direction was ever available, because the two rows are two different
+  spaces rather than one space at two sizes, so the comparison measures the
+  datasets. A.6 now says what the evidence supports, that these rows cannot
+  settle what happens above H0, and stops there. Recorded rather than quietly
+  corrected, because the failure mode generalises: a wrong figure arriving
+  inside a review finding is the one least likely to be recomputed before it
+  is written down, and a correction pass that transcribes rather than verifies
+  launders the reviewer's arithmetic into the specification.
+
+  **A.6's per-degree column is relabelled a median** rather than a
+  "Breakdown" in the same pass: its second row sums to 501 against a stated
+  median of 499, medians of components not being obliged to sum to the median
+  of the total, and the first row summing exactly was what made the label look
+  like a decomposition. The prose restating that is cut back to the one
+  sentence the numbers need, the label now carrying the rest.
+
+  **Retired figures and dangling references.** Entry 42 still quoted the 78x
+  and 42x load multipliers that entry 44 retired four entries later as
+  non-reproducible; a changelog may record what it said at the time, but the
+  published document should not carry a retired number as a live one, so the
+  entry now carries the absolute times and says what happened to the
+  multipliers. §9.2 cited an unpublished internal document three ways — "the
+  audit", its install-rate figure, and an aside about a conference talk — and
+  A.6 cited a pull request; entry 45 closed the same defect at nine sites in
+  the body. The install-rate and commit-count claims survive the loss of that
+  citation, but naming them "publicly checkable" and stopping was the wrong
+  repair: it moves the burden onto a reader without saying where to look. Both
+  now name the source — pypistats for the first, the repository's commit
+  history for the second.
+
+  **The same sweep had stopped at the appendix boundary.** Appendix B's
+  entries 41, 42, 44 and 45 each opened by naming the pull request the pass
+  ran on, and entry 46 justified a header date by counting the days to a
+  conference session and calling the comment window funding-critical. Neither
+  is a fact about the interchange format, and a reader outside this project
+  can resolve neither. Both go, on the ground entry 45 used in the body. What
+  remains in these entries — "acting on the lead's four comments", and the
+  attributions in entry 42 — is the same class and is left for the
+  condensation pass, which cuts these entries to a bullet each and is where
+  removing them costs nothing extra.
+
+  **Completeness claims that were not complete.** §3.2 and §4.3 each
+  catalogue a read-only surface and each called it complete while omitting
+  every stored field, `meta` and `metas` included — the fields §8 exists to
+  make auditable. Both catalogues now name them. §3's class block gains the
+  shape and dtype comment on `dims` that `births` and `deaths` carry, `dims`
+  being the one field whose dtype differs from its neighbours'.
+
+  **§8's qualifier rule was illustrated with an unreachable example.** The
+  rule is right and stays; what it offered as the case that breaks it,
+  `d.finitize(at="drop").finitize(at=1.0)`, cannot happen. Every mode leaves a
+  diagram with no essential bars — `at="drop"` removes them, both substituting
+  modes give them finite deaths — so §5's return-unchanged rule makes the
+  second call a no-op, which §5 says outright two pages earlier when it
+  rejects the "keep the smaller recorded value" alternative on exactly that
+  ground. The reachable case is a writer merging into a mapping it did not
+  write: `finitize` on a diagram whose `provenance` came from `load` or from
+  an adapter's `**meta` can meet a qualifier for the value it is about to
+  overwrite. That path is not a new observation either — entry 32 already
+  argued `essential_bars_source` from a diagram arriving through `load`
+  carrying a `"finitized_*"` value, and §10.1 requirement 1 exists partly to
+  guarantee it. The illustration is replaced with that case. §8 first also
+  named the chained form as *not* being it, since it is the first thing a
+  reader or a test author reaches for; that sentence is then cut, because
+  sixty words of normative text on a case that cannot occur is the kind of
+  weight this document is trying to shed, and §5's return-unchanged rule
+  already answers it for anyone who does reach for it. This also sharpens the
+  paragraph below it: the rule has to be enforced at `DiagramMeta`
+  construction precisely because the writer that breaks it is one holding
+  provenance it did not author.
+  Entry 32's original wording stands in this changelog as what was said then.
+
+  **§4.2's own snippet committed the error §3.3 rules out.** `__getitem__`
+  read `lo, hi = self.offsets[i], self.offsets[i + 1]`, four lines above the
+  paragraph explaining that indexing an array yields a 0-d array and that the
+  `int()` is why batch indexing is eager-only. The snippet now spells the
+  `int()`.
+
+  **§3.3's scoping sentence was true by construction.** Entry 45 deleted the
+  stale "Three limits" count and left "the limits stated as measurements were
+  measured against `array_api_strict` 2.6.1" in its place — which scopes
+  itself, tells a reader nothing about which of the fourteen paragraphs below
+  are measurements, and pins a version in a sentence that no longer uses it.
+  The section now says that each limit carries its own evidence where it rests
+  on any — Appendix A.7, gh-58743, `torch-xfails.txt` and three required tests
+  are cited in the section already — and the version pin moves onto the
+  paragraph that does use it: the CI requirement to run the suite against
+  `array_api_strict`.
+
+  Also: `to_arrays()` returns `dict[int, Array]`, the array API standard
+  defining no `xp.array`; ratio signs are ASCII throughout, the document
+  having mixed the two; the header table gains header cells, having rendered
+  a blank row since it was written; and the **Target** row records M0 as met
+  rather than leaving a passed date reading as pending.
+
+  Appendix B's entry for this pass is a single bullet, which is the shape
+  entries 1-13 have and the contract the top of this document states. Entries
+  41-47 are not touched here; item 26 of the review pass is where they are
+  cut, and doing four of them in passing would leave the set half-converted.
+
 ---
 
 ## Original "Note on Dx" text
