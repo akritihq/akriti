@@ -1233,8 +1233,8 @@ section the earlier ones had no need for.
   small relative to what users will bring. At batch scale it compounds:
   `orbit5k_full` is 5,000 samples, so one `DiagramBatch` is around 4.7 million
   bars. At 1M bars the three candidate payloads measure 20.0 MB / 0.02 s for
-  `.npz`, 41.1 MB / 1.19 s for CSV, and 26.5 MB / 0.65 s for sqlite3 — 78× and
-  42× on load against the binary payload.
+  `.npz`, 41.1 MB / 1.19 s for CSV, and 26.5 MB / 0.65 s for sqlite3 — 78x and
+  42x on load against the binary payload.
 
   **Correctness does not discriminate, which is what makes this a cost
   decision.** CSV round-trips `float64` exactly through `repr` and `inf`
@@ -1244,21 +1244,21 @@ section the earlier ones had no need for.
   requirement 5 is already satisfied twice without it — by `meta.json` sitting
   in the archive as literal UTF-8 text, and by §10.3's `to_csv()`, which exists
   precisely to be the human-readable surface. Requirement 5 does not need
-  satisfying a third time, and paying 2.1× size and 78× load on every `load()`
+  satisfying a third time, and paying 2.1x size and 78x load on every `load()`
   to duplicate an escape hatch already shipped is the wrong trade.
 
   **One argument for CSV survives, and §12.2 records it rather than waving it
   away.** A stdlib payload would let the `[io]` extra be dropped altogether,
   `meta.json` being stdlib `json` already, and "zero dependencies, including
   serialization" is a materially stronger claim than the one this document
-  makes. It is not worth 78× at four-million-bar scale — but that ratio, or a
+  makes. It is not worth 78x at four-million-bar scale — but that ratio, or a
   use case where batches are small and dependency-freedom outweighs load time,
   is the condition to reopen D12 against, and A.6 is the number to reopen it
   against. Recording the losing argument with its trigger is the same instinct
   that reinstated D6 as superseded rather than deleting it.
 
   **sqlite3 is closed out** rather than left as a third option: larger than
-  `.npz`, 42× slower, not inspectable without a separate tool, and its files
+  `.npz`, 42x slower, not inspectable without a separate tool, and its files
   carry internal page state that makes requirement 4's byte-determinism harder
   rather than easier — a loss on every axis including the one it was proposed
   for.
@@ -1369,7 +1369,7 @@ section the earlier ones had no need for.
   to discover it. The format-benchmark numbers were reported without their
   script, which the lead offered; until it lands, A.6's second table is the one
   claim in the appendix that cannot be re-run from this repository, and the
-  appendix says which. A.6 also records that the 78× and 42× ratios are taken
+  appendix says which. A.6 also records that the 78x and 42x ratios are taken
   against the unrounded `.npz` time, so dividing the displayed 0.02 s column
   does not quite reproduce them — a reader checking the arithmetic should not
   have to wonder whether the table contradicts itself.
@@ -1557,21 +1557,21 @@ section the earlier ones had no need for.
   depended on how the row landed.
 
   **A.6 stops reporting multipliers, and the reason is the more useful
-  finding.** The 78× and 42× were computed against an unrounded 0.0153 s while
+  finding.** The 78x and 42x were computed against an unrounded 0.0153 s while
   the table displayed 0.02 s, which is what prompted the check. Correcting the
   arithmetic was not the fix. The ratio is a quotient by the fastest thing in
   the table, so it moves with how the `.npz` baseline is sampled while nothing
   about the formats changes: best-of-3 rather than a single run drops that
-  baseline to 0.0083 s and the same measurement then reads **149× and 99×**.
+  baseline to 0.0083 s and the same measurement then reads **149x and 99x**.
   Rerunning the committed script on a second machine — CPython 3.14.6, numpy
   2.5.1 — gives byte-identical sizes and 0.0226 s / 1.4781 s / 1.0339 s, which
-  is **65× and 46×**. Two machines, one script, one seed: the sizes reproduce
+  is **65x and 46x**. Two machines, one script, one seed: the sizes reproduce
   exactly, the order of magnitude holds, and the multiplier moves by more than
   a factor of two. §12.2 names A.6 as the thing to reopen D12 against, and a
   figure serving that purpose must not move when someone runs it on a different
   laptop. A.6 therefore records absolute times, the sizes, and "two orders of
   magnitude"; D12's row follows, and its reopen condition reads "two orders of
-  magnitude on load" rather than "78×". Entry 42's text is left as it was
+  magnitude on load" rather than "78x". Entry 42's text is left as it was
   written — it records what that pass did, and this entry records the
   correction.
 
@@ -1817,6 +1817,28 @@ section the earlier ones had no need for.
   §4 mean `akriti/core/`, the numerical layer, while §3.3 and §10.1 mean
   `diagrams/core.py`, and D18's own reasoning turns on the second. The
   interchange layer's obligations are unaffected either way.
+
+- **2026-08-09 (46)** — Header only, and recorded here rather than left to
+  Appendix B alone because the row it changed had been wrong in a way the
+  document could not see. The **Target** row read
+  `M1 (2026-09-15) published for comment`, which binds two dates the project's
+  schedule keeps independent: publication turns on this specification being
+  right, M1 on `diagrams/` being finished, and nothing makes the second the
+  natural home of the first. Tying them had a cost in one direction only —
+  a spec ready in August waits for code, and a spec still moving in September
+  ships anyway on a date it was never assessed against. The row now reads
+  `published for comment 2026-08-23, ahead of M1`. No normative content
+  changed, and no requirement in the body cites either date.
+
+  **The first version of this entry justified the new date badly**, and entry
+  48 struck the justification rather than the date: it counted the days to a
+  conference session and called the comment window funding-critical. Neither
+  is a fact about the interchange format, a reader outside this project can
+  resolve neither, and a date defended on a deadline nobody outside can see is
+  indistinguishable from an arbitrary one. 2026-08-23 stands on the only ground
+  that belongs in this document — it is the earliest date the outstanding
+  review items can be closed against, and it leaves the comment window longer
+  than the M1 date did.
 
 - **2026-08-09 (47)** — Review pass on the RFC itself rather than on a PR. The
   blocking group: defects that produce wrong code if implemented as written,
@@ -2151,6 +2173,64 @@ section the earlier ones had no need for.
   entries 1-13 have and the contract the top of this document states. Entries
   41-47 are not touched here; item 26 of the review pass is where they are
   cut, and doing four of them in passing would leave the set half-converted.
+
+- **2026-08-10 (49)** — Residuals of entries 47 and 48. Everything here was
+  found by re-reading those two passes against the document itself rather than
+  against the entries describing them, which is the check neither pass could
+  run on its own work.
+
+  **A fix can delete the sentence another clause cites.** Entry 47 rewrote
+  §8's opening, which had read that a diagram whose filtration and scale are
+  unknown cannot be interpreted, and §12.2's D17 cell cited that sentence
+  twice — once inside the recorded question, once in the resolution as a live
+  cross-reference for why an unrecorded coefficient field leaves a diagram
+  uninterpretable. The claim survives the rewrite: §8's opening paragraph now
+  names the coefficient field itself among the facts identical bars cannot
+  distinguish, which is stronger than what D17 could lean on when it was
+  opened. Only the pointer was stale, and both now stand on what §8 says
+  today. **The question column was repaired too, not preserved as a period
+  record.** A decision row's question is a record of what was asked, and the
+  `coeff_field` comment it quotes is deliberately quoted as a thing that no
+  longer exists — but that quotation is marked as one and this citation was
+  not, so a reader following it found nothing and had no way to tell whether
+  the row or the document had moved. The test is whether the reference resolves,
+  not whether it was true when written.
+
+  **A mechanism arrived without a test, one clause over from the finding that
+  names that failure.** Entry 47 closed the `to_csv()`/`from_array` column
+  transposition by giving `from_array` a `columns=` argument, and added nothing
+  to §11.2 — while its own last finding was that §6.3's new `+inf` clause was
+  the one requirement of that pass with no test behind it. §11.2 now carries
+  the round trip through a header row, which is the pair's whole purpose and
+  which a positional `from_array` ignoring the argument entirely would fail.
+  **The invalid cases are required on data that would otherwise construct.**
+  A `columns` check tested against an array whose values fail I2 or I3 under
+  the positional reading proves nothing about the check: §3.1 catches that
+  input either way, and §10.3 already concedes that a diagram with no essential
+  bars and small non-negative integer coordinates survives the transposition
+  cleanly. That surviving case is exactly the one the tests have to use.
+
+  **The rule the argument was missing was two rules, and stating one would have
+  repeated entry 47's own pattern.** `columns` required one entry per column
+  and every name recognised, and said nothing about a name appearing twice —
+  `["birth", "birth", "dim"]` passing both checks while naming no death column.
+  Adding a no-duplicates rule alone would have left `["birth", "dim"]`, which
+  omits `death` and is the same defect from the other end; both are now one
+  clause. It MUST raise on the argument before `arr` is inspected, on §5's and
+  §6.3's ordering, so a malformed `columns` fails the same way whatever data
+  accompanies it. The rule has a consequence worth stating rather than leaving
+  to be derived: a valid `columns` names `dim` exactly when it has three
+  entries, so §11's "degree-carrying input" is well defined under the argument
+  and agrees with the column count it would otherwise have to be read against.
+
+  **Two housekeeping items in this document.** Entry 46 had no expansion here
+  at all, the only entry in the changelog without one, which left entry 48's
+  account of striking its conference-schedule justification pointing at
+  nothing; it now carries the change, the reason the two dates were separated,
+  and what was removed from it. And entry 48 normalised ratio signs to ASCII in
+  the RFC only, leaving fifteen in this file — including inside the entries
+  recording the retired multipliers, where the mixed spelling was most visible.
+  Normalised throughout rather than where a neighbour happened to be ASCII.
 
 ---
 
