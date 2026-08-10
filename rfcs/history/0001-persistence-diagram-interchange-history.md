@@ -2,14 +2,18 @@
 
 Non-normative. This document holds the full narrative that the main RFC
 (`0001-persistence-diagram-interchange.md`) now only points to. Nothing here
-changes or adds to any requirement; every MUST, SHOULD and MAY lives in the
-main document. This file exists so the audit trail survives being pruned out
-of the RFC before publication, per the M1 target.
+changes or adds to any requirement. The BCP 14 keywords do appear below, in
+quantity, in three roles: quoting the main document, restating what a pass made
+that document require, and being counted as tokens in the process notes. None of
+the three creates a requirement — every requirement lives in the main document,
+in full, and where the two files differ that one governs. This file exists so
+the audit trail survives being pruned out of the RFC before publication, per the
+M1 target.
 
 What is below, in order:
 
 - **Full changelog** — every entry in full. The main RFC's Appendix B carries
-  one line each.
+  a single bullet each.
 - **Original "Note on Dx" text** — the explanations that used to sit below the
   §12 decision table (D1, D2, D6, D8), plus D9's and D12's, which were written
   here directly once that convention was retired.
@@ -1368,11 +1372,16 @@ section the earlier ones had no need for.
   lives in `classify`, and its docstring says that rather than leaving a reader
   to discover it. The format-benchmark numbers were reported without their
   script, which the lead offered; until it lands, A.6's second table is the one
-  claim in the appendix that cannot be re-run from this repository, and the
-  appendix says which. A.6 also records that the 78x and 42x ratios are taken
-  against the unrounded `.npz` time, so dividing the displayed 0.02 s column
-  does not quite reproduce them — a reader checking the arithmetic should not
-  have to wonder whether the table contradicts itself.
+  claim in the appendix with no script behind it at all, and the appendix says
+  which. ("The one claim in the appendix that cannot be re-run from this
+  repository", as this sentence originally read, is contradicted by the two
+  sentences above it: neither of A.6's tables re-runs here, one for want of a
+  script and one for want of the `classify` datasets. Corrected in entry 51,
+  which corrects entry 44's restatement of the same error.) A.6 also records
+  that the 78x and 42x ratios are taken against the unrounded `.npz` time, so
+  dividing the displayed 0.02 s column does not quite reproduce them — a reader
+  checking the arithmetic should not have to wonder whether the table
+  contradicts itself.
 
   **What did not change.** D17 is untouched and still carries no
   recommendation; §8's `coeff_field` comment is left exactly as it stands,
@@ -1588,7 +1597,13 @@ section the earlier ones had no need for.
   `bar_counts.py` is not: synthetic bars, `numpy` plus stdlib, no dataset
   dependency, so it runs in CI's own environment. Generating the 1M-row CSV is
   the slow part, around fourteen seconds end to end here. A.6's "not checked
-  in" caveat is gone, and every figure in the appendix now re-runs.
+  in" caveat is gone: both of the appendix's scripts are now committed, and the
+  format table re-runs from this repository. The bar-count table still does not
+  — `bar_counts.py` needs `classify` for its point clouds, as entry 42 records,
+  its own docstring says and A.6's reproduction line repeats. ("Every figure in
+  the appendix now re-runs", as this sentence originally read, was false when
+  written, and confuses a script being committed with a figure being
+  reproducible. Corrected in entry 51.)
 
   **Three citations to an unpublished internal document, removed.** The lead
   found two in the RFC — §3's justification that the three-parallel-array
@@ -1613,11 +1628,11 @@ section the earlier ones had no need for.
   `tools/check_license_closure.py`, `tests/test_array_api_conformance.py`,
   `probe_backends.py` and CODEOWNERS itself. They are milder, because naming a
   document at least tells a reader the reference is external, but an outside
-  reviewer still cannot follow `onboarding §9.3` anywhere. The lead scoped his
-  grep to "execution plan" and this is a larger, separate call — whether the
-  onboarding document is published alongside the RFC, or its cited reasoning
-  gets lifted inline the way §8's just was — so it is recorded here rather than
-  decided in this pass.
+  reviewer still cannot follow `onboarding §9.3` anywhere. This is a decision
+  with broader scope than the "execution plan" grep — whether the onboarding
+  document is published alongside the RFC, or its cited reasoning gets lifted
+  inline the way §8's just was — so it is recorded here rather than decided in
+  this pass.
 
 - **2026-08-09 (45)** — Fourth review pass on PR #10, acting on the lead's two
   comments. **Resolves D18**, which empties §12.1, and closes the onboarding
@@ -1811,8 +1826,8 @@ section the earlier ones had no need for.
   preference: `core/` MUST be written against the array API rather than
   hard-coded NumPy" now describes something the project has decided not to do
   yet. Two things make this worth the lead's eye rather than a silent edit.
-  That MUST is one entry 41 promoted from lowercase at his own request, so
-  striking or scoping it reverses a keyword he asked for. And `core/` is
+  That MUST is one entry 41 promoted from lowercase deliberately, so striking
+  or scoping it reverses a keyword this document meant to have. And `core/` is
   ambiguous in this document in a way that has not mattered until now: §3 and
   §4 mean `akriti/core/`, the numerical layer, while §3.3 and §10.1 mean
   `diagrams/core.py`, and D18's own reasoning turns on the second. The
@@ -2231,6 +2246,250 @@ section the earlier ones had no need for.
   the RFC only, leaving fifteen in this file — including inside the entries
   recording the retired multipliers, where the mixed spelling was most visible.
   Normalised throughout rather than where a neighbour happened to be ASCII.
+
+- **2026-08-10 (50)** — Condensation pass: text that is not specification,
+  removed or moved to whichever section already owned the argument. **No
+  requirement changed, and this was checked rather than intended** — the five
+  BCP 14 keyword counts are identical before and after (168 MUST, 39 MUST NOT,
+  3 SHOULD, 1 SHOULD NOT, 5 MAY). 510 words out: 489 from the body, which goes
+  29,269 to 28,780, and 21 from changelog entry 42.
+
+  **Strategy and positioning, in four places.** §9.2 carried giotto's monthly
+  PyPI install rate, "the 'slot is vacant, users are stranded' case this project
+  exists to catch", and a paragraph on who this library's earliest adopters
+  would be. None of it bears on the type, the format or the adapter contract.
+  What the passage was doing normatively survives untouched: the zero-commits
+  fact, which is the evidence for the unmaintained premise the section assumes;
+  the MUST NOT on `from_giotto` blocking upstream; and the priority-not-scope
+  statement. **The `pypistats` citation moved rather than went** — §9.2 opens by
+  calling giotto the most-installed general-purpose TDA library in Python, which
+  is a claim that needs a source, and the source was sitting fifteen lines below
+  it supporting the positioning instead. D5's cell traded "buys enormous
+  goodwill, and turns a criticism into a contribution" for what the decision
+  buys the document: §9 citing a filed report rather than an unreported defect.
+  §1's first reason no longer says which people build which file, a staffing
+  fact that dates; the reason it supports — that two modules can be built
+  independently only against a fixed interface — is what is left.
+
+  **Two citations of an internal policy file went with them, at §9.1 and D19.**
+  That file does not publish alongside this document, which is entry 45's
+  ground rather than a new one, and both sites took the same remedy entries 44
+  and 45 settled on: state the rule rather than cite the file. D19's is the one
+  that mattered — the row exists *because* the delegation rule forbids what
+  §9.1 requires, so a reader who cannot resolve the citation cannot see why
+  there is a decision to make. Removing §9.1's and leaving D19's would have
+  left the document inconsistent about the same file one section apart.
+
+  **Narrative about this document's own drafting, in six places.** Two in §3.3
+  recounting what an earlier draft of the surrounding paragraph got wrong,
+  §5's rejected "keep the smaller recorded value" alternative, §9.3's note that
+  a clause was written before D17 closed, §10.2's account of which candidates
+  §10.1's argument originally tested, and §12's separate paragraph on D6's
+  reinstatement. §5's and §12's kept their substance and lost the chronology:
+  §5 still records the alternative, that it is unreachable, and that
+  `essential_bars_source` is what it was reaching for; §12 still records that
+  nothing normative left with D9-D11 and that D-numbers are not renumbered. The
+  §3.3 pair is the clearest case — the paragraph's claim stands on its own
+  argument, and a reader learning that an earlier revision of it was wrong
+  learns nothing about the array API.
+
+  **One argument carried three times, now carried once.** D12's "requirement 5
+  is already satisfied twice, so it does not need satisfying a third time" was
+  written out in full in §10.1, in D12's own cell, and in changelog entry 42. It
+  stays in §10.1, which is where requirement 5 lives; the other two point at it.
+  The same treatment for `essential_bars_source`: §11 states both obligations —
+  the adapter MUST record it, `finitize` MUST NOT — and defers to §5 for why the
+  adapter is the only writer that can, which §5 already argues in three bullets.
+  Both keyword pairs are still stated where the obligation falls.
+
+  **Interpretation lifted out of the evidence appendix.** A.5 closed with three
+  paragraphs of D17 analysis and A.6 with a narrative on why its multipliers
+  were retired. Both re-derived arguments their consuming sections already make:
+  §9.3 carries the coefficient-field hazard in more depth than A.5's version
+  did, including the §6.3 consequence, and D12's cell carries the
+  ratio-does-not-transfer reasoning. What stays is what only an appendix can
+  carry — the measurements, the environment, the caveat on how narrow the two
+  datasets are, and the fact that a second machine halves the ratio, which is
+  the checkable form of the claim rather than the argument for it.
+
+- **2026-08-10 (51)** — Three false statements in this document's own summary
+  and changelog, four sentences corrected. Nothing in the main RFC changed but
+  entry 44's Appendix B line, which carried the third of them, and the new line
+  for this entry; its five BCP 14 keyword counts are identical to the ones entry
+  50 recorded.
+
+  **The summary described Appendix B in the words entry 35 retired.** Entry 34
+  claimed the main RFC's Appendix B carries "one line each"; entry 35 found that
+  overstated, corrected it to "a single bullet each", and marked the correction
+  in both files' entry 34 — leaving the retired phrase standing at the top of
+  this file, which is the sentence a reader meets before any entry. It now reads
+  as entry 35 settled it. The corrected phrase is also the one that survives
+  what Appendix B has since become: entries 41-50 run from 62 words to 563, and
+  eight of the ten are over 200, so they are single bullets and are emphatically
+  not lines. That gap is a finding against Appendix B, and the summary here
+  should describe the appendix rather than assert the target it is missing.
+
+  **The summary declared this file free of keywords it carries in quantity.** It
+  read "every MUST, SHOULD and MAY lives in the main document", of a file
+  carrying 69 MUST, 15 MUST NOT, 14 SHOULD, 3 SHOULD NOT and 8 MAY before this
+  pass. What it meant is that no requirement originates here, and the three ways
+  the keywords actually appear are all consistent with that: quotation from the
+  RFC, restatement in this file's own voice of what a pass made the RFC require
+  — entry 41's three `allclose` constraints are the clearest case — and token
+  counts in the process notes themselves. The sentence now says that, and adds
+  the precedence rule it was relying on unstated: where the two files differ,
+  the RFC governs. Two smaller defects in the same clause went with it. It named
+  three of the five keywords the RFC declares, in a document whose whole subject
+  is that RFC and whose keyword line names five. And it invited exactly the
+  reading entry 15 recorded hitting from the other direction, when a bare "MUST"
+  in a changelog line tripped a count check that could not tell a use from a
+  mention — the distinction entries 37-39 then spent three passes making formal
+  in the RFC, via RFC 8174's all-capitals clause. "What did not move here"
+  already states the rule correctly, in the same terms; this is the summary
+  catching up with a section 2,600 lines below it.
+
+  **Entry 44 claimed every figure in Appendix A.6 re-runs.** It does not.
+  `bar_counts.py` imports `lib.datasets` from the `classify` repository, so the
+  bar-count table re-runs only for a reader who has that repository: the
+  script's docstring says so, A.6's reproduction line says so, and entry 42 says
+  so two sentences before making the same mistake itself, calling the format
+  table "the one claim in the appendix that cannot be re-run from this
+  repository" when neither table could be. Both sentences confuse a script being
+  committed with a figure being reproducible, which is the distinction the
+  evidence appendix exists to hold — and the ambition entry 43 stated for A.7,
+  that every figure in it re-runs from this repository, is the standard A.6 was
+  being measured against. What entry 44 established is narrower and is now what
+  it says: both of A.6's scripts are committed, and one of the two tables
+  re-runs here.
+
+  **The two changelog sentences are corrected in place and marked, on entry
+  34's precedent rather than entry 44's.** Entry 44 left entry 42's retired
+  multipliers standing on the ground that an entry records what its pass did.
+  That holds for a figure that was true when measured and superseded afterwards;
+  it does not hold for a sentence that was false when written, and both of these
+  were. A reader who stops at the sentence should not be left with the wrong
+  fact, and the audit trail survives by quoting the original inside the
+  correction rather than by leaving it in force. The summary at the top of this
+  file takes no such marker: it is a description of the document as it stands,
+  not a dated record of a pass, so it is simply rewritten and this entry is the
+  record.
+
+- **2026-08-10 (52)** — One sourcing defect entry 50 introduced, and four
+  pieces of the categories it swept that it did not reach. No requirement
+  changed; the five BCP 14 keyword counts are identical to the ones entry 50
+  recorded.
+
+  **Entry 50 moved a citation onto a claim it does not support.** §9.2 opens by
+  calling giotto-tda the most-installed general-purpose TDA library in Python.
+  Entry 50 read that as a sourcing gap and attached `pypistats.org`'s
+  giotto-tda page to it, deleting the install-rate sentence the page had been
+  supporting. But a single-package download page substantiates that package's
+  volume and cannot substantiate a ranking across a field; the pass removed the
+  claim its source covered and kept the one it did not. **New Appendix A.8
+  measures the comparison instead**, with `rfcs/evidence/pypi_downloads.py`
+  behind it, and the measurement changes what the sentence is allowed to say.
+  giotto-tda takes about 7,800 downloads a month against `ripser` 70,805,
+  `persim` 69,888 and `gudhi` 54,398 — the three backends this document
+  delegates to, each 7-9x its volume. The claim is therefore true of
+  general-purpose libraries and false of TDA packages generally, so A.8 states
+  where that boundary is drawn rather than leaving a reader to infer it from a
+  superlative. The rank is what §9.2 uses and the absolutes are what move
+  between runs; A.8 says which of the two it is offering.
+
+  **This is not entry 50's install-rate finding reopened.** What that pass
+  struck was a monthly figure doing market framing in the body — who is
+  stranded, who adopts us first. What lands here is a comparison in the
+  evidence appendix, carrying a claim §9.2 already made and could not check,
+  on the pattern §9.3 and A.5 already use. A number in Appendix A supporting a
+  hazard section is a different object from the same number in §9.2 arguing a
+  market position.
+
+  **Reviewer-to-lead correspondence is out of Appendix B**, fourteen phrases
+  across entries 17, 29, 41, 42, 44 and 45: whose replies a pass was acting on,
+  what was flagged for the lead to strike, whose machine and whose script
+  produced a figure, and whose judgment a row was still waiting on. The
+  substance each phrase carried survives where it was doing work — an addition
+  beyond what was asked is still marked as one, and A.6's figures are still
+  attributed to a run this project did not make — but the deliverable no longer
+  records who said what to whom. `rfcs/evidence/bar_counts.py` loses the same
+  from its docstring, along with the pull-request number entry 48 removed from
+  the RFC and missed there. This file keeps its own record: it is the audit
+  trail, it does not publish alongside the RFC, and an entry that cannot say
+  what prompted a pass is not a process history. One gendered attribution of a
+  third party was rewritten here in passing.
+
+  **Three positioning survivals and one drafting narrative.** §9.2's third
+  consequence bullet argued that giotto being broken strengthens the case for
+  `compat/giotto` — a strategy conclusion sitting between two MUSTs. D19 stated
+  two obligations on how the implementation is to be written, that it cite the
+  equation and that its tests come from a separate session; both are project
+  working practice, they bear on neither the type nor the format nor the
+  adapter contract, and entry 50 preserved them at D19 while striking them at
+  §9.1. Stating the rule rather than citing the file was the right remedy for
+  the sites entries 44 and 45 handled, where the rule was about this document's
+  own content; it is the wrong one where the rule is about how a team works,
+  and there the remedy is to drop it. D2's cell closed by naming the library
+  this project is positioned against. And §11 recounted what an earlier draft
+  of `from_giotto`'s return type did before rejecting it, which is entry 50's
+  own drafting-narrative category at a seventh site it did not list; the
+  rejected design stays, stated in the present tense as an exclusion.
+
+  **Entry 50's own arithmetic is corrected in place**, on entry 51's precedent:
+  it claimed 516 words out where the measured figure is 510 — 489 from the
+  body, which goes 29,269 to 28,780, and 21 from changelog entry 42. The
+  correction is small enough not to matter and is made because an entry that
+  reports a measurement is one a reader may re-run.
+
+- **2026-08-10 (53)** — Four residuals of entries 50-52, found by re-verifying
+  the last review pass's items 30-37 against the revision that closed them. No
+  requirement changed; the five BCP 14 keyword counts are identical to the ones
+  entries 50 and 52 recorded (168 MUST, 39 MUST NOT, 3 SHOULD, 1 SHOULD NOT,
+  5 MAY). The four fixes take ten words out of the body and Appendix A
+  together; this pass's Appendix B entry puts 56 back, so the RFC is up 46 net.
+  Recorded rather than reported as a reduction: revisions 50-52 each shrank the
+  body while growing the changelog, and a pass whose whole subject is residuals
+  should not be the one to leave that unstated.
+
+  **A.8 does not reproduce offline and did not say so.** Entry 43 set the
+  standard that every figure in A.7 re-runs from this repository, and entry 51
+  spent a pass on the difference between a script being committed and a figure
+  being reproducible. Entry 52 then added a table that needs network access to
+  `pypistats.org` and whose absolute values move between runs.
+  `pypi_downloads.py`'s docstring said both; A.8 said neither, so the caveat
+  reached only a reader who opened the script. It is now A.8's second sentence.
+  The closing line already warned that the counts move and that the rank is
+  what §9.2 uses; what was missing is that the table cannot be checked at all
+  without a network, which is the one property the rest of Appendix A has and
+  this table does not.
+
+  **§8 re-derived the `essential_bars_source` argument instead of pointing at
+  it.** Entry 50 single-sourced §11's copy to §5 and left §8's, which opened by
+  restating why the second key exists — the same then-versus-now distinction §5
+  makes four hundred lines above. The requirement and the writer prohibition
+  stay in §8, where the reserved keys are specified; the derivation becomes a
+  pointer, and what remains is §8's own: why the key is a string enum sharing
+  `essential_bars`' vocabulary rather than a boolean. The pointer is
+  deliberately short. A pointer that summarises what it points at is a second
+  copy with a shorter half-life, and drift between the two is what
+  single-sourcing this argument was for.
+
+  **A.5's closing pointer lost its antecedent when entry 50 condensed it.**
+  "Both columns are consumed normatively elsewhere" sat under a four-column
+  table and then named one of the two. Both are named now, with no rationale
+  added back — naming the consumer is the pointer's whole job, and entry 50 was
+  right to move the reasoning to D17 and §9.3.
+
+  **D19 kept the framing entry 52 struck from it.** Entry 52 removed the two
+  obligations D19 placed on how `core/distances.py` is to be written, but left
+  the row's question opening on "this project's delegation rule" — the same
+  appeal to working practice one clause up, in the wording entry 50 had put
+  there in place of the file citation. The document states the position in its
+  own voice at §9's preamble, and §6.3 already cites it as "§9's delegation
+  rule", so the row cites that. This is the distinction entry 52 drew and did
+  not finish applying: state the rule where it is about this document's
+  content, drop it where it is about how a team works. A scope exception has to
+  name what it is an exception to, and §9 is a referent a public reader can
+  follow.
 
 ---
 
