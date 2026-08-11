@@ -29,6 +29,7 @@ The clauses under test, in one place:
 
 from __future__ import annotations
 
+import inspect
 import json
 import math
 import warnings
@@ -40,6 +41,7 @@ import pytest
 from hypothesis import given
 from hypothesis import strategies as st
 
+import akriti.diagrams.adapters as adapters_module
 from akriti.diagrams import DiagramBatch, PersistenceDiagram
 from akriti.diagrams.adapters import (
     from_array,
@@ -48,6 +50,13 @@ from akriti.diagrams.adapters import (
     from_persim,
     from_ripser,
 )
+
+# `tools/capture_giotto_fixture.py`'s `MAX_EDGE`, which is the value giotto's
+# default `infinity_values=None` writes into the death column of every class
+# still alive at the cutoff. Asserted against the fixture's own recorded call
+# string rather than trusted, so a recapture at a different cutoff fails here
+# instead of silently weakening C1's regression tests.
+_GIOTTO_MAX_EDGE = 4.0
 
 
 def test_adapters_are_reachable_from_the_package_surface() -> None:
@@ -80,6 +89,139 @@ def installed_version(dist: str) -> str | None:
         return metadata.version(dist)
     except metadata.PackageNotFoundError:
         return None
+
+
+class _FakeNumpy:
+    """Small import target for the lazy NumPy fallback tests."""
+
+    def __init__(self, version: str, namespace: Any) -> None:
+        self.__version__ = version
+        self._namespace = namespace
+
+    def empty(self, size: int) -> Any:
+        assert size == 0
+        namespace = self._namespace
+
+        class _Probe:
+            def __array_namespace__(self) -> Any:
+                return namespace
+
+        return _Probe()
+
+
+def _patch_numpy_import(
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    version: str = "2.0.0",
+    namespace: Any | None = None,
+) -> Any:
+    """Install a deterministic fake NumPy module and distribution record."""
+    if namespace is None:
+        namespace = object()
+    fake = _FakeNumpy(version, namespace)
+    monkeypatch.setattr(adapters_module, "import_module", lambda name: fake)
+    monkeypatch.setattr(adapters_module.metadata, "version", lambda name: version)
+    return namespace
+
+
+def test_numpy_rows_missing_top_level_import_names_extra(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§3.3: a missing lazy dependency gives an actionable install hint."""
+    missing = ModuleNotFoundError("No module named 'numpy'", name="numpy")
+    monkeypatch.setattr(
+        adapters_module, "import_module", lambda name: (_ for _ in ()).throw(missing)
+    )
+
+    with pytest.raises(ImportError, match=r"akriti\[numpy\]") as exc_info:
+        adapters_module._namespace_for_rows()
+
+    assert exc_info.value.__cause__ is missing
+
+
+@pytest.mark.parametrize("version", ["1.26.4", "1.0", "2.0rc1"])
+def test_numpy_rows_rejects_below_floor_and_same_floor_prerelease(
+    monkeypatch: pytest.MonkeyPatch, version: str
+) -> None:
+    """§3.3/D6: NumPy must be >=2.0, including release ordering."""
+    _patch_numpy_import(monkeypatch, version=version)
+
+    with pytest.raises(ImportError, match=r"numpy.*2\.0.*akriti\[numpy\]"):
+        adapters_module._namespace_for_rows()
+
+
+@pytest.mark.parametrize("metadata_error", [metadata.PackageNotFoundError, ValueError])
+def test_numpy_rows_rejects_missing_or_unparseable_distribution_metadata(
+    monkeypatch: pytest.MonkeyPatch, metadata_error: type[Exception]
+) -> None:
+    """§3.3: broken distribution metadata is an actionable dependency error."""
+    fake = _FakeNumpy("2.0.0", object())
+    monkeypatch.setattr(adapters_module, "import_module", lambda name: fake)
+
+    def broken_metadata(name: str) -> str:
+        raise metadata_error("numpy metadata is unavailable")
+
+    monkeypatch.setattr(adapters_module.metadata, "version", broken_metadata)
+
+    with pytest.raises(ImportError, match=r"numpy.*metadata.*akriti\[numpy\]"):
+        adapters_module._namespace_for_rows()
+
+
+def test_numpy_rows_rejects_an_unparseable_version_string(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§3.3: a non-version distribution record cannot satisfy the floor."""
+    fake = _FakeNumpy("development", object())
+    monkeypatch.setattr(adapters_module, "import_module", lambda name: fake)
+    monkeypatch.setattr(adapters_module.metadata, "version", lambda name: "development")
+
+    with pytest.raises(ImportError, match=r"parse.*numpy.*akriti\[numpy\]"):
+        adapters_module._namespace_for_rows()
+
+
+def test_numpy_rows_keeps_the_namespace_feature_probe_after_version_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§3.3/D6: valid metadata cannot stand in for the required array API."""
+    fake = type(
+        "FakeNumpyWithoutArrayAPI", (), {"empty": lambda self, size: object()}
+    )()
+    monkeypatch.setattr(adapters_module, "import_module", lambda name: fake)
+    monkeypatch.setattr(adapters_module.metadata, "version", lambda name: "2.0.0")
+
+    with pytest.raises(ImportError, match=r"array API.*akriti\[numpy\]"):
+        adapters_module._namespace_for_rows()
+
+
+def test_numpy_rows_propagates_transitive_import_failure(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§3.3: a NumPy subdependency failure must not be laundered."""
+    missing = ModuleNotFoundError(
+        "No module named 'numpy.core._multiarray_umath'",
+        name="numpy.core._multiarray_umath",
+    )
+    monkeypatch.setattr(
+        adapters_module, "import_module", lambda name: (_ for _ in ()).throw(missing)
+    )
+
+    with pytest.raises(ModuleNotFoundError) as exc_info:
+        adapters_module._namespace_for_rows()
+
+    assert exc_info.value is missing
+
+
+@pytest.mark.parametrize(
+    "version",
+    ["2.0", "2.0.0", "2.0.0.post1.dev1", "2.1rc1", "1!2.0", "2.0+local"],
+)
+def test_numpy_rows_accepts_supported_pep440_versions(
+    monkeypatch: pytest.MonkeyPatch, version: str
+) -> None:
+    """§3.3/D6: valid releases at or above the floor reach the namespace."""
+    namespace = _patch_numpy_import(monkeypatch, version=version)
+
+    assert adapters_module._namespace_for_rows() is namespace
 
 
 def assert_json_representable(mapping: Any) -> None:
@@ -134,6 +276,19 @@ def test_from_gudhi_rejects_a_two_column_array_without_a_degree(
 
     with pytest.raises(TypeError, match="dim"):
         from_gudhi(intervals)
+
+
+def test_from_gudhi_rejects_a_three_column_array() -> None:
+    """§11: GUDHI's array form is only persistence intervals, `(n, 2)`."""
+    with pytest.raises(ValueError, match=r"only.*\(n, 2\)"):
+        from_gudhi(np.zeros((1, 3)), dim=0)
+
+
+def test_from_gudhi_rejects_degree_with_the_degree_carrying_list(
+    gudhi_pairs: Any,
+) -> None:
+    with pytest.raises(TypeError, match="already carries a degree"):
+        from_gudhi(gudhi_pairs("circle"), dim=0)
 
 
 def test_from_gudhi_preserves_infinite_deaths(gudhi_pairs: Any) -> None:
@@ -305,7 +460,9 @@ def test_from_giotto_records_no_coefficient_field(giotto_array: Any) -> None:
     """§11: giotto is excluded on evidence -- A.5 could not measure its
     default, and this project does not assert a backend default it has not
     measured."""
-    b = from_giotto(giotto_array(reduced=True), reduced_homology=True)
+    b = from_giotto(
+        giotto_array(reduced=True), reduced_homology=True, infinity_values=math.inf
+    )
 
     assert b[0].meta.coeff_field is None
     assert "coeff_field_source" not in b[0].meta.provenance
@@ -324,6 +481,26 @@ def test_from_ripser_accepts_the_result_dict(ripser_dgms: Any) -> None:
 
     assert d.n_bars == sum(int(x.shape[0]) for x in dgms)
     assert d.meta.backend == "ripser"
+
+
+def test_from_ripser_records_the_rips_filtration() -> None:
+    """§8, §11: Ripser's input form determines the filtration."""
+    d = from_ripser([np.array([[0.0, 1.0]])])
+
+    assert d.meta.filtration == "rips"
+
+
+def test_from_ripser_accepts_matching_filtration_and_rejects_conflict() -> None:
+    """A caller may restate the fact, but may not make the diagram lie."""
+    assert (
+        from_ripser([np.array([[0.0, 1.0]])], filtration="rips").meta.filtration
+        == "rips"
+    )
+    assert (
+        from_ripser([np.array([[0.0, 1.0]])], filtration=None).meta.filtration == "rips"
+    )
+    with pytest.raises(TypeError, match=r"filtration.*rips"):
+        from_ripser([np.array([[0.0, 1.0]])], filtration="alpha")
 
 
 def test_from_ripser_accepts_the_fit_transform_list(
@@ -376,6 +553,34 @@ def test_from_ripser_accepts_a_degree_that_is_empty(ripser_dgms: Any) -> None:
     assert [int(x.shape[0]) for x in dgms] == [1, 0], "fixture changed"
     assert d.n_bars == 1
     assert int(d.dims[0]) == 0
+
+
+@pytest.mark.parametrize("adapter", [from_ripser, from_persim])
+def test_the_degree_list_adapters_keep_repeated_bars(
+    adapter: Any, ripser_dgms: Any
+) -> None:
+    """§11.2: multiplicity survives -- adapters never deduplicate.
+
+    Asserted here as well as on `from_gudhi` because the two reach storage by
+    different code. GUDHI's `persistence()` list is unpacked row by row into
+    Python lists; Ripser's and persim's blocks are stacked and concatenated as
+    arrays, and a `unique` slipped into either path would be invisible to a
+    test of the other. §11's table has persim consuming exactly what Ripser
+    emits, which is why one fixture serves both.
+
+    The twin-pairs cloud is two coincident pairs, so the repetition is a
+    property of the data rather than of the capture."""
+    dgms = ripser_dgms("twin_pairs")
+    assert dgms[0].tolist().count([0.0, 1.0]) == 2, "fixture changed"
+
+    d = adapter(dgms)
+
+    rows = [
+        (int(k), float(b), float(x))
+        for k, b, x in zip(d.dims, d.births, d.deaths, strict=True)
+    ]
+    assert rows.count((0, 0.0, 1.0)) == 2, "identical finite bars were collapsed"
+    assert d.n_bars == sum(int(block.shape[0]) for block in dgms)
 
 
 def test_from_ripser_rejects_a_dict_without_dgms(ripser_dgms: Any) -> None:
@@ -444,6 +649,182 @@ def test_from_array_accepts_three_columns_in_giottos_order() -> None:
     assert [int(x) for x in d.dims] == [0, 1]
     assert [float(x) for x in d.births] == [0.0, 0.5]
     assert [float(x) for x in d.deaths] == [1.0, 2.0]
+
+
+def test_from_array_signature_has_columns_before_dim() -> None:
+    """§10.3, §11: the public signature is part of the interchange contract."""
+    parameters = inspect.signature(from_array).parameters
+    assert list(parameters)[:3] == ["arr", "columns", "dim"]
+    assert parameters["columns"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["columns"].default is None
+    assert parameters["dim"].kind is inspect.Parameter.KEYWORD_ONLY
+
+
+def test_from_gudhi_dim_is_keyword_only() -> None:
+    """§11: "`dim` is keyword-only on the two adapters whose input may carry no
+    degree." Asserted rather than assumed, because every other test states it
+    by name and would go on passing against a positional parameter -- at which
+    point `from_gudhi(intervals, 1)` is legal and the argument is silently
+    part of the positional contract this document does not give it."""
+    parameters = inspect.signature(from_gudhi).parameters
+
+    assert parameters["dim"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["dim"].default is None
+
+
+def test_from_giotto_bar_data_controls_are_keyword_only() -> None:
+    """§11, §5.1: `reduced_homology` is keyword-only so that omitting it is a
+    `TypeError` at the call site, and `strip_padding` so that §11.1's three
+    modes cannot be selected by position. Both would still raise on omission
+    if they were positional-or-keyword; neither would raise on a caller who
+    passed them in the wrong order."""
+    parameters = inspect.signature(from_giotto).parameters
+
+    assert parameters["reduced_homology"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["reduced_homology"].default is inspect.Parameter.empty
+    assert parameters["strip_padding"].kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameters["strip_padding"].default is None
+
+
+def test_from_array_columns_are_case_insensitive_and_override_position() -> None:
+    """§10.3: names, not position, carry a supplied header's meaning."""
+    arr = np.array([[0.0, 2.0, 0.0], [1.0, 3.0, 1.0]])
+
+    d = from_array(arr, columns=["DIM", "Death", "BIRTH"])
+
+    assert [float(x) for x in d.births] == [0.0, 1.0]
+    assert [float(x) for x in d.deaths] == [2.0, 3.0]
+    assert [int(x) for x in d.dims] == [0, 1]
+
+
+def test_from_array_two_column_columns_can_reorder_with_external_dim() -> None:
+    arr = np.array([[9.0, 2.0], [10.0, 3.0]])
+
+    d = from_array(arr, columns=("DEATH", "birth"), dim=4)
+
+    assert [float(x) for x in d.births] == [2.0, 3.0]
+    assert [float(x) for x in d.deaths] == [9.0, 10.0]
+    assert [int(x) for x in d.dims] == [4, 4]
+
+
+def test_from_array_columns_support_empty_arrays() -> None:
+    d2 = from_array(np.empty((0, 2)), columns=["birth", "death"], dim=0)
+    d3 = from_array(np.empty((0, 3)), columns=["birth", "death", "dim"])
+
+    assert d2.n_bars == d3.n_bars == 0
+
+
+@pytest.mark.parametrize(
+    ("columns", "error", "match"),
+    [
+        ("birth,death", TypeError, "sequence"),
+        (1, TypeError, "sequence"),
+        # Not "length": §10.3 decides `["birth"]` on the argument, where it is
+        # a header naming no death, before any array width is consulted. The
+        # length rule needs an otherwise-valid header and has its own test.
+        (["birth"], ValueError, "missing.*death"),
+        (["birth", 1], TypeError, "string"),
+        (["birth", "birth"], ValueError, "duplicate"),
+        (["birth", "dim"], ValueError, "missing.*death"),
+        (["birth", "death", "diagram_id"], TypeError, r"diagram_id.*\.akd"),
+        (["birth", "death", "other"], ValueError, "unknown.*other"),
+    ],
+)
+def test_from_array_rejects_invalid_columns(
+    columns: Any, error: type[Exception], match: str
+) -> None:
+    n_columns = 2 if isinstance(columns, list) and len(columns) == 2 else 3
+    arr = np.zeros((1, n_columns))
+    with pytest.raises(error, match=match):
+        from_array(arr, columns=columns, dim=0)
+
+
+def test_from_array_rejects_columns_length_mismatch() -> None:
+    with pytest.raises(ValueError, match="length"):
+        from_array(np.zeros((1, 3)), columns=["birth", "death"])
+
+
+@pytest.mark.parametrize(
+    ("n_columns", "columns", "error", "match"),
+    [
+        (3, "birth,death,dim", TypeError, "sequence"),
+        (3, ["birth", "birth", "dim"], ValueError, "duplicate"),
+        (2, ["birth", "dim"], ValueError, "missing.*death"),
+        (3, ["birth", "death", "zzz"], ValueError, "unknown.*zzz"),
+        (3, ["birth", "death", 1], TypeError, "string"),
+        (3, ["birth", "death", "diagram_id"], TypeError, r"diagram_id.*\.akd"),
+    ],
+)
+def test_from_array_validates_columns_before_it_reads_the_data(
+    n_columns: int, columns: Any, error: type[Exception], match: str
+) -> None:
+    """§10.3: "Both MUST raise on the argument, before `arr` is inspected, so
+    the failure does not depend on the data".
+
+    `test_from_array_rejects_invalid_columns` runs each rule against an `arr`
+    that would construct cleanly, which is §11.2's requirement and proves the
+    check is not §3.1 catching the data instead. It does not prove the
+    ordering, because an implementation that inspected the values first would
+    find nothing to complain about and reach the same error by the same route.
+
+    These arrays fail I4, I5 and I3 at once -- `nan` birth, `-inf` death,
+    non-integral degree -- so an implementation that read them first raises
+    about death times or degrees, naming the data. §10.3 puts `finitize`'s
+    `at` and §6.3's cross-namespace check under the same ordering rule for the
+    same reason, and both of those have this test; `columns` did not.
+
+    The width is parametrised alongside so that `columns` always matches the
+    array's column count. §10.3 scopes the length rule to `arr`'s shape rather
+    than to the argument alone, so it is the one check that must consult the
+    array -- and it must never be the thing that fires here, or the case would
+    prove nothing about the rule it names. The missing-`death` case needs two
+    columns for a second reason: with three entries, no duplicate and no
+    unknown name, the three recognised names cannot omit `death`."""
+    row = [math.nan, -math.inf, 1.5]
+    arr = np.array([row[:n_columns]])
+
+    with pytest.raises(error, match=match):
+        from_array(arr, columns=columns)
+
+
+def test_from_array_named_two_columns_still_require_a_degree() -> None:
+    """§11: "MUST raise `TypeError` when handed a degreeless input without
+    `dim=`" -- on the named path as much as the positional one.
+
+    Naming the two columns says which is `birth` and which is `death`. It
+    says nothing about the degree, which is the fact a two-column array does
+    not hold however its columns are labelled, so `columns=` must not become
+    a second way to reach the guess §11 forbids."""
+    with pytest.raises(TypeError, match="degree"):
+        from_array(np.zeros((1, 2)), columns=["birth", "death"])
+
+    with pytest.raises(TypeError, match="degree"):
+        from_array(np.zeros((1, 2)), columns=["death", "birth"])
+
+
+def test_from_array_named_columns_still_reject_an_unreadable_shape() -> None:
+    """§11's two shapes bind both paths: a `columns=` a caller happens to have
+    does not make a rank-1 array readable."""
+    with pytest.raises(ValueError, match="shape"):
+        from_array(np.zeros(3), columns=["birth", "death"], dim=0)
+
+
+def test_from_array_rejects_external_dim_for_named_three_column_data() -> None:
+    with pytest.raises(TypeError, match="dim"):
+        from_array(
+            np.array([[0.0, 1.0, 2.0]]),
+            columns=["birth", "death", "dim"],
+            dim=0,
+        )
+
+
+def test_from_array_names_diagram_id_before_rejecting_four_column_shape() -> None:
+    """§10.3: the batch-column refusal remains actionable on a wider table."""
+    with pytest.raises(TypeError, match=r"diagram_id.*\.akd"):
+        from_array(
+            np.zeros((1, 4)),
+            columns=["diagram_id", "dim", "birth", "death"],
+        )
 
 
 def test_from_array_rejects_two_columns_without_a_degree() -> None:
@@ -554,6 +935,162 @@ def test_adapter_does_not_clamp_a_real_i6_violation() -> None:
         from_array(np.array([[1.0, 0.5]]), dim=0)
 
 
+@pytest.mark.parametrize("birth", [1e12, 1.0, 1e-12])
+def test_large_ulp_real_i6_violation_is_not_clamped(birth: float) -> None:
+    """§3.1: a 4096-local-ULP gap is a real violation, not noise."""
+    spacing = birth - math.nextafter(birth, -math.inf)
+    death = birth - 4096 * spacing
+    assert (birth - death) / spacing == 4096
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        with pytest.raises(ValueError, match="I6"):
+            from_array(np.array([[birth, death]]), dim=0)
+
+    assert not any("I6" in str(warning.message) for warning in record)
+
+
+@pytest.mark.parametrize("birth", [1.0, 1e-12, 1e12, -1e6])
+def test_the_clamp_threshold_is_exactly_eight_local_ulps(birth: float) -> None:
+    """§3.1 requires the adapter to clamp representational noise and to
+    surface a real violation, and fixes no number between them.
+    `adapters.py` fixes one and states it: eight local downward float64 ULPs.
+
+    That constant is the whole of the boundary and nothing pinned it. The
+    suite's other clamp tests sit at one and four ULPs on the repaired side
+    and 4096 on the refused side, so every value from two to some hundreds
+    would pass them all -- a threshold widened to 512 by accident absorbs
+    filtration errors §3.1 wants surfaced, and one narrowed to two starts
+    raising on the 1e-16 noise §3.1 names as a real occurrence.
+
+    Asserted at four magnitudes because the threshold is *local*: the spacing
+    is recomputed per row from `birth`, so a constant that had drifted into an
+    absolute tolerance would still pass at 1.0 alone. The negative magnitude
+    is there because the local spacing below a negative value is the one a
+    `nextafter` toward `-inf` gets right and an `abs()` does not."""
+    spacing = birth - math.nextafter(birth, -math.inf)
+
+    with pytest.warns(UserWarning, match="I6"):
+        d = from_array(np.array([[birth, birth - 8 * spacing]]), dim=0)
+    assert float(d.deaths[0]) == birth, "eight local ULPs is inside the threshold"
+    assert d.meta.provenance["clamped_rows"] == 1
+
+    with pytest.raises(ValueError, match="I6"):
+        from_array(np.array([[birth, birth - 9 * spacing]]), dim=0)
+
+
+def test_a_repair_at_zero_uses_the_minimum_subnormal_spacing() -> None:
+    """The clamp's own special case, exercised where it actually repairs.
+
+    `nextafter(0.0, -inf)` is a subnormal, so the local spacing at zero cannot
+    be found the way it is found everywhere else without raising under strict
+    floating-point errors. `_clamp_i6` probes a benign normal in those lanes
+    and substitutes the exact minimum-subnormal spacing, and the two existing
+    subnormal tests take that branch with valid rows -- `candidate` false
+    throughout -- so the repair arithmetic on it has never run.
+
+    Eight minimum subnormals is therefore the threshold at zero, and zero
+    births are ubiquitous in H0 (§8.1), which makes this the lane a real
+    diagram is most likely to reach. Run under `np.errstate(all="raise")`
+    because a branch that computed the spacing the ordinary way would produce
+    the right answer and an underflow diagnostic on the way to it."""
+    smallest = float.fromhex("0x0.0000000000001p-1022")
+
+    with np.errstate(all="raise"), pytest.warns(UserWarning, match="I6"):
+        d = from_array(np.array([[0.0, -8 * smallest]]), dim=0)
+    assert float(d.deaths[0]) == 0.0
+
+    with np.errstate(all="raise"), pytest.raises(ValueError, match="I6"):
+        from_array(np.array([[0.0, -9 * smallest]]), dim=0)
+
+
+def test_a_repair_at_zero_preserves_the_sign_of_the_birth() -> None:
+    """A repair writes the birth into the death, so it inherits its sign.
+
+    §8.1 normalises `-0.0` to `+0.0` before hashing *because* storage does
+    not, and §6.3 compares them equal -- so a clamp that had normalised on the
+    way in would be invisible to both `==` and `content_hash` while making
+    §8.1's clause unreachable, exactly as `test_from_array_preserves_the_sign
+    _of_zero` argues for the unrepaired path."""
+    smallest = float.fromhex("0x0.0000000000001p-1022")
+
+    with pytest.warns(UserWarning, match="I6"):
+        d = from_array(np.array([[-0.0, -smallest]]), dim=0)
+
+    assert math.copysign(1.0, float(d.deaths[0])) == -1.0
+    assert float(d.deaths[0]) == 0.0
+
+
+def test_a_repair_just_below_the_smallest_normal_survives_strict_errors() -> None:
+    """The other side of the same branch: a birth that is itself subnormal.
+
+    The mask is `abs(birth) <= smallest_normal`, so it covers subnormal births
+    as well as zero, and a diagram whose filtration values are that small is
+    the one where an ordinary `nextafter` spacing underflows."""
+    smallest = float.fromhex("0x0.0000000000001p-1022")
+
+    with np.errstate(all="raise"), pytest.warns(UserWarning, match="I6"):
+        d = from_array(np.array([[smallest, 0.0]]), dim=0)
+
+    assert float(d.births[0]) == smallest
+    assert float(d.deaths[0]) == smallest
+
+
+def test_a_repair_at_the_bottom_of_the_float_range_does_not_overflow() -> None:
+    """`_clamp_i6` clips its threshold at `-finfo.max` so that subtracting
+    eight ULPs from a birth near that endpoint cannot overflow.
+
+    The clip changes no answer -- an overflowed threshold of `-inf` admits the
+    same rows -- so only the arithmetic distinguishes an implementation with
+    it from one without, and only under strict floating-point errors. This is
+    the narrowest reachable candidate at that endpoint: one ULP above
+    `-finfo.max`, whose only finite death below it is `-finfo.max` itself."""
+    minimum = float(-np.finfo(np.float64).max)
+    birth = math.nextafter(minimum, 0.0)
+
+    with np.errstate(all="raise"), pytest.warns(UserWarning, match="I6"):
+        d = from_array(np.array([[birth, minimum]]), dim=0)
+
+    assert float(d.deaths[0]) == birth
+    assert d.meta.provenance["clamped_rows"] == 1
+
+
+@pytest.mark.parametrize(
+    ("birth", "death"),
+    [
+        (-np.finfo(np.float64).max, np.finfo(np.float64).max),
+        (0.0, 1.0),
+    ],
+)
+def test_valid_rows_survive_strict_numpy_float_errors(
+    birth: float, death: float
+) -> None:
+    """Valid I6 rows must not perform invalid clamp arithmetic."""
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        with np.errstate(all="raise"):
+            d = from_array(np.array([[birth, death]], dtype=np.float64), dim=0)
+
+    assert float(d.births[0]) == birth
+    assert float(d.deaths[0]) == death
+    assert not record
+
+
+def test_subnormal_valid_row_survives_strict_numpy_float_errors() -> None:
+    """A precomputed subnormal row must not trigger strict-error diagnostics."""
+    birth = np.nextafter(0.0, np.inf)
+    death = np.nextafter(birth, np.inf)
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        with np.errstate(all="raise"):
+            d = from_array(np.array([[birth, death]], dtype=np.float64), dim=0)
+
+    assert float(d.births[0]) == birth
+    assert float(d.deaths[0]) == death
+    assert not record
+
+
 def test_clamped_rows_is_recorded_as_zero_when_nothing_was_repaired() -> None:
     """§8, on §11.1's precedent for `padding_removed`: the key records what
     was actually repaired, so its meaning does not change with the outcome."""
@@ -602,6 +1139,88 @@ def test_adapter_records_the_source_dtype(ripser_dgms: Any) -> None:
     assert_json_representable(d.meta.provenance)
 
 
+def test_every_array_carrying_adapter_records_the_source_dtype(
+    gudhi_intervals: Any, giotto_array: Any
+) -> None:
+    """§8: `source_dtype` is "dtype of the input array", so every adapter that
+    receives one records it -- not only the one whose test happens to exist.
+    Each is asserted against the dtype the input actually carried, which is
+    what a `str(arr.dtype)` written against the *converted* column would get
+    wrong (§6.1 upcasts every coordinate to float64)."""
+    intervals = gudhi_intervals("circle", 1).astype(np.float32)
+    table = np.array([[0.0, 1.0, 0.0]], dtype=np.float32)
+    giotto = giotto_array(reduced=True).astype(np.float32)
+
+    from_gudhi_dtype = from_gudhi(intervals, dim=1).meta.provenance["source_dtype"]
+    from_array_dtype = from_array(table).meta.provenance["source_dtype"]
+    giotto_batch = from_giotto(
+        giotto, reduced_homology=True, infinity_values=math.inf, strip_padding=False
+    )
+
+    assert from_gudhi_dtype == "float32"
+    assert from_array_dtype == "float32"
+    assert giotto_batch[0].meta.provenance["source_dtype"] == "float32"
+
+
+def test_the_gudhi_list_form_records_no_source_dtype(gudhi_pairs: Any) -> None:
+    """§8's key is "dtype of the input array", and this form has no array.
+    Recording `"float64"` here would state a fact about our own conversion
+    rather than about the input."""
+    d = from_gudhi(gudhi_pairs("circle"))
+
+    assert "source_dtype" not in d.meta.provenance
+
+
+@pytest.mark.parametrize("adapter", [from_ripser, from_persim])
+def test_a_degree_list_records_the_dtype_every_block_shares(adapter: Any) -> None:
+    """§8: `source_dtype` describes the input, and a uniform list has one
+    answer for the whole diagram whichever block is read first."""
+    dgms = [
+        np.array([[0.0, 1.0]], dtype=np.float32),
+        np.array([[0.5, 2.0]], dtype=np.float32),
+    ]
+
+    d = adapter(dgms)
+
+    assert d.meta.provenance["source_dtype"] == "float32"
+
+
+@pytest.mark.parametrize("adapter", [from_ripser, from_persim])
+def test_a_degree_list_records_no_source_dtype_when_the_blocks_disagree(
+    adapter: Any,
+) -> None:
+    """C3b. `source_dtype` used to be read off the first block alone, so a
+    `[float32, float64]` list recorded `"float32"` -- a statement about degree
+    0 presented as one about the diagram. §8 has one slot and no spelling for
+    a disagreement, so the key is omitted rather than half-answered.
+
+    The diagram itself is still built: the bars are valid whatever their
+    incoming dtypes, and it is only the record about them that cannot be
+    written."""
+    dgms = [
+        np.array([[0.0, 1.0]], dtype=np.float32),
+        np.array([[0.5, 2.0]], dtype=np.float64),
+    ]
+
+    d = adapter(dgms)
+
+    assert "source_dtype" not in d.meta.provenance
+    assert d.n_bars == 2
+    assert [int(x) for x in d.dims] == [0, 1]
+
+
+def test_from_persim_preserves_row_order_within_a_degree() -> None:
+    """§7, §11: no sort, so a degree's rows arrive in the caller's own order.
+    `from_ripser` has covered this since the adapters landed and `from_persim`
+    did not, the two sharing `_columns_from_degree_list`."""
+    dgms = [np.array([[0.9, 3.0], [0.1, 2.0], [0.5, 1.5]])]
+
+    d = from_persim(dgms)
+
+    assert [float(x) for x in d.births] == [0.9, 0.1, 0.5]
+    assert [float(x) for x in d.deaths] == [3.0, 2.0, 1.5]
+
+
 def test_adapter_preserves_the_input_namespace() -> None:
     """§3.3: "Adapters preserve the input namespace. `from_*` MUST NOT
     force-convert to NumPy ... What adapters convert is *dtype*, not
@@ -616,6 +1235,58 @@ def test_adapter_preserves_the_input_namespace() -> None:
     assert d.dims.dtype == xps.int32
 
 
+def test_the_gudhi_array_form_preserves_the_input_namespace(
+    gudhi_intervals: Any,
+) -> None:
+    """§3.3, on GUDHI's other input form. `from_gudhi` has two arms and only
+    one of them touches an array; the list arm is numpy by construction, so a
+    suite that tested the namespace rule on the list arm alone would be
+    testing the fallback."""
+    xps = pytest.importorskip("array_api_strict")
+    intervals = xps.asarray(gudhi_intervals("circle", 1), dtype=xps.float64)
+
+    d = from_gudhi(intervals, dim=1)
+
+    assert d.xp is xps
+    assert d.dims.dtype == xps.int32
+
+
+@pytest.mark.parametrize("strip_padding", [None, True, False])
+def test_from_giotto_preserves_the_input_namespace(
+    giotto_array: Any, strip_padding: bool | None
+) -> None:
+    """§3.3 for the one adapter that indexes a rank-3 array, under all three
+    of §11.1's modes.
+
+    The array API standard requires an index per axis or an ellipsis, and
+    every namespace a developer is likely to have installed -- NumPy, torch,
+    JAX -- accepts the short `arr[i]` form regardless. `array_api_strict`
+    raises `IndexError`, which is what makes it the backend this rule has to
+    be tested against rather than the one it is convenient to skip.
+
+    `strip_padding=True` is parametrised in for a second reason: it is the
+    only mode that boolean-masks the columns before construction, so it is the
+    only one where an index expression the standard does not define could hide
+    behind a mode the default never reaches."""
+    xps = pytest.importorskip("array_api_strict")
+    arr = xps.asarray(giotto_array(reduced=True, sample="batch"), dtype=xps.float64)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", UserWarning)
+        b = from_giotto(
+            arr,
+            reduced_homology=True,
+            infinity_values=math.inf,
+            strip_padding=strip_padding,
+        )
+
+    assert len(b) == arr.shape[0]
+    assert b.xp is xps
+    assert b[0].xp is xps
+    assert b[0].dims.dtype == xps.int32
+    assert b[0].births.dtype == xps.float64
+
+
 def test_a_list_input_falls_back_to_numpy() -> None:
     """§11 fixes `from_gudhi(obj, **meta)` with no namespace argument, and
     GUDHI's primary form is a Python list carrying no array at all. The
@@ -625,6 +1296,80 @@ def test_a_list_input_falls_back_to_numpy() -> None:
     d = from_gudhi([(0, (0.0, 1.0))])
 
     assert d.xp is np
+
+
+def test_the_row_fallback_resolves_through_the_one_namespace_function(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """§3.3: "Namespace resolution goes through exactly one function."
+
+    The row fallback builds its own NumPy probe, so it is the one place in
+    either module that could answer the namespace question without asking
+    `namespace_of` -- and calling `probe.__array_namespace__()` directly is a
+    second spelling that agrees with the resolver today and is exactly what
+    the rule forbids. §3.3 names the hazard: `array_api_compat.array_namespace`
+    on a NumPy array returns `array_api_compat.numpy` rather than `numpy`
+    (A.7.5), so two spellings become two namespace objects for one backend and
+    I7's `is` raises on arrays that legitimately share one.
+
+    Asserted by substitution rather than by reading the source: the resolver
+    is replaced, and the fallback must return what it returned."""
+    sentinel = object()
+    monkeypatch.setattr(adapters_module, "namespace_of", lambda x: sentinel)
+
+    assert adapters_module._namespace_for_rows() is sentinel
+
+
+def test_a_list_sourced_and_an_array_sourced_diagram_share_one_namespace(
+    gudhi_pairs: Any, gudhi_intervals: Any
+) -> None:
+    """What the rule above buys, stated as the failure it prevents.
+
+    GUDHI's two accepted forms take the two namespace paths -- the
+    `persistence()` list reaches `_namespace_for_rows`, the interval array
+    reaches `namespace_of` -- and I7 compares by `is`. Two spellings that
+    returned `numpy` and `array_api_compat.numpy` would give a caller two
+    diagrams from one backend, one call, that cannot be composed."""
+    from_list = from_gudhi(gudhi_pairs("circle"))
+    from_arr = from_gudhi(gudhi_intervals("circle", 1), dim=1)
+
+    assert from_list.xp is from_arr.xp
+    assert DiagramBatch.from_diagrams([from_list, from_arr]).xp is from_list.xp
+
+
+class _NoNativeArray:
+    """Array-shaped fake with no `__array_namespace__`, like torch today."""
+
+    ndim = 2
+    shape = (1, 2)
+    dtype = np.dtype("float64")
+
+
+@pytest.mark.parametrize(
+    "call",
+    [
+        lambda arr: from_array(arr, dim=0),
+        lambda arr: from_gudhi(arr, dim=0),
+        lambda arr: from_giotto(arr, reduced_homology=False, infinity_values=math.inf),
+        lambda arr: from_ripser([arr]),
+        lambda arr: from_persim([arr]),
+    ],
+)
+def test_no_native_array_reaches_shared_namespace_resolver(
+    call: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§3.3: expected-array entrypoints must not reject on the attribute gate."""
+    supplied = _NoNativeArray()
+    seen: list[object] = []
+
+    def reached_shared_resolver(value: object) -> object:
+        seen.append(value)
+        raise RuntimeError("reached shared namespace resolver")
+
+    monkeypatch.setattr(adapters_module, "namespace_of", reached_shared_resolver)
+    with pytest.raises(RuntimeError, match="reached shared namespace resolver"):
+        call(supplied)
+    assert seen == [supplied]
 
 
 # ---------------------------------------------------------------------------
@@ -637,25 +1382,86 @@ def test_caller_metadata_is_carried_through(gudhi_pairs: Any) -> None:
     d = from_gudhi(
         gudhi_pairs("circle"),
         filtration="rips",
-        space="40-point noisy circle",
+        description="40-point noisy circle",
         params={"max_edge_length": 4.0},
     )
 
     assert d.meta.filtration == "rips"
-    assert d.meta.space == "40-point noisy circle"
+    assert d.meta.description == "40-point noisy circle"
     assert d.meta.params["max_edge_length"] == 4.0
 
 
-def test_caller_provenance_is_merged_and_never_overwrites_a_measured_fact(
+def test_only_ripser_knows_its_filtration(
+    gudhi_pairs: Any, gudhi_intervals: Any, giotto_array: Any
+) -> None:
+    """§8: an adapter "MUST also populate `filtration` where its own input
+    form determines it, and MUST NOT guess otherwise". One adapter is in that
+    position and the other four are not: a GUDHI `SimplexTree` carries no
+    record of what built it -- Rips, alpha, cubical and lower-star all arrive
+    as the same object -- `from_giotto` receives a bare array, and
+    `from_array` and `from_persim` have no backend to ask.
+
+    The positive half is asserted elsewhere. This is the half that fails
+    silently: a suite holding only `from_ripser(...).meta.filtration ==
+    "rips"` passes unchanged against an adapter that wrote `"rips"` into every
+    diagram it built, and a GUDHI alpha-complex diagram would then carry a
+    provenance entry naming the wrong filtration with nothing to contradict
+    it."""
+    unstated = [
+        from_gudhi(gudhi_pairs("circle")),
+        from_gudhi(gudhi_intervals("circle", 1), dim=1),
+        from_persim([np.array([[0.0, 1.0]])]),
+        from_array(np.array([[0.0, 1.0]]), dim=0),
+        from_giotto(
+            giotto_array(reduced=True),
+            reduced_homology=True,
+            infinity_values=math.inf,
+            strip_padding=False,
+        )[0],
+    ]
+
+    assert [d.meta.filtration for d in unstated] == [None] * 5
+
+
+def test_the_four_adapters_that_cannot_know_still_carry_a_stated_filtration(
+    gudhi_pairs: Any, giotto_array: Any
+) -> None:
+    """§8's other half of the same sentence: those adapters "MUST leave
+    `filtration` at whatever the caller passed through `**meta`". Not knowing
+    is not the same as overriding, and a caller who computed an alpha complex
+    is the one party who does know."""
+    d = from_gudhi(gudhi_pairs("circle"), filtration="alpha")
+    b = from_giotto(
+        giotto_array(reduced=True),
+        reduced_homology=True,
+        infinity_values=math.inf,
+        strip_padding=False,
+        filtration="rips",
+    )
+
+    assert d.meta.filtration == "alpha"
+    assert b[0].meta.filtration == "rips"
+
+
+def test_caller_provenance_is_merged_and_a_measured_fact_is_refused(
     gudhi_pairs: Any,
 ) -> None:
     """`provenance` is the honest-accounting channel (§8). A caller's own keys
-    are kept, but a key the adapter measured is the adapter's: it is the one
-    party that saw the backend's output."""
-    d = from_gudhi(
-        gudhi_pairs("circle"),
-        provenance={"analyst": "eb", "essential_bars": "lost_upstream"},
-    )
+    are kept; a key the adapter measured is refused.
+
+    This asserted a silent overwrite until the refusal replaced it. Overwriting
+    is the weaker rule and was weaker in a way that mattered: it protects a key
+    only where the adapter writes one of its own, so the same
+    `provenance={"essential_bars": ...}` that lost here survived intact on
+    `from_persim` and `from_array`, which record no essential-bar claim (§11,
+    D2). See `test_no_adapter_lets_a_caller_write_a_reserved_provenance_key`."""
+    with pytest.raises(TypeError, match="essential_bars"):
+        from_gudhi(
+            gudhi_pairs("circle"),
+            provenance={"analyst": "eb", "essential_bars": "lost_upstream"},
+        )
+
+    d = from_gudhi(gudhi_pairs("circle"), provenance={"analyst": "eb"})
 
     assert d.meta.provenance["analyst"] == "eb"
     assert d.meta.provenance["essential_bars"] == "faithful"
@@ -693,7 +1499,7 @@ def test_adapter_output_composes_into_a_batch(
 
 
 # ---------------------------------------------------------------------------
-# from_giotto -- §11's two deviations, §11.1's three modes, §5.1's derivation
+# from_giotto -- §11's deviations, §11.1's three modes, §5.1's derivation
 # ---------------------------------------------------------------------------
 
 
@@ -701,7 +1507,56 @@ def test_from_giotto_requires_reduced_homology(giotto_array: Any) -> None:
     """§5.1, §11: "Omitting it MUST raise, not fall back to giotto's own
     default", and §11 fixes that as a `TypeError` at the call site."""
     with pytest.raises(TypeError, match="reduced_homology"):
-        from_giotto(giotto_array(reduced=True))  # type: ignore[call-arg]
+        from_giotto(  # type: ignore[call-arg]
+            giotto_array(reduced=True), infinity_values=math.inf
+        )
+
+
+def test_from_giotto_requires_infinity_values(giotto_array: Any) -> None:
+    """§5, §11, §11.2. Required for `reduced_homology`'s reason -- no property of the
+    returned array says which setting produced it -- and a `TypeError` at the
+    call site rather than a default, because the wrong assumption here is the
+    one that writes `essential_bars="faithful"` over a finitized diagram."""
+    with pytest.raises(TypeError, match="infinity_values"):
+        from_giotto(  # type: ignore[call-arg]
+            giotto_array(reduced=True), reduced_homology=True
+        )
+
+
+@pytest.mark.parametrize("value", [4.0, 0.0, 99.0, -1.5, -math.inf, math.nan])
+def test_from_giotto_refuses_any_infinity_values_but_inf(
+    giotto_array: Any, value: float
+) -> None:
+    """§5: only `inf` records an essential bar. A finite value finitizes it,
+    and `-inf` and `nan` are not deaths §5 recognises for a class that never
+    dies -- all four are refused on the same ground rather than by a branch
+    each."""
+    with pytest.raises(ValueError, match="RFC-0001 §5"):
+        from_giotto(
+            giotto_array(reduced=True), reduced_homology=True, infinity_values=value
+        )
+
+
+@pytest.mark.parametrize("value", ["inf", object()])
+def test_from_giotto_refuses_a_non_real_infinity_values(
+    giotto_array: Any, value: Any
+) -> None:
+    """`_as_coordinate`'s argument, one argument over: `float("inf")` is `inf`,
+    so a string would pass the equality test below and record a diagram whose
+    caller never stated a filtration value at all."""
+    with pytest.raises(TypeError, match="infinity_values"):
+        from_giotto(
+            giotto_array(reduced=True), reduced_homology=True, infinity_values=value
+        )
+
+
+def test_from_giotto_refuses_a_boolean_infinity_values(giotto_array: Any) -> None:
+    """`bool` registers as `numbers.Real`, so it needs excluding by name.
+    `True` would otherwise read as a finite sentinel of 1.0."""
+    with pytest.raises(TypeError, match="infinity_values"):
+        from_giotto(
+            giotto_array(reduced=True), reduced_homology=True, infinity_values=True
+        )
 
 
 def test_from_giotto_always_returns_a_batch(giotto_array: Any) -> None:
@@ -710,7 +1565,7 @@ def test_from_giotto_always_returns_a_batch(giotto_array: Any) -> None:
     carry." """
     single = giotto_array(reduced=True, sample="single")
 
-    b = from_giotto(single, reduced_homology=True)
+    b = from_giotto(single, reduced_homology=True, infinity_values=math.inf)
 
     assert isinstance(b, DiagramBatch)
     assert single.shape[0] == 1, "fixture changed"
@@ -722,17 +1577,46 @@ def test_from_giotto_returns_one_diagram_per_sample(giotto_array: Any) -> None:
     """§4: the batch is ragged, one entry per input sample, order preserved."""
     batch = giotto_array(reduced=True, sample="batch")
 
-    b = from_giotto(batch, reduced_homology=True, strip_padding=False)
+    b = from_giotto(
+        batch, reduced_homology=True, infinity_values=math.inf, strip_padding=False
+    )
 
     assert len(b) == batch.shape[0]
     assert [b[i].n_bars for i in range(len(b))] == [batch.shape[1]] * batch.shape[0]
+
+
+def test_from_giotto_maps_each_sample_to_its_own_slot() -> None:
+    """§4, §11: sample `i` of the input is diagram `i` of the batch.
+
+    The test above asserts the cardinality and this one the correspondence,
+    which are different claims and only the first is checked by a count. A
+    giotto array is dense (§4, A.2), so every sample carries the same row
+    count under `strip_padding=False`, and a `from_diagrams` that assembled
+    the members in any order at all would satisfy `[n_bars] * n_samples`
+    exactly as the right one does.
+
+    §11.2 makes the same argument for the batch round trip -- "one whose
+    diagrams are in an order that no sort would produce, since ... a `load`
+    that recovered every diagram into the wrong slot passes a test built from
+    identical members". The samples here are one bar each and distinguishable
+    by birth, in an order neither ascending nor descending, so a permutation
+    anywhere between `arr[i, :, :]` and `DiagramBatch.from_diagrams` fails
+    rather than passes on a coincidence of the fixture's shape."""
+    arr = np.array([[[7.0, 8.0, 0.0]], [[1.0, 2.0, 0.0]], [[4.0, 5.0, 0.0]]])
+
+    b = from_giotto(arr, reduced_homology=False, infinity_values=math.inf)
+
+    assert [float(b[i].births[0]) for i in range(len(b))] == [7.0, 1.0, 4.0]
+    assert [float(b[i].deaths[0]) for i in range(len(b))] == [8.0, 2.0, 5.0]
 
 
 def test_from_giotto_reads_columns_as_birth_death_dim(giotto_array: Any) -> None:
     """§11: giotto's columns are `(birth, death, dim)`, in that order."""
     arr = giotto_array(reduced=True)
 
-    b = from_giotto(arr, reduced_homology=True, strip_padding=False)
+    b = from_giotto(
+        arr, reduced_homology=True, infinity_values=math.inf, strip_padding=False
+    )
     d = b[0]
 
     assert [float(x) for x in d.births] == list(arr[0][:, 0])
@@ -743,7 +1627,9 @@ def test_from_giotto_reads_columns_as_birth_death_dim(giotto_array: Any) -> None
 def test_from_giotto_records_reduced_homology_in_params(giotto_array: Any) -> None:
     """§5.1: it is "a raw fact of the original call, the same category as
     `max_edge_length`", so it belongs in `params`, not in `provenance`."""
-    b = from_giotto(giotto_array(reduced=True), reduced_homology=True)
+    b = from_giotto(
+        giotto_array(reduced=True), reduced_homology=True, infinity_values=math.inf
+    )
 
     assert b[0].meta.params["reduced_homology"] is True
 
@@ -754,26 +1640,86 @@ def test_from_giotto_derives_lost_upstream_from_reduced_homology(
     """§5.1: `"lost_upstream"` when `reduced_homology` is `True` -- derived
     from the flag, never authored independently, and `essential_bars_source`
     set to the same value in the same construction (§8, §11)."""
-    b = from_giotto(giotto_array(reduced=True), reduced_homology=True)
+    b = from_giotto(
+        giotto_array(reduced=True), reduced_homology=True, infinity_values=math.inf
+    )
 
     assert b[0].meta.provenance["essential_bars"] == "lost_upstream"
     assert b[0].meta.provenance["essential_bars_source"] == "lost_upstream"
 
 
+def test_the_giotto_fixture_still_carries_a_finite_sentinel(
+    giotto_array: Any, giotto_output: dict[str, Any]
+) -> None:
+    """C1's evidence, asserted so that it cannot be recaptured away silently.
+
+    `tools/capture_giotto_fixture.py` passed no `infinity_values`, so giotto's
+    default of `None` applied and the essential H0 class came back with a death
+    of `max_edge_length` rather than `inf`. This is the Appendix A.1 row the
+    RFC said was missing, and it falsifies §5.1's `"faithful"` derivation.
+
+    A recapture with `infinity_values=numpy.inf` -- which the capture tool now
+    performs -- will fail this test. That is the intended signal, not a
+    regression: at that point the sentinel is gone and the two tests below
+    change with it."""
+    unreduced = giotto_array(reduced=False)
+    call = giotto_output["samples"]["reduced_false"]["call"]
+    assert f"max_edge_length={_GIOTTO_MAX_EDGE}" in call, "the cutoff moved"
+
+    h0 = unreduced[0][unreduced[0][:, 2] == 0]
+
+    assert not np.any(np.isinf(h0[:, 1])), "the capture already carries inf"
+    assert int(np.sum(h0[:, 1] == _GIOTTO_MAX_EDGE)) == 1, (
+        "exactly one H0 class should survive to the cutoff and be finitized"
+    )
+
+
+def test_from_giotto_refuses_the_fixtures_own_default_infinity_values(
+    giotto_array: Any,
+) -> None:
+    """§5: a finite sentinel is "unrecoverable", so the adapter refuses rather
+    than labels. Run against real backend output (§11.2) -- this is the exact
+    array that `essential_bars="faithful"` used to be written for."""
+    unreduced = giotto_array(reduced=False)
+
+    with pytest.raises(ValueError, match="giotto's default"):
+        from_giotto(unreduced, reduced_homology=False, infinity_values=None)  # type: ignore[arg-type]
+
+
 def test_from_giotto_derives_faithful_when_homology_is_not_reduced(
     giotto_array: Any,
 ) -> None:
-    """§5.1: `"faithful"` when `reduced_homology` is `False`. The fixture
-    carries Appendix A.1's own measurement -- 40 H0 bars unreduced against 39
-    reduced -- so the two branches differ in the data as well as the label."""
-    unreduced = giotto_array(reduced=False)
-    reduced = giotto_array(reduced=True)
+    """§5.1: `"faithful"` when `reduced_homology` is `False`.
 
-    b = from_giotto(unreduced, reduced_homology=False)
+    **Not run against the committed fixture, and the reason is C1.** That
+    capture predates the `infinity_values` requirement, so its unreduced sample
+    holds the essential bar as `4.0` rather than `inf` -- asserting
+    `"faithful"` over it would bless the defect. The label is exercised here
+    over a giotto-shaped array carrying a genuine `inf`, which is what a
+    recapture will produce; the fixture is still used for A.1's bar counts
+    below, which `infinity_values` does not affect."""
+    faithful = np.array([[[0.0, math.inf, 0.0], [0.0, 1.0, 1.0]]])
+
+    b = from_giotto(faithful, reduced_homology=False, infinity_values=math.inf)
 
     assert b[0].meta.provenance["essential_bars"] == "faithful"
     assert b[0].meta.provenance["essential_bars_source"] == "faithful"
+    assert bool(np.any(np.asarray(b[0].essential))), "the inf did not survive"
+
+
+def test_the_giotto_fixture_measures_a1s_missing_reduced_homology_row(
+    giotto_array: Any,
+) -> None:
+    """A.1's own gap: the table varies `infinity_values` and holds
+    `reduced_homology` at `True`, so the 39-against-40 claim was an inference.
+    The capture measures it directly, and `infinity_values` does not enter --
+    reduced homology drops the class upstream of it (§5.1)."""
+    unreduced = giotto_array(reduced=False)
+    reduced = giotto_array(reduced=True)
+
     h0 = int((unreduced[0][:, 2] == 0).sum())
+
+    assert h0 == 40
     assert h0 - int((reduced[0][:, 2] == 0).sum()) == 1, "A.1's H0 loss changed"
 
 
@@ -785,7 +1731,9 @@ def test_from_giotto_does_not_fabricate_the_missing_essential_bar(
     of the elder rule."""
     arr = giotto_array(reduced=True)
 
-    b = from_giotto(arr, reduced_homology=True, strip_padding=False)
+    b = from_giotto(
+        arr, reduced_homology=True, infinity_values=math.inf, strip_padding=False
+    )
 
     assert b[0].n_bars == arr.shape[1], "a row was invented"
     assert not bool(np.any(np.asarray(b.essential))), "giotto emits no inf (A.1)"
@@ -799,7 +1747,7 @@ def test_from_giotto_default_keeps_padding_and_warns_once(giotto_array: Any) -> 
     assert trivial > 0, "the fixture should carry padding"
 
     with pytest.warns(UserWarning, match="trivial") as record:
-        b = from_giotto(arr, reduced_homology=True)
+        b = from_giotto(arr, reduced_homology=True, infinity_values=math.inf)
 
     assert len(record) == 1, "§11.1 says warn once, not once per sample"
     assert [b[i].n_bars for i in range(len(b))] == [arr.shape[1]] * arr.shape[0]
@@ -812,11 +1760,52 @@ def test_from_giotto_strips_padding_when_told_to(giotto_array: Any) -> None:
     per_sample = [int((s[:, 0] == s[:, 1]).sum()) for s in arr]
     assert per_sample[0] > 0, "the fixture should pad the first sample"
 
-    b = from_giotto(arr, reduced_homology=True, strip_padding=True)
+    b = from_giotto(
+        arr, reduced_homology=True, infinity_values=math.inf, strip_padding=True
+    )
 
     for i, dropped in enumerate(per_sample):
         assert b[i].n_bars == arr.shape[1] - dropped
         assert b[i].meta.provenance["padding_removed"] == dropped
+
+
+def test_from_giotto_preserves_row_order_among_the_rows_stripping_leaves() -> None:
+    """§7, §11: "preserve backend row order" binds the mode that removes rows
+    as much as the two that do not.
+
+    `from_gudhi`, `from_ripser` and `from_persim` each have this test and
+    `from_giotto` had it only through `strip_padding=False`, where the columns
+    reach construction untouched. `strip_padding=True` is the one adapter path
+    that boolean-masks them first, so it is the one place an implementation
+    could reorder -- a mask spelled through `nonzero` and a `take` on sorted
+    indices, or a partition that groups the survivors by degree -- and the
+    existing coverage would not notice: `test_from_giotto_strips_padding_when
+    _told_to` asserts counts, and the multiplicity test asserts membership.
+
+    The rows below are in an order no sort produces. Degree descends then
+    ascends, births descend then ascend, and the trivial row sits in the
+    middle rather than at either end, so a reordering cannot coincide with the
+    input by landing on a sort key that happens to agree."""
+    arr = np.array(
+        [
+            [
+                [5.0, 9.0, 1.0],
+                [1.0, 1.0, 0.0],  # trivial; the only row stripping removes
+                [3.0, 8.0, 0.0],
+                [0.0, 2.0, 1.0],
+            ]
+        ]
+    )
+
+    d = from_giotto(
+        arr, reduced_homology=False, infinity_values=math.inf, strip_padding=True
+    )[0]
+
+    rows = [
+        (float(b), float(x), int(k))
+        for b, x, k in zip(d.births, d.deaths, d.dims, strict=True)
+    ]
+    assert rows == [(5.0, 9.0, 1), (3.0, 8.0, 0), (0.0, 2.0, 1)]
 
 
 def test_from_giotto_keeps_padding_silently_when_told_to(giotto_array: Any) -> None:
@@ -828,10 +1817,56 @@ def test_from_giotto_keeps_padding_silently_when_told_to(giotto_array: Any) -> N
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        b = from_giotto(arr, reduced_homology=True, strip_padding=False)
+        b = from_giotto(
+            arr, reduced_homology=True, infinity_values=math.inf, strip_padding=False
+        )
 
     assert all(b[i].meta.provenance["padding_removed"] == 0 for i in range(len(b)))
     assert b[0].n_bars == arr.shape[1]
+
+
+def test_from_giotto_keeps_every_repeated_zero_persistence_row(
+    giotto_array: Any,
+) -> None:
+    """§11.2's multiplicity and zero-persistence minimums, on giotto's own
+    output and through giotto's own code path.
+
+    The two arrive together here because giotto's padding *is* both: the
+    fixture's first sample ends in five byte-identical `(b, b, 1)` rows, which
+    is exactly why §11.1 says the adapter cannot tell padding from genuine
+    trivial bars and must not guess. `strip_padding=False` is the mode that
+    says keep them, so all five must be present -- a `unique` anywhere on this
+    path would silently collapse them to one and still satisfy the existing
+    tests, which assert `n_bars` against the input's row count and would then
+    fail for a reason naming padding rather than deduplication.
+
+    §11.1's counterpart is asserted in the same test: the five removed under
+    `strip_padding=True` are these five and nothing else."""
+    arr = giotto_array(reduced=True, sample="batch")
+    sample = arr[0]
+    trivial = [tuple(row) for row in sample if row[0] == row[1]]
+    assert len(trivial) == 5, "fixture changed"
+    assert len(set(trivial)) == 1, "the five trivial rows should be identical"
+
+    kept = from_giotto(
+        arr, reduced_homology=True, infinity_values=math.inf, strip_padding=False
+    )[0]
+    stripped = from_giotto(
+        arr, reduced_homology=True, infinity_values=math.inf, strip_padding=True
+    )[0]
+
+    rows = [
+        (float(b), float(x), int(k))
+        for b, x, k in zip(kept.births, kept.deaths, kept.dims, strict=True)
+    ]
+    assert rows.count(trivial[0]) == 5, "identical trivial rows were collapsed"
+
+    survivors = [
+        (float(b), float(x), int(k))
+        for b, x, k in zip(stripped.births, stripped.deaths, stripped.dims, strict=True)
+    ]
+    assert trivial[0] not in survivors
+    assert stripped.meta.provenance["padding_removed"] == 5
 
 
 def test_from_giotto_does_not_warn_when_there_is_no_padding() -> None:
@@ -840,7 +1875,7 @@ def test_from_giotto_does_not_warn_when_there_is_no_padding() -> None:
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        b = from_giotto(arr, reduced_homology=False)
+        b = from_giotto(arr, reduced_homology=False, infinity_values=math.inf)
 
     assert len(b) == 1
 
@@ -850,7 +1885,11 @@ def test_from_giotto_rejects_an_array_that_is_not_a_batch(giotto_array: Any) -> 
     a single sample the caller forgot to wrap, and guessing which is which is
     exactly the shape-depends-on-the-data hazard §4 rules out."""
     with pytest.raises(ValueError, match="shape"):
-        from_giotto(giotto_array(reduced=True)[0], reduced_homology=True)
+        from_giotto(
+            giotto_array(reduced=True)[0],
+            reduced_homology=True,
+            infinity_values=math.inf,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -953,6 +1992,7 @@ def test_from_giotto_populates_backend_identity(giotto_array: Any) -> None:
     b = from_giotto(
         giotto_array(reduced=True, sample="batch"),
         reduced_homology=True,
+        infinity_values=math.inf,
         strip_padding=False,
     )
 
@@ -960,6 +2000,69 @@ def test_from_giotto_populates_backend_identity(giotto_array: Any) -> None:
         assert b[i].meta.backend == "giotto"
         assert b[i].meta.backend_version == installed_version("giotto-tda")
         assert_json_representable(b[i].meta.provenance)
+
+
+def test_no_adapter_aliases_an_array_the_caller_keeps(
+    gudhi_intervals: Any, ripser_dgms: Any, giotto_array: Any
+) -> None:
+    """I8's third obligation, stated over the adapters by name: "Every
+    **public** construction path -- the `PersistenceDiagram` constructor,
+    every `from_*` adapter, and `DiagramBatch.from_diagrams` -- MUST therefore
+    copy the arrays it is given rather than store them."
+
+    The hole I8 was added for is the one no method of ours can close: a caller
+    who passes an array, keeps their reference, and writes through it
+    afterwards has mutated a constructed diagram without any of our code
+    having run. §3.1 spends three bullets on it because `frozen=True` stops
+    `d.births = other` and stops nothing about `d.births[0] = 5.0`.
+
+    Asserted at the adapter boundary rather than trusted to the constructor
+    tests, which is the difference between a property and a coincidence.
+    `core.py` has internal paths that deliberately do not copy -- `__getitem__`
+    aliases a batch's buffer on purpose, and `from_diagrams` reuses its own
+    concat output -- so "the adapters are safe" is a statement about which
+    path each one happens to take today, and the four here take three
+    different ones.
+
+    `from_giotto` is checked through both the batch's buffers and a member
+    diagram's arrays: §4.2 makes the second a view onto the first, so a copy
+    that had been skipped would show in either."""
+    intervals = np.array(gudhi_intervals("circle", 1), copy=True)
+    dgms = [np.array(block, copy=True) for block in ripser_dgms("circle")]
+    batch_input = np.array(giotto_array(reduced=True, sample="batch"), copy=True)
+    table = np.array([[0.0, 1.0, 0.0], [0.5, 2.0, 1.0]])
+
+    from_gudhi_out = from_gudhi(intervals, dim=1)
+    from_ripser_out = from_ripser(dgms)
+    from_persim_out = from_persim(dgms)
+    from_array_out = from_array(table)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        from_giotto_out = from_giotto(
+            batch_input, reduced_homology=True, infinity_values=math.inf
+        )
+
+    expected = {
+        "gudhi": [float(x) for x in from_gudhi_out.births],
+        "ripser": [float(x) for x in from_ripser_out.births],
+        "persim": [float(x) for x in from_persim_out.births],
+        "array": [float(x) for x in from_array_out.births],
+        "giotto_batch": [float(x) for x in from_giotto_out.births],
+        "giotto_member": [float(x) for x in from_giotto_out[0].births],
+    }
+
+    intervals[:, 0] = -99.0
+    dgms[0][:, 0] = -99.0
+    table[:, 0] = -99.0
+    batch_input[:, :, 0] = -99.0
+
+    assert [float(x) for x in from_gudhi_out.births] == expected["gudhi"]
+    assert [float(x) for x in from_ripser_out.births] == expected["ripser"]
+    assert [float(x) for x in from_persim_out.births] == expected["persim"]
+    assert [float(x) for x in from_array_out.births] == expected["array"]
+    assert [float(x) for x in from_giotto_out.births] == expected["giotto_batch"]
+    assert [float(x) for x in from_giotto_out[0].births] == expected["giotto_member"]
+    assert -99.0 not in expected["array"], "the mutation must be observable at all"
 
 
 # ---------------------------------------------------------------------------
@@ -1009,10 +2112,11 @@ def test_from_gudhi_rejects_a_malformed_persistence_row(
         from_gudhi(rows)
 
 
-def test_from_gudhi_rejects_the_extended_persistence_tuple() -> None:
+def test_from_gudhi_rejects_the_extended_persistence_list() -> None:
     """§11: `extended_persistence()` is a third input form and is out of scope.
 
-    It returns a **4-tuple** of `list[(dim, (birth, death))]` -- ordinary,
+    It returns a four-element **list of lists** of
+    `list[(dim, (birth, death))]` -- ordinary,
     relative, extended+ and extended- -- structurally distinct from
     `persistence()`'s flat list, so this one it can actually detect. The
     refusal must name the scope exclusion rather than the shape: told that
@@ -1021,14 +2125,14 @@ def test_from_gudhi_rejects_the_extended_persistence_tuple() -> None:
 
     `TypeError` rather than `ValueError` because this is an input *form* the
     adapter does not accept, which is the category `from_gudhi`'s existing
-    fallthrough already raises `TypeError` for. §11 fixes that the tuple is
+    fallthrough already raises `TypeError` for. §11 fixes that the outer list is
     refused and what the message names; it does not fix the type."""
-    extended = (
+    extended = [
         [(0, (0.0, 1.0))],  # ordinary
         [(1, (3.0, 2.0))],  # relative -- death < birth by construction
         [(1, (0.5, 2.5))],  # extended+
         [(0, (2.0, 0.5))],  # extended- -- death < birth by construction
-    )
+    ]
 
     with pytest.raises(TypeError, match="extended persistence"):
         from_gudhi(extended)
@@ -1036,10 +2140,10 @@ def test_from_gudhi_rejects_the_extended_persistence_tuple() -> None:
 
 def test_from_gudhi_still_accepts_a_four_row_persistence_list() -> None:
     """The guard on the test above. `extended_persistence()` is detected as a
-    4-tuple, and a `persistence()` result with four bars is also four things
-    long -- so a rejection keyed on length alone would refuse ordinary GUDHI
-    output. What separates them is that the tuple's members are *lists of
-    rows* and a `persistence()` row is `(dim, (birth, death))`."""
+    four-element outer list, and a `persistence()` result with four bars is
+    also four things long -- so a rejection keyed on length alone would refuse
+    ordinary GUDHI output. What separates them is that the extended members
+    are *lists of rows* and a `persistence()` row is `(dim, (birth, death))`."""
     four_bars = [
         (0, (0.0, 1.0)),
         (0, (0.0, 2.0)),
@@ -1047,10 +2151,130 @@ def test_from_gudhi_still_accepts_a_four_row_persistence_list() -> None:
         (0, (0.0, math.inf)),
     ]
 
-    d = from_gudhi(tuple(four_bars))
+    d = from_gudhi(four_bars)
 
     assert [int(x) for x in d.dims] == [0, 0, 1, 0]
     assert math.isinf(float(d.deaths[3]))
+
+
+@pytest.mark.parametrize("n_bars", [3, 4, 5])
+def test_a_persistence_list_of_list_rows_is_accepted_at_every_length(
+    n_bars: int,
+) -> None:
+    """The detector discriminates on member *shape*, not on cardinality.
+
+    `_columns_from_pairs` unpacks a row by sequence, so a `persistence()`
+    result whose rows are lists rather than tuples is accepted -- which is
+    what a result that has been through a serializer looks like, and §11.2's
+    frozen fixtures are exactly that. A rejection keyed on "four members, all
+    lists" made that form legal at three bars and at five and illegal at
+    four, so whether an input was accepted depended on how many bars it
+    happened to carry. §4 rules that dependence out inside an array; it has no
+    more business in the adapter's gate.
+
+    GUDHI itself returns tuple rows, so nothing here changes what live backend
+    output does -- `test_live_gudhi_extended_persistence_is_rejected` pins
+    that end."""
+    rows = [[k % 2, [0.0, float(k) + 1.0]] for k in range(n_bars)]
+
+    d = from_gudhi(rows)
+
+    assert d.n_bars == n_bars
+    assert [int(x) for x in d.dims] == [k % 2 for k in range(n_bars)]
+
+
+@pytest.mark.parametrize("n_bars", [3, 4, 5])
+def test_a_persistence_list_whose_intervals_are_arrays_is_accepted_at_every_length(
+    n_bars: int,
+) -> None:
+    """The same rule as the test above, for the spelling it did not cover.
+
+    `_is_persistence_row` decided a row by asking whether its interval was a
+    two-element `Sequence`, and `numpy.ndarray` is not a registered
+    `Sequence`. So `[dim, array([b, d])]` was not a row, four of them were
+    four members that are lists and not rows, and the detector called that
+    extended persistence -- while three and five of the identical thing
+    constructed cleanly. That is the cardinality-dependent acceptance §4
+    rules out and `_is_extended_persistence` is written to avoid, surviving in
+    the one input spelling the suite did not state.
+
+    Array intervals are the same category of input as the list rows above:
+    not what GUDHI returns, and what a `persistence()` result looks like once
+    something has rebuilt it. `test_live_gudhi_extended_persistence_is_rejected`
+    pins the live end."""
+    rows = [[k % 2, np.array([0.0, float(k) + 1.0])] for k in range(n_bars)]
+
+    d = from_gudhi(rows)
+
+    assert d.n_bars == n_bars
+    assert [int(x) for x in d.dims] == [k % 2 for k in range(n_bars)]
+    assert [float(x) for x in d.deaths] == [float(k) + 1.0 for k in range(n_bars)]
+
+
+def test_a_four_row_persistence_list_reports_its_own_bad_coordinate() -> None:
+    """The detector must not answer a question about values. §11.
+
+    `_is_persistence_row` is documented as structural -- it separates a row
+    from a list of rows and leaves admissibility to `_columns_from_pairs` --
+    but it decided an interval by asking whether both entries were
+    `numbers.Real`, which is a question about values. A row whose coordinates
+    are strings therefore stopped being a row, and four such rows became
+    "extended persistence": a message about scope for an input whose actual
+    defect is a string where a filtration value belongs, and only ever at
+    four."""
+    rows = [[0, ["a", "b"]] for _ in range(4)]
+
+    with pytest.raises(TypeError, match="real filtration value"):
+        from_gudhi(rows)
+
+
+def test_extended_persistence_is_rejected_however_its_rows_are_spelled() -> None:
+    """The guard on the test above: widening what counts as a row must not
+    narrow what counts as extended persistence. A four-element list whose
+    members are lists *of* rows is still the form §11 excludes, whether those
+    rows are tuples or lists."""
+    extended = [
+        [[0, [0.0, 1.0]]],  # ordinary
+        [[1, [3.0, 2.0]]],  # relative -- death < birth by construction
+        [[1, [0.5, 2.5]]],  # extended+
+        [[0, [2.0, 0.5]]],  # extended- -- death < birth by construction
+    ]
+
+    with pytest.raises(TypeError, match="extended persistence"):
+        from_gudhi(extended)
+
+
+def test_extended_persistence_is_rejected_when_its_intervals_are_arrays() -> None:
+    """The guard on widening what counts as an interval.
+
+    Admitting a rank-1 two-element array as a `(birth, death)` pair must not
+    make an extended member look like a row. It does not, and for the reason
+    that keeps the whole detector coherent: a member is a *list of* rows, so
+    a member of two rows has a row where an interval would have to be, and a
+    row is not a pair of coordinates however either is spelled."""
+    extended = [
+        [[0, np.array([0.0, 1.0])], [0, np.array([0.5, 2.0])]],  # ordinary
+        [[1, np.array([3.0, 2.0])], [1, np.array([4.0, 1.0])]],  # relative
+        [[1, np.array([0.5, 2.5])], [1, np.array([0.6, 2.6])]],  # extended+
+        [[0, np.array([2.0, 0.5])], [0, np.array([3.0, 0.5])]],  # extended-
+    ]
+
+    with pytest.raises(TypeError, match="extended persistence"):
+        from_gudhi(extended)
+
+
+def test_an_empty_extended_persistence_result_is_still_rejected() -> None:
+    """A complex with nothing in it returns four empty sub-diagrams. The form
+    is what §11 excludes, not the contents, so an empty one is refused for the
+    same reason -- and an empty member is not a row, which is what keeps the
+    two clauses of the detector agreeing."""
+    with pytest.raises(TypeError, match="extended persistence"):
+        from_gudhi([[], [], [], []])
+
+
+def test_from_gudhi_rejects_a_flat_tuple_of_rows() -> None:
+    with pytest.raises(TypeError, match="tuple"):
+        from_gudhi(((0, (0.0, 1.0)),))
 
 
 @pytest.mark.parametrize("bad_dim", [1.5, "2", True, 2.0])
@@ -1071,6 +2295,50 @@ def test_from_ripser_rejects_a_dgms_that_is_not_a_list() -> None:
     The key's presence is not the same fact as the key's shape."""
     with pytest.raises(TypeError, match="dgms"):
         from_ripser({"dgms": 5})
+
+
+@pytest.mark.parametrize("outer", [(), (np.array([[0.0, 1.0]]),)])
+def test_from_ripser_rejects_tuple_outer_forms(outer: tuple[Any, ...]) -> None:
+    """§11: both direct and mapping forms require an outer list."""
+    with pytest.raises(TypeError, match="list"):
+        from_ripser(outer)
+    with pytest.raises(TypeError, match="list"):
+        from_ripser({"dgms": outer})
+
+
+@pytest.mark.parametrize("outer", [(), (np.array([[0.0, 1.0]]),)])
+def test_from_persim_rejects_tuple_outer_forms(outer: tuple[Any, ...]) -> None:
+    """§11: persim's degree-list outer container is also exactly a list."""
+    with pytest.raises(TypeError, match="list"):
+        from_persim(outer)
+
+
+def test_degree_lists_scan_past_python_blocks_for_first_array_namespace() -> None:
+    """§3.3: Python/empty blocks convert into the first real array namespace."""
+    xps = pytest.importorskip("array_api_strict")
+    strict = xps.asarray([[0.0, 1.0]], dtype=xps.float64)
+    blocks = [[], [[0.0, 0.5]], strict]
+
+    ripser_diagram = from_ripser(blocks)
+    persim_diagram = from_persim(blocks)
+
+    for diagram in (ripser_diagram, persim_diagram):
+        assert diagram.xp is xps
+        assert [int(x) for x in diagram.dims] == [1, 2]
+        assert [float(x) for x in diagram.births] == [0.0, 0.0]
+        assert [float(x) for x in diagram.deaths] == [0.5, 1.0]
+
+
+def test_degree_lists_reject_a_later_real_namespace_mismatch() -> None:
+    """§3.3/I7: scanning all blocks cannot silently coerce a later array."""
+    xps = pytest.importorskip("array_api_strict")
+    strict = xps.asarray([[0.0, 1.0]], dtype=xps.float64)
+    blocks = [[], strict, np.array([[0.0, 2.0]])]
+
+    with pytest.raises(ValueError, match="namespace"):
+        from_ripser(blocks)
+    with pytest.raises(ValueError, match="namespace"):
+        from_persim(blocks)
 
 
 def test_a_degree_list_must_share_one_namespace() -> None:
@@ -1094,13 +2362,19 @@ def test_clamp_warning_reports_the_largest_gap_it_absorbed() -> None:
     """The magnitude in the warning is what the sentence around it calls
     "floating-point noise", so it has to be a gap that was actually absorbed
     and it has to be within the threshold that made absorbing it legitimate."""
-    rows = np.array([[1.0, math.nextafter(1.0, 0.0)], [1.0, 1.0 - 5e-13]])
+    spacing = 1.0 - math.nextafter(1.0, -math.inf)
+    rows = np.array([[1.0, math.nextafter(1.0, 0.0)], [1.0, 1.0 - 4 * spacing]])
 
     with pytest.warns(UserWarning, match="I6") as record:
         d = from_array(rows, dim=0)
 
-    reported = float(str(record[0].message).split("the largest by ")[1].split(".")[0])
-    assert 4e-13 < reported < 6e-13, "the larger of the two absorbed gaps"
+    message = str(record[0].message)
+    reported = float(
+        message.split("the largest by ", 1)[1].split(" These", 1)[0].rstrip(".")
+    )
+    assert math.isclose(reported, 4 * spacing, rel_tol=2e-3), (
+        "the larger of the two absorbed local-ULP gaps"
+    )
     assert d.meta.provenance["clamped_rows"] == 2
 
 
@@ -1144,7 +2418,9 @@ def test_from_giotto_warns_once_per_call_about_clamping() -> None:
     arr[:, :, 1] = math.nextafter(1.0, 0.0)
 
     with pytest.warns(UserWarning, match="I6") as record:
-        b = from_giotto(arr, reduced_homology=True, strip_padding=False)
+        b = from_giotto(
+            arr, reduced_homology=True, infinity_values=math.inf, strip_padding=False
+        )
 
     assert len([w for w in record if "I6" in str(w.message)]) == 1
     assert all(b[i].meta.provenance["clamped_rows"] == 2 for i in range(len(b)))
@@ -1175,7 +2451,9 @@ def test_from_giotto_aggregates_its_one_clamp_warning_over_the_whole_batch() -> 
     )
 
     with pytest.warns(UserWarning, match="I6") as record:
-        b = from_giotto(arr, reduced_homology=False, strip_padding=False)
+        b = from_giotto(
+            arr, reduced_homology=False, infinity_values=math.inf, strip_padding=False
+        )
 
     messages = [str(w.message) for w in record if "I6" in str(w.message)]
     assert len(messages) == 1
@@ -1200,7 +2478,95 @@ def test_from_giotto_does_not_strip_a_row_that_violates_an_invariant() -> None:
 
     for strip_padding in (None, True, False):
         with pytest.raises(ValueError, match="I4"):
-            from_giotto(arr, reduced_homology=True, strip_padding=strip_padding)
+            from_giotto(
+                arr,
+                reduced_homology=True,
+                infinity_values=math.inf,
+                strip_padding=strip_padding,
+            )
+
+
+@pytest.mark.parametrize("strip_padding", [None, True, False])
+def test_from_giotto_does_not_strip_a_row_the_clamp_made_trivial(
+    strip_padding: bool | None,
+) -> None:
+    """§11.1's padding is decided on the rows giotto emitted, so §3.1's clamp
+    cannot create one.
+
+    giotto pads with `(b, b, dim)` (§4, A.2). A row that arrives as
+    `(b, b - 1ulp, dim)` is not that row: it is an I6 violation at the noise
+    level, which §3.1 makes the adapter's to repair, and repairing it lands
+    the death exactly on the birth. Whether the repaired row is then treated
+    as padding is the question, and the answer has to be no -- `padding_removed`
+    would otherwise count a row giotto never padded with, and §11.1's key
+    "records what was actually removed" of the *input*.
+
+    Every existing clamp test on this adapter passes `strip_padding=False`, so
+    nothing pinned which side of the mask the clamp falls on. Both orders run
+    clean and they disagree: clamping first makes the repaired row trivial and
+    strippable, and the row vanishes into a count naming padding.
+
+    All three modes are asserted together for the reason the degree-validation
+    test above gives -- the hazard is that they disagree about the same array.
+    The counts are the whole assertion: one genuine trivial row, one repaired
+    row that is not one, and a clamp the provenance still records."""
+    noise = math.nextafter(1.0, 0.0)
+    arr = np.array(
+        [
+            [
+                [1.0, noise, 0.0],  # I6 noise; trivial only after the repair
+                [2.0, 2.0, 0.0],  # giotto's own padding
+                [0.0, 5.0, 1.0],  # an ordinary bar
+            ]
+        ]
+    )
+    stripping = strip_padding is True
+
+    # Recorded rather than `pytest.warns`, because the default mode owes a
+    # second warning about the padding it kept and only this mode does. The
+    # clamp warning is asserted for all three; §11.1's is the test below.
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        d = from_giotto(
+            arr,
+            reduced_homology=False,
+            infinity_values=math.inf,
+            strip_padding=strip_padding,
+        )[0]
+
+    assert [w for w in record if "I6" in str(w.message)], "the repair must warn"
+    assert d.n_bars == (2 if stripping else 3)
+    assert d.meta.provenance["padding_removed"] == (1 if stripping else 0)
+    assert d.meta.provenance["clamped_rows"] == 1
+
+    # The repaired row is present in every mode, and it is now trivial -- which
+    # is exactly why it would have been stripped had the clamp run first.
+    rows = [(float(b), float(x)) for b, x in zip(d.births, d.deaths, strict=True)]
+    assert (1.0, 1.0) in rows
+
+
+def test_the_giotto_padding_warning_counts_the_rows_before_the_clamp() -> None:
+    """The other half of the test above, on §11.1's default mode.
+
+    `strip_padding=None` "warns once if any trivial rows are present", and
+    what makes a row present is the same question the mask asks. A repaired
+    row is trivial in the constructed diagram and was not trivial in giotto's
+    output, so the count the warning reports is the input's -- otherwise the
+    sentence telling the caller to "pass strip_padding=True to drop them"
+    names a row that mode does not drop.
+
+    Read off the message rather than recomputed, so a count taken after the
+    repair reports 2 and fails here."""
+    noise = math.nextafter(1.0, 0.0)
+    arr = np.array([[[1.0, noise, 0.0], [2.0, 2.0, 0.0], [0.0, 5.0, 1.0]]])
+
+    with warnings.catch_warnings(record=True) as record:
+        warnings.simplefilter("always")
+        from_giotto(arr, reduced_homology=False, infinity_values=math.inf)
+
+    trivial = [str(w.message) for w in record if "trivial" in str(w.message)]
+    assert len(trivial) == 1
+    assert "carries 1 trivial rows" in trivial[0], trivial[0]
 
 
 @pytest.mark.parametrize(
@@ -1233,7 +2599,12 @@ def test_from_giotto_validates_degrees_before_it_strips_padding(
 
     for strip_padding in (None, True, False):
         with pytest.raises(ValueError, match=expected):
-            from_giotto(arr, reduced_homology=False, strip_padding=strip_padding)
+            from_giotto(
+                arr,
+                reduced_homology=False,
+                infinity_values=math.inf,
+                strip_padding=strip_padding,
+            )
 
 
 @pytest.mark.parametrize("flag", ["False", "", 0, 1, None, object()])
@@ -1248,7 +2619,11 @@ def test_from_giotto_requires_a_real_boolean_for_reduced_homology(flag: Any) -> 
     that: §8's whole premise is that a consumer trusts these keys because the
     adapter is the one party that saw the backend's output."""
     with pytest.raises(TypeError, match="reduced_homology"):
-        from_giotto(np.array([[[0.0, 1.0, 0.0]]]), reduced_homology=flag)
+        from_giotto(
+            np.array([[[0.0, 1.0, 0.0]]]),
+            reduced_homology=flag,
+            infinity_values=math.inf,
+        )
 
 
 @pytest.mark.parametrize("flag", ["False", "True", "", 0, 1, object()])
@@ -1261,13 +2636,17 @@ def test_from_giotto_requires_a_real_boolean_for_strip_padding(flag: Any) -> Non
     arr = np.array([[[0.0, 0.0, 0.0], [0.0, 1.0, 0.0]]])
 
     with pytest.raises(TypeError, match="strip_padding"):
-        from_giotto(arr, reduced_homology=False, strip_padding=flag)
+        from_giotto(
+            arr, reduced_homology=False, infinity_values=math.inf, strip_padding=flag
+        )
 
 
 def test_from_giotto_accepts_a_batch_with_no_samples() -> None:
     """§4.2: "An empty batch is perfectly valid". A filter that selects no
     samples is an ordinary outcome, not an error to be raised at the adapter."""
-    b = from_giotto(np.zeros((0, 3, 3)), reduced_homology=True)
+    b = from_giotto(
+        np.zeros((0, 3, 3)), reduced_homology=True, infinity_values=math.inf
+    )
 
     assert len(b) == 0
     assert b.xp is np
@@ -1349,6 +2728,50 @@ def test_a_degree_outside_int32_is_refused_by_every_path(degree: int) -> None:
         from_gudhi([(float(degree), (0.0, 1.0))])
 
 
+def test_an_integer_coordinate_outside_float64s_exact_range_is_refused() -> None:
+    """C2. §6.1 stores coordinates as `float64`, which holds every integer up
+    to `2**53` exactly and only some of them above.
+
+    The cast runs before §3.1's invariants, so above that bound the rounding
+    can erase the violation the check exists to catch: `2**53 + 1` and `2**53`
+    are an I6 violation as integers and the same float afterwards, so the row
+    would be stored as a zero-persistence bar rather than raising. This is
+    `_require_int32_range`'s argument one column over -- the cast does not
+    report -- and both routes to storage must refuse it."""
+    beyond = 2**53 + 1
+
+    with pytest.raises(ValueError, match=r"2\*\*53"):
+        from_array(np.array([[beyond, 2**53]], dtype=np.int64), dim=0)
+    with pytest.raises(ValueError, match=r"2\*\*53"):
+        from_gudhi([(0, (beyond, 2**53))])
+    with pytest.raises(ValueError, match=r"2\*\*53"):
+        from_persim([np.array([[0, beyond]], dtype=np.int64)])
+    with pytest.raises(ValueError, match=r"2\*\*53"):
+        from_array(np.array([[-beyond, 0]], dtype=np.int64), dim=0)
+
+
+def test_an_integer_coordinate_at_the_float64_boundary_is_accepted() -> None:
+    """The bound is inclusive: `2**53` is exactly representable, so refusing it
+    would reject an input nothing goes wrong with. Fixing the boundary in a
+    test is the point -- an off-by-one here silently changes which diagrams are
+    constructible."""
+    d = from_array(np.array([[2**53 - 1, 2**53]], dtype=np.int64), dim=0)
+
+    assert [float(x) for x in d.births] == [float(2**53 - 1)]
+    assert [float(x) for x in d.deaths] == [float(2**53)]
+
+
+def test_a_float_coordinate_beyond_the_exact_range_is_still_accepted() -> None:
+    """The guard is about *integral* input, which is exactly representable and
+    which we would be the ones to damage. A float that large was already
+    rounded onto the grid by whoever built it, and there is nothing left to
+    detect -- refusing it would reject ordinary float64 data for the sake of a
+    check that cannot help it."""
+    d = from_array(np.array([[0.0, 1e300]]), dim=0)
+
+    assert [float(x) for x in d.deaths] == [1e300]
+
+
 @pytest.mark.parametrize("degree", [0, 1, 2**31 - 1])
 def test_a_degree_inside_int32_survives_every_path(degree: int) -> None:
     """The bound is `int32`'s, so its largest value is admissible. A check
@@ -1426,6 +2849,121 @@ def test_an_adapter_refuses_metadata_that_cannot_be_saved(value: Any) -> None:
         from_array(np.array([[0.0, 1.0]]), dim=0, provenance={"k": value})
     with pytest.raises(TypeError, match=r"JSON-representable|str-keyed"):
         from_array(np.array([[0.0, 1.0]]), dim=0, params={"k": value})
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("filtration", 3.5),
+        ("filtration", object()),
+        ("backend_version", 2),
+        ("description", 42),
+        ("description", b"a torus"),
+        ("coeff_field", 2.0),
+        ("coeff_field", True),
+        ("coeff_field", "two"),
+    ],
+)
+def test_an_adapter_refuses_a_scalar_metadata_field_of_the_wrong_type(
+    field: str, value: Any
+) -> None:
+    """§8 types five `DiagramMeta` fields as scalars, and `**meta` is the door
+    every one of them arrives through.
+
+    The check lives in `DiagramMeta.__post_init__` rather than in five
+    adapters -- see the core suite -- and this is the assertion that it is
+    actually reachable from the adapter surface, which is where a caller
+    types the value. `from_array` stands for all five: `_build_meta` hands
+    `**meta` to the same constructor on every path.
+
+    `backend` is absent from the cases because §11 refuses it earlier and for
+    a different reason: it is "the fact that says where this diagram came
+    from", so an adapter rejects any value of it, well-typed or not."""
+    with pytest.raises(TypeError, match=field):
+        from_array(np.array([[0.0, 1.0]]), dim=0, **{field: value})
+
+
+def test_an_adapter_still_accepts_the_scalar_fields_a_caller_may_state() -> None:
+    """The refusal above must not reach past its target. §8's opening
+    concession is that every field is optional and caller-supplied text is
+    ordinary, and §8 requires the four adapters that cannot know their
+    filtration to leave it "at whatever the caller passed through `**meta`"."""
+    d = from_array(
+        np.array([[0.0, 1.0]]),
+        dim=0,
+        filtration="alpha",
+        description="a noisy circle, 40 points",
+        coeff_field=11,
+    )
+
+    assert d.meta.filtration == "alpha"
+    assert d.meta.description == "a noisy circle, 40 points"
+    assert d.meta.coeff_field == 11
+
+
+def test_an_adapter_narrows_an_array_scalar_coefficient_field_to_a_builtin() -> None:
+    """The one place the adapter boundary is deliberately wider than the type.
+
+    `DiagramMeta` requires an exact builtin `int`, on
+    `_require_json_representable`'s house rule. `_require_coeff_field` admits
+    any `numbers.Integral` and converts, so that a field read out of an array
+    -- the ordinary way a caller loops over degrees -- is not refused for
+    being an `int64`. The widening is only sound because the conversion
+    happens: storing the `int64` unconverted would put a value in
+    `coeff_field` that §8's `int | None` does not describe, and that §10.2
+    cannot serialise. `type` rather than `==`, since `np.int64(11) == 11`."""
+    d = from_array(np.array([[0.0, 1.0]]), dim=0, coeff_field=np.int64(11))
+
+    assert type(d.meta.coeff_field) is int
+    assert d.meta.coeff_field == 11
+
+
+@pytest.mark.parametrize("field", ["params", "provenance"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        0,  # falsy: silently became {}
+        False,  # falsy
+        "",  # falsy
+        [],  # falsy
+        set(),  # falsy
+        1.5,  # truthy, and not iterable at all
+        {"a"},  # truthy: `dict()`'s own words, naming nothing
+        [("a", 1)],  # truthy, and quietly *accepted* as a mapping
+    ],
+)
+def test_an_adapter_refuses_a_metadata_mapping_that_is_not_a_mapping(
+    field: str, value: Any
+) -> None:
+    """§8 types `params` and `provenance` as `Mapping[str, Any]`, and the
+    adapter is where a caller's argument arrives.
+
+    `dict(value or {})` answered three different ways for one mistake. A falsy
+    non-mapping -- `0`, `False`, `""`, `[]` -- was silently discarded, so
+    `provenance=0` produced a diagram recording nothing and reporting nothing,
+    which is the outcome §11 refuses `backend=` and unknown fields to prevent.
+    A truthy one raised `dictionary update sequence element #0 has length 1`,
+    which names neither the adapter nor the argument. And a sequence of pairs
+    was *accepted*, storing a mapping §8's type does not describe from an
+    argument that is not one.
+
+    `DiagramMeta(provenance=0)` raises, so the adapter was looser than the
+    type it wraps on the one path §11 makes it the boundary for."""
+    with pytest.raises(TypeError, match=rf"{field}=.*mapping"):
+        from_array(np.array([[0.0, 1.0]]), dim=0, **{field: value})
+
+
+def test_an_adapter_reads_an_omitted_metadata_mapping_as_unstated() -> None:
+    """The other side of the refusal above: `None` stays "stated nothing".
+
+    §8 makes every field optional and spells an absent value `None`, so
+    `provenance=None` is the caller saying they have none rather than passing
+    a bad mapping -- the same reading `_coeff_field` gives `coeff_field=None`.
+    The adapter's own keys are still recorded."""
+    d = from_array(np.array([[0.0, 1.0]]), dim=0, params=None, provenance=None)
+
+    assert d.meta.params == {}
+    assert d.meta.provenance["clamped_rows"] == 0
 
 
 @pytest.mark.parametrize("mapping", [{1: "x"}, {None: "x"}, {(1, 2): "x"}])
@@ -1514,7 +3052,10 @@ def test_the_adapters_d17_excludes_still_type_check_a_stated_field(
         from_persim([np.array([[0.0, 1.0]])], coeff_field=field)
     with pytest.raises(TypeError, match="coeff_field"):
         from_giotto(
-            np.array([[[0.0, 1.0, 0.0]]]), reduced_homology=False, coeff_field=field
+            np.array([[[0.0, 1.0, 0.0]]]),
+            reduced_homology=False,
+            infinity_values=math.inf,
+            coeff_field=field,
         )
 
 
@@ -1534,7 +3075,10 @@ def test_the_adapters_d17_excludes_still_type_check_a_stated_field(
         (
             "from_giotto",
             lambda f: from_giotto(
-                np.array([[[0.0, 1.0, 0.0]]]), reduced_homology=False, coeff_field=f
+                np.array([[[0.0, 1.0, 0.0]]]),
+                reduced_homology=False,
+                infinity_values=math.inf,
+                coeff_field=f,
             )[0],
         ),
     ],
@@ -1715,6 +3259,89 @@ def test_a_degree_block_that_is_not_n_by_2_is_refused_by_index(dgms: Any) -> Non
         from_ripser(dgms)
 
 
+@pytest.mark.parametrize("adapter", [from_ripser, from_persim])
+@pytest.mark.parametrize(
+    ("dgms", "index"),
+    [
+        ([[[0.0, 1.0], [0.0, 1.0, 2.0]]], 0),  # rows of two widths
+        ([[[0.0, 1.0], [2.0]]], 0),  # a row of one
+        ([np.array([[0.0, 1.0]]), [[0.0, 1.0], [2.0]]], 1),  # the second block
+    ],
+)
+def test_a_python_block_that_is_not_rectangular_is_refused_by_index(
+    adapter: Any, dgms: Any, index: int
+) -> None:
+    """§11 fixes what these adapters accept, so a block that is not `(n, 2)`
+    must be refused in our words wherever the failure surfaces.
+
+    The shape check one test up runs on a block the namespace already read.
+    A plain Python block is converted first, and a non-rectangular one fails
+    *inside* that conversion -- so without a guard the caller gets NumPy's
+    "setting an array element with a sequence. The requested array has an
+    inhomogeneous shape after 1 dimensions", which names neither the adapter,
+    the argument, nor which block was wrong. Both paths owe the same refusal,
+    and the index is the part of it the caller cannot work out for
+    themselves."""
+    with pytest.raises(ValueError, match=rf"diagram at index {index} must have shape"):
+        adapter(dgms)
+
+
+@pytest.mark.parametrize("adapter", [from_ripser, from_persim])
+@pytest.mark.parametrize(
+    ("dgms", "index"),
+    [
+        ([None], 0),
+        ([3], 0),
+        ([{}], 0),
+        ([np.array([[0.0, 1.0]]), object()], 1),
+        ([np.array([[0.0, 1.0]]), "ab"], 1),
+    ],
+)
+def test_a_degree_block_that_is_neither_array_nor_rows_is_refused_by_index(
+    adapter: Any, dgms: Any, index: int
+) -> None:
+    """The third path into a mis-shaped block, and the one that used to escape.
+
+    §11 accepts a list of `(n, 2)` arrays or of blocks of rows. A block that
+    is neither -- `None`, a bare number, a mapping -- reached
+    `namespace_of` untouched and failed there, with
+    `array_namespace requires at least one non-scalar array input`: the
+    namespace's words, naming neither the adapter, the argument, nor which
+    block was wrong. That is exactly what the two tests above exist to stop,
+    on the two paths that happened to be guarded, so this one owes the same
+    refusal for the same reason.
+
+    The first array block is also what these adapters resolve the namespace
+    *from*, so the refusal has to happen before that resolution and not
+    inside the row loop -- `[3]` failed one line earlier than `[None]` did,
+    for no reason a caller could see."""
+    with pytest.raises(ValueError, match=rf"diagram at index {index} must have shape"):
+        adapter(dgms)
+
+
+@pytest.mark.parametrize("adapter", [from_ripser, from_persim])
+def test_a_gudhi_persistence_list_at_the_wrong_adapter_names_from_gudhi(
+    adapter: Any, gudhi_pairs: Any
+) -> None:
+    """The likeliest mix-up on this surface, and the one direction that used
+    to fail opaquely.
+
+    GUDHI's `persistence()` list is `list[(dim, (birth, death))]` and Ripser's
+    `dgms` is `list[(n, 2)]`; §11 accepts each at one adapter. Handed the
+    first, `from_ripser` reads `(0, (0.0, 1.0))` as a degree block and cannot
+    convert it, because the row is not rectangular. The reverse mistake --
+    Ripser's `dgms` at `from_gudhi` -- has always been refused by name, so
+    this direction is the asymmetry rather than a new requirement.
+
+    The refusal names `from_gudhi` because the input form is recognisable:
+    a `(dim, (birth, death))` row is what `_is_persistence_row` already
+    identifies for the extended-persistence gate."""
+    with pytest.raises(ValueError, match="from_gudhi") as excinfo:
+        adapter(gudhi_pairs("circle"))
+
+    assert "diagram at index 0 must have shape" in str(excinfo.value)
+
+
 def test_from_gudhi_refuses_a_persistence_list_with_a_stated_degree(
     gudhi_pairs: Any,
 ) -> None:
@@ -1722,7 +3349,7 @@ def test_from_gudhi_refuses_a_persistence_list_with_a_stated_degree(
     alongside it is a second source for one fact. Refusing beats picking a
     winner: silently preferring either one turns a caller's mistake into a
     diagram whose degrees are not the ones GUDHI computed."""
-    with pytest.raises(ValueError, match="second source"):
+    with pytest.raises(TypeError, match="second source"):
         from_gudhi(gudhi_pairs("circle"), dim=1)
 
 
@@ -1732,9 +3359,13 @@ def test_the_array_adapters_refuse_a_non_array(adapter: Any) -> None:
     is the contract. A list would otherwise fail later and deeper, with an
     `AttributeError` naming `ndim` rather than a sentence naming the argument.
 
-    `from_giotto` is passed its required flag so the refusal under test is the
-    one about the array, not §5.1's about the missing keyword."""
-    kwargs = {"reduced_homology": True} if adapter is from_giotto else {"dim": 0}
+    `from_giotto` is passed both of its required keywords so the refusal under
+    test is the one about the array, not §5.1's or §5's about a missing one."""
+    kwargs = (
+        {"reduced_homology": True, "infinity_values": math.inf}
+        if adapter is from_giotto
+        else {"dim": 0}
+    )
 
     with pytest.raises(TypeError, match="__array_namespace__"):
         adapter([[0.0, 1.0]], **kwargs)
@@ -1788,13 +3419,23 @@ def test_from_giotto_validates_metadata_on_a_batch_with_no_samples(
     An empty batch is valid and stays valid (§4.2) -- what is refused here is
     the metadata, not the shape."""
     with pytest.raises(TypeError, match=match):
-        from_giotto(np.zeros((0, 2, 3)), reduced_homology=False, **kwargs)
+        from_giotto(
+            np.zeros((0, 2, 3)),
+            reduced_homology=False,
+            infinity_values=math.inf,
+            **kwargs,
+        )
 
     # The same refusal, from the same call with one sample in it. Asserting
     # both is the point: the test is about the two agreeing, not about either
     # message on its own.
     with pytest.raises(TypeError, match=match):
-        from_giotto(np.zeros((1, 2, 3)), reduced_homology=False, **kwargs)
+        from_giotto(
+            np.zeros((1, 2, 3)),
+            reduced_homology=False,
+            infinity_values=math.inf,
+            **kwargs,
+        )
 
 
 @pytest.mark.parametrize("dtype", [bool, complex, object])
@@ -1810,38 +3451,47 @@ def test_from_giotto_validates_dtype_on_a_batch_with_no_samples(dtype: Any) -> N
     sample and accepted at none, which is the shape-dependent acceptance §4
     warns about and §11 keeps out of the adapters."""
     with pytest.raises(TypeError, match="dtype"):
-        from_giotto(np.zeros((0, 2, 3), dtype=dtype), reduced_homology=False)
+        from_giotto(
+            np.zeros((0, 2, 3), dtype=dtype),
+            reduced_homology=False,
+            infinity_values=math.inf,
+        )
 
     with pytest.raises(TypeError, match="dtype"):
-        from_giotto(np.zeros((1, 2, 3), dtype=dtype), reduced_homology=False)
+        from_giotto(
+            np.zeros((1, 2, 3), dtype=dtype),
+            reduced_homology=False,
+            infinity_values=math.inf,
+        )
 
 
-def test_from_giotto_overwrites_an_adapter_owned_provenance_key_like_the_rest() -> None:
-    """The zero-sample preflight must not be *stricter* than the construction
-    it stands in for, in either direction.
+def test_from_giotto_refuses_an_adapter_owned_provenance_key_like_the_rest() -> None:
+    """The zero-sample preflight must not diverge from the construction it
+    stands in for, in either direction.
 
-    `_build_meta` documents that a key the adapter measured wins over a
-    caller's key of the same name -- the adapter is the party that saw the
-    backend's output, and `provenance` is auditable rather than assertable.
-    `clamped_rows` is such a key, added by `_diagram_from_columns`, so every
-    adapter overwrites a caller's value for it, junk included. The preflight
-    listed the other adapter-owned keys and not this one, so `from_giotto`
-    alone refused what its four siblings silently corrected -- a divergence in
-    the direction the preflight's own comment promises cannot happen."""
+    This is the property, and it survives the rule changing under it. It used
+    to read "every adapter silently overwrites a caller's `clamped_rows`, so
+    `from_giotto` must too"; the key is now refused everywhere, so what has to
+    agree is the refusal. What must never happen is that whether a caller's
+    key is caught depends on how many samples their batch carried, which is
+    §4's shape-depends-on-what-else-was-there hazard in the adapter's own
+    behaviour -- and a zero-sample batch never enters the loop where real
+    construction happens.
+
+    Asserted against `from_array` in the same test so that "like the rest" is
+    checked rather than assumed."""
     junk = {"clamped_rows": object()}
 
-    assert (
-        from_array(np.array([[0.0, 1.0]]), dim=0, provenance=junk).meta.provenance[
-            "clamped_rows"
-        ]
-        == 0
-    )
+    with pytest.raises(TypeError, match="clamped_rows"):
+        from_array(np.array([[0.0, 1.0]]), dim=0, provenance=junk)
 
     # A non-trivial bar, so that the `strip_padding=None` padding warning --
     # which `(0, 0, 0)` would trip -- stays out of a test about provenance.
     for arr in (np.zeros((0, 1, 3)), np.array([[[0.0, 1.0, 0.0]]])):
-        b = from_giotto(arr, reduced_homology=False, provenance=junk)
-        assert all(b[i].meta.provenance["clamped_rows"] == 0 for i in range(len(b)))
+        with pytest.raises(TypeError, match="clamped_rows"):
+            from_giotto(
+                arr, reduced_homology=False, infinity_values=math.inf, provenance=junk
+            )
 
 
 def test_from_giotto_keeps_valid_metadata_on_a_batch_with_no_samples() -> None:
@@ -1849,7 +3499,11 @@ def test_from_giotto_keeps_valid_metadata_on_a_batch_with_no_samples() -> None:
     must not consume the caller's metadata on the way through -- the check is
     run against a copy and its result discarded."""
     b = from_giotto(
-        np.zeros((0, 2, 3)), reduced_homology=False, filtration="rips", space="S^1"
+        np.zeros((0, 2, 3)),
+        reduced_homology=False,
+        infinity_values=math.inf,
+        filtration="rips",
+        description="S^1",
     )
 
     assert len(b) == 0
@@ -1860,7 +3514,250 @@ def test_from_giotto_accepts_a_sample_with_no_bars() -> None:
     exactly this when one sample's filtration produces nothing and the batch is
     padded to a width of zero -- and the degree validation added ahead of the
     padding mask must not trip over a column with nothing in it."""
-    b = from_giotto(np.zeros((2, 0, 3)), reduced_homology=False, strip_padding=True)
+    b = from_giotto(
+        np.zeros((2, 0, 3)),
+        reduced_homology=False,
+        infinity_values=math.inf,
+        strip_padding=True,
+    )
 
     assert [b[i].n_bars for i in range(len(b))] == [0, 0]
     assert all(b[i].meta.provenance["padding_removed"] == 0 for i in range(len(b)))
+
+
+def test_from_giotto_strips_one_sample_empty_and_leaves_another_with_bars() -> None:
+    """§4.2's `offsets`, exercised rather than degenerate.
+
+    The test above empties every member, so `offsets` is all zeros and any
+    arithmetic at all -- a cumulative sum, a constant, a length -- produces
+    it. §11.2 asks for the mixed batch for that reason: "The suite MUST cover
+    a batch whose diagrams have different bar counts, so `offsets` is
+    exercised rather than degenerate; one containing an empty diagram, so a
+    zero-length segment is". `strip_padding=True` is the only adapter path
+    that produces both from one input, and it puts the zero-length segment
+    *first*, where an off-by-one in the segment boundaries shows and a
+    `from_diagrams` that quietly dropped empty members would leave a batch of
+    length one.
+
+    The surviving member's bars are asserted by value, not by count: a member
+    that had absorbed its empty neighbour's segment would still be length two
+    here and hold the wrong rows."""
+    arr = np.array(
+        [
+            [[1.0, 1.0, 0.0], [2.0, 2.0, 0.0]],  # both trivial; emptied
+            [[0.0, 5.0, 0.0], [1.0, 3.0, 1.0]],  # neither; kept whole
+        ]
+    )
+
+    b = from_giotto(
+        arr, reduced_homology=False, infinity_values=math.inf, strip_padding=True
+    )
+
+    assert len(b) == 2
+    assert [b[i].n_bars for i in range(len(b))] == [0, 2]
+    assert [int(x) for x in b.offsets] == [0, 0, 2]
+    assert [b[i].meta.provenance["padding_removed"] for i in range(len(b))] == [2, 0]
+    assert [float(x) for x in b[1].births] == [0.0, 1.0]
+    assert [float(x) for x in b[1].deaths] == [5.0, 3.0]
+
+
+# ---------------------------------------------------------------------------
+# §8's reserved provenance keys are the adapter's to write, not the caller's
+# ---------------------------------------------------------------------------
+
+# §8's reserved-key table, in full. Spelled out here rather than imported from
+# `adapters.py` so that the test states the requirement and the module states
+# the implementation: importing the set would make this test pass against any
+# set the module happened to hold, including an empty one.
+_RESERVED_PROVENANCE_KEYS = (
+    "essential_bars",
+    "essential_bars_dropped",
+    "essential_bars_finitized_at",
+    "essential_bars_source",
+    "coeff_field_source",
+    "source_dtype",
+    "clamped_rows",
+    "padding_removed",
+)
+
+
+def _call_every_adapter(**meta: Any) -> dict[str, Any]:
+    """Every adapter, on its smallest valid input, with `**meta` passed on."""
+    return {
+        "from_gudhi": lambda: from_gudhi([(0, (0.0, 1.0))], **meta),
+        "from_ripser": lambda: from_ripser([np.array([[0.0, 1.0]])], **meta),
+        "from_persim": lambda: from_persim([np.array([[0.0, 1.0]])], **meta),
+        "from_array": lambda: from_array(np.array([[0.0, 1.0]]), dim=0, **meta),
+        "from_giotto": lambda: from_giotto(
+            np.array([[[0.0, 1.0, 0.0]]]),
+            reduced_homology=False,
+            infinity_values=math.inf,
+            **meta,
+        ),
+    }
+
+
+@pytest.mark.parametrize("key", _RESERVED_PROVENANCE_KEYS)
+@pytest.mark.parametrize("adapter", list(_call_every_adapter()))
+def test_no_adapter_lets_a_caller_write_a_reserved_provenance_key(
+    key: str, adapter: str
+) -> None:
+    """§8: every reserved key names the writer that measured it, and none of
+    them is the caller.
+
+    `backend` and `backend_version` are already refused on exactly this
+    ground -- "a caller who could set them could produce a diagram that lies
+    about where it came from". §8's `provenance` table is seven more facts of
+    the same kind: `essential_bars` has two named writers and neither is a
+    caller ("Both writers, `from_giotto` at construction and `finitize()`
+    later, MUST be the only places that set this key"); `essential_bars_source`
+    is "Written only by `from_*`"; the rest are counts and dtypes the adapter
+    measured while reading the backend's output.
+
+    Parametrised over every adapter and every key, because the defect this
+    replaces was that protection depended on which keys an adapter happened to
+    write: a caller's key lost the merge where the adapter set one of its own
+    and survived where it did not. Whether a fact can be forged must not depend
+    on which adapter is asked."""
+    value = 1 if key.endswith(("_rows", "_removed", "_dropped")) else "faithful"
+
+    with pytest.raises(TypeError, match=key):
+        _call_every_adapter(provenance={key: value})[adapter]()
+
+
+@pytest.mark.parametrize("adapter", ["from_persim", "from_array"])
+def test_the_adapters_that_make_no_essential_bar_claim_cannot_be_given_one(
+    adapter: str,
+) -> None:
+    """§11, §5.1: the case that found the defect.
+
+    `from_persim` and `from_array` record neither essential-bar key -- persim
+    computes no homology ("no opinion"), an array has no backend -- so neither
+    key was in the adapter's own mapping and a caller's survived the merge
+    untouched. The diagram that came out carried `essential_bars` with **no**
+    `essential_bars_source`, which is precisely what §11 forbids: "An adapter
+    that records `provenance['essential_bars']` MUST record
+    `provenance['essential_bars_source']` with the same value in the same
+    construction."
+
+    The pairing cannot be enforced in `DiagramMeta` instead. `finitize` (§5)
+    legitimately writes `essential_bars` onto a diagram that never had a
+    source -- a `from_array` diagram has none to inherit -- so a constructor
+    rule would refuse the one writer §8 requires. The refusal belongs at the
+    adapter boundary, which is where the caller is."""
+    with pytest.raises(TypeError, match="essential_bars"):
+        _call_every_adapter(provenance={"essential_bars": "faithful"})[adapter]()
+
+    with pytest.raises(TypeError, match="essential_bars_source"):
+        _call_every_adapter(provenance={"essential_bars_source": "faithful"})[adapter]()
+
+
+def test_a_caller_keeps_every_provenance_key_that_is_not_reserved(
+    gudhi_pairs: Any,
+) -> None:
+    """§8: `provenance` stays the honest-accounting channel. Only the seven
+    reserved names are refused; an ordinary key is kept as it always was."""
+    d = from_gudhi(
+        gudhi_pairs("circle"),
+        provenance={"analyst": "eb", "capture_host": "ci", "run": 3},
+    )
+
+    assert d.meta.provenance["analyst"] == "eb"
+    assert d.meta.provenance["capture_host"] == "ci"
+    assert d.meta.provenance["run"] == 3
+    assert d.meta.provenance["essential_bars"] == "faithful"
+
+
+def test_the_reserved_refusal_names_the_key_and_not_just_the_argument() -> None:
+    """A caller who passed one of seven keys needs to know which one."""
+    with pytest.raises(TypeError, match=r"padding_removed.*§8"):
+        from_array(
+            np.array([[0.0, 1.0]]), dim=0, provenance={"padding_removed": 99, "ok": 1}
+        )
+
+
+# ---------------------------------------------------------------------------
+# `columns=`' own rules outrank §11's shape refusal
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("n_columns", "columns", "match"),
+    [
+        (1, ["birth"], "missing.*death"),
+        (4, ["birth", "death", "dim", "dim"], "duplicate"),
+        (5, ["birth", "death", "dim", "x", "y"], "unknown.*x"),
+    ],
+)
+def test_from_array_judges_columns_before_it_looks_at_the_width(
+    n_columns: int, columns: list[str], match: str
+) -> None:
+    """§10.3: `columns=` MUST raise on the argument, before `arr` is inspected.
+
+    **This inverts what this suite previously asserted**, which was that §11's
+    shape refusal outranked the vocabulary rules. §10.3 settled it the other
+    way, and the reason is that `columns=` is now what answers §11's degree
+    question rather than the column count: a header naming two births and no
+    death is wrong on its own terms whatever it is passed beside, so the
+    failure must not depend on the array's width -- or, as the sibling test
+    below shows, on the array being inspectable at all."""
+    with pytest.raises(ValueError, match=match):
+        from_array(np.zeros((1, n_columns)), columns=columns)
+
+
+class _ExplodingArray:
+    """An `arr` that raises on every attribute a reader could reach for.
+
+    Not a mock of an array -- the point is that it is *not* one, so any
+    implementation that consults it at all fails loudly rather than by
+    reporting the wrong defect.
+    """
+
+    def __getattr__(self, name: str) -> Any:
+        raise AssertionError(f"arr was inspected: reached .{name}")
+
+
+@pytest.mark.parametrize(
+    ("columns", "error", "match"),
+    [
+        ("birth,death", TypeError, "sequence"),
+        (["birth", 1], TypeError, "string"),
+        (["birth", "birth"], ValueError, "duplicate"),
+        (["birth", "dim"], ValueError, "missing.*death"),
+        (["birth", "death", "other"], ValueError, "unknown.*other"),
+        (["birth", "death", "diagram_id"], TypeError, r"diagram_id.*\.akd"),
+    ],
+)
+def test_invalid_columns_raise_without_touching_arr_at_all(
+    columns: Any, error: type[Exception], match: str
+) -> None:
+    """§10.3's ordering rule, proved rather than asserted.
+
+    Passing an object that raises on any attribute access establishes that the
+    refusal came from `columns=` alone. A test using a valid array cannot
+    distinguish "judged the argument first" from "judged the argument second
+    and the array happened to be fine", which is the whole content of the
+    rule."""
+    with pytest.raises(error, match=match):
+        from_array(_ExplodingArray(), columns=columns, dim=0)
+
+
+def test_the_batch_column_refusal_still_outranks_the_shape_error() -> None:
+    """The one deliberate exception, unchanged (§10.3).
+
+    A four-column table headed `diagram_id,dim,birth,death` is a batch CSV, and
+    that caller needs to be sent to the `.akd` format rather than told that
+    arrays are `(n, 2)` or `(n, 3)` -- which is true, and answers a question
+    they did not ask."""
+    with pytest.raises(TypeError, match=r"diagram_id.*\.akd"):
+        from_array(np.zeros((1, 4)), columns=["diagram_id", "dim", "birth", "death"])
+
+
+def test_a_columns_argument_is_still_refused_on_its_own_terms_first() -> None:
+    """§10.3: the checks that need no array still run before the array is
+    inspected, so the failure does not depend on the data or its width."""
+    with pytest.raises(TypeError, match="sequence"):
+        from_array(np.zeros((1, 7)), columns="birth,death,dim")
+
+    with pytest.raises(TypeError, match="string"):
+        from_array(np.zeros((1, 7)), columns=["birth", "death", "dim", 4, 5, 6, 7])

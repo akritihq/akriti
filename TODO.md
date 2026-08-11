@@ -49,95 +49,40 @@ mutating `core.py` until each mutation was caught, and the measurements that
 drove that are recorded in the file, since the tuning is what makes those
 tests worth their runtime.
 
-## `core.py` predates D17 and D18
+**`core.py` predates D17 and D18.** All five parts landed. `namespace_of` is
+the single resolver and the only caller of `__array_namespace__`; the last
+direct call was `adapters._namespace_for_rows`, on its own NumPy probe, which
+now routes through the resolver like everything else — a second spelling
+agreeing with the resolver today is exactly what §3.3's "exactly one function"
+forbids, since `array_api_compat.numpy` and `numpy` are the two objects I7's
+`is` would then raise between (A.7.5). `array-api-compat>=1.15.0` is declared
+on `akriti[torch]`. `DiagramMeta`
+validates `coeff_field_source` against §8's two values and against a `None`
+`coeff_field`, and now type-checks the five scalar fields §8 declares, so
+`filtration=3.5` and `description=42` are refused at the type rather than at
+`save()`; `adapters._require_coeff_field` still widens to `numbers.Integral`
+at the adapter boundary and converts, which is where a caller's array scalar
+actually arrives. The three CI tests are in
+`tests/test_rfc0001_torch_live.py` and `tests/test_array_api_conformance.py`;
+D16's identity assertion now runs on **two separate arrays** per natively
+implementing backend, numpy and `array_api_strict`, since the constraint §3.3
+states is call-to-call consistency and a single array proves only that one
+call returns the module.
 
-*`src/akriti/diagrams/core.py`, `pyproject.toml` — RFC-0001 §3.3, §8, §12.2.*
+**`adapters.py` carries a lazy import §3.3 does not admit.** The RFC was the
+side that needed the edit and got it: §3.3 now sets the closure over what a
+caller can reach rather than over which files may import what, and names the
+row-sequence NumPy fallback as one of four cases that meet it, alongside the
+namespace resolution rule, `save`/`load`, and §10.3's `to_parquet`.
 
-Both decisions resolved in #10 after this implementation was written, so the
-spec moved underneath it. D18's half is still unreachable — no diagram can
-currently be torch-backed — but **D17's half is now live**: `adapters.py`
-exists and writes `provenance["coeff_field_source"]` on every `from_gudhi`
-and `from_ripser` call, so the missing validation below is a reserved key
-nothing checks rather than a key nothing writes.
-
-**Namespace resolution goes through one function (D18, §3.3).** §3.3 requires
-`namespace_of(x)` — the native `__array_namespace__` where it exists, and
-`array_api_compat.array_namespace` where it does not, which today is torch
-alone. `core.py` calls `__array_namespace__()` directly at five sites:
-`_validate_bar_arrays` (I7, and the `xp` it returns),
-`PersistenceDiagram.xp`, `DiagramBatch.__post_init__` (B5), and
-`DiagramBatch.xp`. `adapters.py` adds a sixth, `_namespace_of`, written that
-way deliberately and for this entry's own reason: an adapter resolving
-through the compat shim would hand `core.py` a diagram whose namespace
-`core.py` cannot re-derive, so the two have to move together rather than one
-first. That spelling is exactly what D18 identified as broken —
-it raises `AttributeError` on a torch tensor before reaching the identity
-question I7 and B5 exist to ask. To close: add the resolver, route all five
-through it, and keep it the only caller, since resolving two ways yields
-`array_api_compat.numpy` alongside `numpy` for one backend and fires I7's
-`is` on arrays that legitimately agree (A.7.5).
-
-**`array-api-compat` is undeclared.** §3.3 requires it in the `akriti[torch]`
-extra with a version floor, on §10.1 requirement 2's terms — lazy,
-function-scoped, unreachable on the default install. The extra is still
-`torch = ["torch>=2.0"]` and the string occurs nowhere in the repository.
-
-**`coeff_field_source` is unvalidated (D17, §8).** `DiagramMeta` must raise
-`ValueError` when it holds anything but `"caller"` or `"backend_default"`,
-and when it is present while `coeff_field` is `None` — a source describing no
-value being incoherent rather than merely weak. `_validate_provenance` covers
-`essential_bars_dropped` and `essential_bars_source` and has no branch for
-the new key. The adapter half of D17 is done —
-`tests/test_rfc0001_adapters.py` covers both directions on both backends, and
-`tests/test_rfc0001_adapters_live.py` asserts the two defaults against the
-installed backend as §9.3 requires — so what remains is the core half alone,
-deliberately left for a separate change.
-
-**Three CI tests §3.3 now requires and nothing provides:** which resolution
-branch a `torch.Tensor` takes, marked on the `akriti[torch]` extra, so that
-the release closing gh-58743 breaks the build rather than quietly changing
-what `d.xp` returns; namespace identity across two arrays of each natively
-implementing backend (D16, narrowed by D18 to those backends); and a
-cross-namespace check that `essential`, `persistence`, `bar_counts` and
-`dim(k)` agree, since those accessors are built from operators the resolver
-does not reach and are safe only because I2 and §6.1 fix every operand's
-dtype.
-
-## `adapters.py` carries a lazy import §3.3 does not admit
-
-*`src/akriti/diagrams/adapters.py`, RFC-0001 §3.3 — the RFC is the side that
-needs the edit.*
-
-§3.3 requires `diagrams/core.py` and `diagrams/adapters.py` to "import nothing
-beyond the standard library, save for the single lazy import §3.3's namespace
-resolution rule carries". `adapters.py` has a second one:
-`_namespace_for_rows` imports numpy, function-scoped, when the input carries
-no array to derive a namespace from.
-
-**The code is right and the RFC's clause is too narrow**, for a reason §11
-creates itself. §11 fixes the adapter signatures with no namespace argument,
-and GUDHI's primary form — `SimplexTree.persistence()` — is a Python list of
-tuples with no array anywhere in it. Something has to supply a namespace, and
-the three candidates are: a namespace keyword on the adapters, which §11's
-signatures rule out; refusing list input, which §11's own table requires be
-accepted; or a lazy numpy import, which is what §3.3's existing exception
-already does for `io.py` and which is reachable only through an input shaped
-that way. The last was chosen deliberately, with the trade recorded here: a
-JAX or torch user who passes a Python list gets a numpy-backed diagram rather
-than an error telling them to pass an array. `from_array` and every array
-form are unaffected — those preserve the caller's namespace exactly, as
-§3.3's "adapters preserve the input namespace" requires.
-
-To close: amend §3.3's clause to describe the class of lazily-imported
-exceptions rather than "the single lazy import", which §10.1 requirement 2
-already generalised to for D18's sake, and state the list-input case as the
-second member. Until that lands, code and specification disagree in text
-while agreeing in substance, and this entry is the record of which is which.
-
-The version is checked rather than merely presence, on §3.3's own terms for
-`io.py`: numpy below 2.0 has no main-namespace array API, so both failure
-paths raise `ImportError` naming `akriti[numpy]` rather than proceeding into
-an `AttributeError`.
+**§11's signature block omits two arguments it requires.** Closed by the RFC,
+which now reads `from_gudhi(obj, *, dim=None, **meta)`,
+`from_giotto(arr, *, reduced_homology, strip_padding=None, **meta)` and
+`from_array(arr, *, columns=None, dim=None, **meta)`, and specifies `columns=`
+against §10.3 in the same pass. Code and specification agree, and
+`adapters.py`'s remaining use of "deviation" is §11's own — the six across
+three adapters that depart from the common signature, not a divergence
+between the two documents.
 
 ## The conformance module still skips as one unit
 

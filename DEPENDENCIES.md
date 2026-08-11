@@ -9,7 +9,7 @@ audit that criticises this ecosystem's supply-chain hygiene. Our own closure has
 to survive the same scrutiny.
 
 `tools/check_license_closure.py` enforces this in CI. **Last verified by hand:
-2026-07-29.**
+2026-08-10.**
 
 ---
 
@@ -29,7 +29,7 @@ undermine that, and nobody would notice for a year.
 
 ## What we found
 
-Three findings changed the packaging design. All are reproducible with
+These findings changed the packaging design. All are reproducible with
 `tools/check_license_closure.py`.
 
 ### 1. `persim` pulls GPLv3 code into every install — via a package abandoned in 2019
@@ -57,14 +57,15 @@ This costs less than it sounds: `akriti.diagrams` needs no backend at all, and
 
 numpy left the closure one step later than the backends did, and for a
 different reason. RFC-0001 §3.3 and §10.1 requirement 2 require
-`diagrams/core.py` and `diagrams/adapters.py` to import nothing beyond the
-standard library, working through `__array_namespace__` on whatever array the
-caller already holds. Declaring numpy contradicts that no matter how the
+`diagrams/core.py` to import nothing beyond the standard library, and adapters
+to work through the namespace of whatever array the caller already holds.
+Declaring numpy in the default closure contradicts that no matter how the
 modules are written: it installs numpy for a torch or JAX user who will never
 touch it, and it turns "zero third-party dependencies" into a claim about
-import statements rather than about what `pip install akriti` fetches. numpy
-is needed only inside `io.py`'s `save`/`load` for the `.npz` payload, where
-§3.3 requires a lazy, function-scoped import.
+import statements rather than about what `pip install akriti` fetches. NumPy
+is needed only at two lazy boundaries: `io.py`'s `save`/`load` for the `.npz`
+payload, and an adapter input made only of Python rows, which contains no array
+from which a namespace can be derived.
 
 **The floor is nevertheless declared, and this reverses what an earlier
 revision of this document said.** That revision concluded there was nowhere
@@ -76,7 +77,7 @@ extras at `numpy>=2.0`, the floor D6 established for main-namespace
 
 | Extra | For |
 |---|---|
-| `akriti[numpy]` | numpy as the array namespace, for a caller who wants one and has no opinion about which |
+| `akriti[numpy]` | numpy as the array namespace, including the fallback for accepted Python-row adapter inputs that carry no array |
 | `akriti[io]` | `.akd` `save`/`load` (RFC-0001 §10); resolves to `akriti[numpy]`, so the floor has one home |
 
 They are separate because the wants are separate: a user who wants numpy as
@@ -90,9 +91,9 @@ array-API call, because a lazy import guarded on *presence* fires when numpy
 is absent and stays silent when it is merely too old. Declared, `pip install
 akriti[io]` fails to resolve, which is where a version problem belongs. §3.3
 consequently requires the lazy import to check the version rather than
-presence alone, and requires both failure paths to name the extra —
-"install `akriti[io]`", not "install numpy", which is not an instruction a
-user who already has numpy 1.24 can act on.
+presence alone. Serialization failures name `akriti[io]`; row-sequence
+adapter failures name `akriti[numpy]`. Neither says only "install numpy",
+which is not an instruction a user who already has numpy 1.24 can act on.
 
 None of this touches the default closure: `pip install akriti` still fetches
 nothing third-party.
@@ -140,6 +141,33 @@ on scikit-learn 1.8. The keyword was renamed in scikit-learn 1.6 and removed in
 1.8. It is therefore test-only, pinned, and CI uses **committed fixture arrays**
 rather than live calls. See RFC-0001 §9.2.
 
+### 4. `array-api-compat` closes the torch namespace gap
+
+`array-api-compat` exists on PyPI; **1.15.0** is the currently verified
+release and requires Python >=3.10. PyPI records the **MIT** license, the
+Consortium for Python Data API Standards as author, and the maintainers
+`Aaron.Meurer`, `ev-br` and `rgommers`. It supplies Array API namespaces for
+NumPy, PyTorch and other supported array libraries.
+
+Akriti declares it only in `akriti[torch]` at `>=1.15.0`. Torch tensors do not
+yet expose `__array_namespace__`, so RFC-0001 §3.3's `namespace_of` fallback
+imports the package lazily and uses its torch namespace. The dependency is
+unreachable from the default install and does not turn the interchange layer
+into a torch dependency.
+
+### 5. PyArrow is the Parquet escape hatch
+
+`pyarrow` exists on PyPI; **25.0.0** is the current verified floor. PyPI records
+Apache-2.0, Python >=3.10 (including 3.10--3.14), Apache Arrow as owner, and
+Apache Arrow Developers as maintainer. It provides the Arrow table and Parquet
+writer used by `to_parquet()`; it is not needed by any other exporter or by
+diagram construction.
+
+It therefore lives in `akriti[parquet]`, and the import remains lazy at the
+`to_parquet()` call boundary. CI installs that extra in a **separate clean
+venv** and enforces a permissive-only closure there; the separation prevents
+cumulative copyleft from masking a future Parquet packaging regression.
+
 ---
 
 ## Current closure
@@ -158,9 +186,12 @@ cheapest way for it to stop being true is one convenience import.
 
 numpy is absent from the default closure and reachable only through
 `akriti[numpy]`, `akriti[io]` and `akriti[test]`, so it does not change this
-table. When `io.py` lands, `save`/`load` will import it lazily at call time
-(RFC-0001 §3.3), checking the version rather than presence alone and naming
-`akriti[io]` on both failure paths.
+table. The implemented optional boundaries are lazy and function-scoped:
+row-sequence adapter inputs use `akriti[numpy]`, `namespace_of`'s torch
+fallback uses `akriti[torch]`, and `to_parquet()` uses `akriti[parquet]`.
+RFC-0001's planned `save`/`load` boundary will use `akriti[io]` when it lands.
+Each implemented boundary checks the version where needed and names the
+relevant extra on failure.
 
 ### Extras
 
@@ -171,7 +202,8 @@ table. When `io.py` lands, `save`/`load` will import it lazily at call time
 | `distances` | `persim` | MIT, **but GPLv3 transitively** via `hopcroftkarp` |
 | `numpy` | `numpy>=2.0` | BSD-3-Clause; the array namespace, not required by the default install |
 | `io` | → `akriti[numpy]` | BSD-3-Clause; `.akd` `save`/`load` only (RFC-0001 §10) |
-| `torch` | `torch` | BSD-3-Clause; multi-gigabyte, never a hard dependency |
+| `torch` | `torch`, `array-api-compat>=1.15.0` | Torch is BSD-3-Clause and multi-gigabyte; array-api-compat is MIT; both are optional and never hard dependencies |
+| `parquet` | `pyarrow>=25.0.0` | Apache-2.0; Apache Arrow Developers; strict permissive-only closure audited separately |
 | `bio` | `anndata` | BSD-3-Clause |
 | `test` | `pytest`, `pytest-cov`, `hypothesis`, `array_api_strict`, → `akriti[numpy]` | `hypothesis` is **MPL-2.0** — weak, file-level, test-only, never shipped |
 | `lint` | `ruff`, `mypy` | MIT |
@@ -179,6 +211,11 @@ table. When `io.py` lands, `save`/`load` will import it lazily at call time
 `hypothesis` is the one reviewed exception in the checker. MPL-2.0 obligations
 attach per-file to MPL-licensed files; we neither modify nor redistribute them,
 and test dependencies do not reach a user's runtime environment.
+
+The torch row is **report-only** in CI because the binary wheel is a large,
+platform-specific closure and its transitive metadata is not a supported strict
+permissive-only install contract. The optional torch job audits the already
+installed row with `--allow-copyleft`; no second torch installation is made.
 
 ---
 

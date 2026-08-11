@@ -16,12 +16,15 @@ that quietly assumes NumPy fails here rather than two years from now.
 
 from __future__ import annotations
 
+from typing import Any
+
 import numpy as np
 import pytest
 
 xps = pytest.importorskip("array_api_strict")
 
 from akriti.diagrams import DiagramBatch, PersistenceDiagram  # noqa: E402
+from akriti.diagrams.core import namespace_of  # noqa: E402
 
 
 def test_numpy_namespace_is_numpy_itself() -> None:
@@ -35,6 +38,46 @@ def test_numpy_namespace_is_numpy_itself() -> None:
     assert xp is np
     assert hasattr(xp, "lexsort")  # passes, and proves nothing
     assert not hasattr(xps, "lexsort")  # the actual standard
+
+
+@pytest.mark.parametrize(
+    ("make", "expected"),
+    [
+        (lambda: np.arange(3.0), np),
+        (lambda: xps.asarray([0.0, 1.0, 2.0]), xps),
+    ],
+    ids=["numpy", "array_api_strict"],
+)
+def test_namespace_identity_holds_across_two_arrays_of_one_backend(
+    make: Any, expected: Any
+) -> None:
+    """D16, §3.3: the CI test that makes namespace identity verified rather
+    than assumed, for every backend implementing the method natively.
+
+    §3.3 requires `__array_namespace__()` to return a consistent object for a
+    given backend, and states it as a constraint on supported backends rather
+    than a property of the standard -- which "does not require the same object
+    on every call, and takes an `api_version` argument that a backend could
+    legitimately answer with different wrapper objects". I7 and B5 compare by
+    `is`, so a backend returning a fresh wrapper per call breaks every diagram
+    built from more than one of its arrays.
+
+    **Two separate arrays is the whole point.** A single array asserted
+    against the module proves the method returns the module *once*; the
+    constraint is about call-to-call consistency, and that is what a second
+    array tests. D18 narrowed this to natively implementing backends -- torch
+    reaches a namespace through the fallback, which is a module, identical
+    across calls because Python caches imports rather than because torch
+    promises anything -- so numpy and `array_api_strict` are the two in scope
+    here, with torch's branch pinned separately in
+    `tests/test_rfc0001_torch_live.py`.
+    """
+    first, second = make(), make()
+
+    assert first is not second, "the two arrays must be distinct objects"
+    assert first.__array_namespace__() is second.__array_namespace__()
+    assert first.__array_namespace__() is expected
+    assert namespace_of(first) is namespace_of(second) is expected
 
 
 def test_operations_the_diagram_type_needs_are_in_the_standard() -> None:

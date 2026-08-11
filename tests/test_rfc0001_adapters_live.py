@@ -54,6 +54,7 @@ def circle() -> np.ndarray:
     return pts + rng.normal(0, 0.05, pts.shape)
 
 
+@pytest.mark.alpha
 def test_gudhi_default_coefficient_field_is_eleven() -> None:
     """§9.3: GUDHI computes over Z/11 unless told otherwise.
 
@@ -74,6 +75,7 @@ def test_gudhi_default_coefficient_field_is_eleven() -> None:
     assert default == 11
 
 
+@pytest.mark.rips
 def test_ripser_default_coefficient_field_is_two() -> None:
     """§9.3: Ripser computes over Z/2 -- not GUDHI's Z/11. Same consequence."""
     ripser = pytest.importorskip("ripser")
@@ -83,6 +85,7 @@ def test_ripser_default_coefficient_field_is_two() -> None:
     assert default == 2
 
 
+@pytest.mark.alpha
 def test_from_gudhi_records_the_field_the_installed_backend_would_use(
     circle: np.ndarray,
 ) -> None:
@@ -104,6 +107,7 @@ def test_from_gudhi_records_the_field_the_installed_backend_would_use(
     assert d.meta.provenance["coeff_field_source"] == "backend_default"
 
 
+@pytest.mark.rips
 def test_from_ripser_records_the_field_the_installed_backend_would_use(
     circle: np.ndarray,
 ) -> None:
@@ -117,6 +121,7 @@ def test_from_ripser_records_the_field_the_installed_backend_would_use(
     assert d.meta.provenance["coeff_field_source"] == "backend_default"
 
 
+@pytest.mark.alpha
 def test_live_gudhi_output_matches_the_frozen_fixture(
     circle: np.ndarray, gudhi_pairs: Any
 ) -> None:
@@ -136,6 +141,7 @@ def test_live_gudhi_output_matches_the_frozen_fixture(
     )
 
 
+@pytest.mark.rips
 def test_live_ripser_output_matches_the_frozen_fixture(
     circle: np.ndarray, ripser_dgms: Any
 ) -> None:
@@ -152,6 +158,7 @@ def test_live_ripser_output_matches_the_frozen_fixture(
     )
 
 
+@pytest.mark.cross_backend
 def test_gudhi_and_ripser_diagrams_agree_within_single_precision(
     circle: np.ndarray,
 ) -> None:
@@ -185,6 +192,7 @@ def test_gudhi_and_ripser_diagrams_agree_within_single_precision(
         )
 
 
+@pytest.mark.cross_backend
 def test_live_essential_bars_survive_the_adapter(circle: np.ndarray) -> None:
     """§5.1, live: GUDHI and Ripser are faithful, and so is the adapter."""
     gudhi = pytest.importorskip("gudhi")
@@ -198,3 +206,20 @@ def test_live_essential_bars_survive_the_adapter(circle: np.ndarray) -> None:
 
     assert int(np.sum(np.asarray(g.essential))) == 1
     assert int(np.sum(np.asarray(r.essential))) == 1
+
+
+@pytest.mark.alpha
+def test_live_gudhi_extended_persistence_is_rejected(circle: np.ndarray) -> None:
+    """§1, §11: the actual GUDHI 3.13 shape is a four-element outer LIST."""
+    gudhi = pytest.importorskip("gudhi")
+
+    st = gudhi.RipsComplex(points=circle, max_edge_length=MAX_EDGE).create_simplex_tree(
+        max_dimension=2
+    )
+    extended = st.extended_persistence(homology_coeff_field=PINNED_COEFF_FIELD)
+
+    assert isinstance(extended, list)
+    assert len(extended) == 4
+    assert all(isinstance(member, list) for member in extended)
+    with pytest.raises(TypeError, match="extended persistence"):
+        from_gudhi(extended)

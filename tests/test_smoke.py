@@ -70,9 +70,12 @@ def test_numpy_is_not_a_hard_dependency(module: str) -> None:
     place `pip install akriti` can actually be observed. What that cannot
     check is the half that makes the declaration honest: `diagrams/core.py`
     and `diagrams/adapters.py` must import nothing beyond the standard library
-    and work through `__array_namespace__` on the caller's own arrays, so a
+    at import time and resolve the caller's namespace (native
+    `__array_namespace__` or a documented lazy fallback), so a
     single convenience `import numpy` would make the empty closure a lie
-    without failing any dependency check.
+    without failing any dependency check. The row-sequence adapter fallback,
+    torch's array-api-compat resolver, and Parquet's PyArrow exporter are all
+    lazy optional boundaries and are not import-time requirements.
 
     Run in a subprocess rather than by clearing `sys.modules`, which is how
     the backend test above manages it. numpy is imported by almost every other
@@ -92,5 +95,6 @@ def test_numpy_is_not_a_hard_dependency(module: str) -> None:
     assert result.stdout.strip() == "False", (
         f"importing {module} pulled in numpy; the default install declares no "
         "third-party dependency at all, and numpy belongs only inside "
-        "io.py's save/load as a lazy, function-scoped import"
+        "row-sequence adapters and io.py's save/load as lazy, function-scoped "
+        "imports"
     )

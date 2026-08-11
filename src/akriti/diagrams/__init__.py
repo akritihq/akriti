@@ -8,6 +8,9 @@ from akriti.diagrams.adapters import (
     from_gudhi,
     from_persim,
     from_ripser,
+    to_arrays,
+    to_csv,
+    to_parquet,
 )
 from akriti.diagrams.core import Array, DiagramBatch, DiagramMeta, PersistenceDiagram
 
@@ -21,4 +24,7 @@ __all__ = [
     "from_gudhi",
     "from_persim",
     "from_ripser",
+    "to_arrays",
+    "to_csv",
+    "to_parquet",
 ]

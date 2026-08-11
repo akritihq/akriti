@@ -4,26 +4,31 @@ Five adapters, one per source this project supports:
 
     from_gudhi(obj, *, dim=None, **meta)   -> PersistenceDiagram
     from_ripser(obj, **meta)               -> PersistenceDiagram
-    from_giotto(arr, *, reduced_homology, strip_padding=None, **meta)
+    from_giotto(arr, *, reduced_homology, infinity_values,
+                strip_padding=None, **meta)
                                            -> DiagramBatch
     from_persim(obj, **meta)               -> PersistenceDiagram
-    from_array(arr, *, dim=None, **meta)   -> PersistenceDiagram
+    from_array(arr, *, columns=None, dim=None, **meta) -> PersistenceDiagram
 
-`from_giotto` deviates twice, both deliberately (§11): `reduced_homology` is a
+`from_giotto` has four deliberate deviations (§11): `reduced_homology` is a
 required keyword-only argument, because omitting it MUST be a `TypeError` at
-the call site rather than a value that slips past inside `**meta` (§5.1); and
-its return type is fixed at `DiagramBatch`, length one for a single sample,
+the call site rather than a value that slips past inside `**meta` (§5.1);
+`infinity_values` is required on the same grounds and admits only `inf`,
+giotto's default of `None` writing a finite sentinel §5 refuses;
+`strip_padding=None` exposes §11.1's three-valued padding decision explicitly;
+and its return type is fixed at `DiagramBatch`, length one for a single sample,
 because nothing about an adapter's return type may depend on how many samples
 the particular call happened to carry (§4).
 
-`dim=` and `strip_padding=` are written out above where §11's own signature
-block omits them, which is a defect in the RFC rather than in these
-signatures: §11's input table requires `(n, 2)` input to state its degree
-"with explicit `dim=`", and `dim` is not a `DiagramMeta` field, so it cannot
-arrive inside `**meta`; `strip_padding` is the argument §11.1 spends a section
-specifying. Both are keyword-only and both default to the behaviour the RFC
-describes. See TODO.md, "§11's signature block omits two arguments it
-requires".
+`infinity_values` was enforced here before §11 carried it; RFC-0001 entry 55
+ratified it (§12.3 R5), closing `tasks/questions.md` C1. §11.2 carries the
+refusal cases, and the narrowing remains compatible with §5.1 as written,
+which fixes what is *derived* from `reduced_homology` rather than which inputs
+are admissible.
+
+`dim=` and `strip_padding=` are keyword-only bar-data controls rather than
+`DiagramMeta` fields. The first defaults to §11's degree-carrying input
+behaviour; the second defaults to §11.1's keep-and-warn padding mode.
 
 **What every adapter does** (§11): validates against §3.1 -- by construction,
 since `PersistenceDiagram` refuses to exist otherwise; populates `backend`,
@@ -45,16 +50,21 @@ namespace (§3.3): a diagram built from JAX arrays stays JAX-backed.
   backend and did not pass it here gets the default recorded. **Pass
   `coeff_field=` whenever you set it on the backend.**
 
-**Imports.** Standard library only (§3.3, §10.1 requirement 2), with one
-exception: an input carrying no array at all -- GUDHI's `persistence()` list,
-an empty diagram list -- has no namespace to derive, and §11 fixes the
-signatures with no namespace argument to derive one from instead. numpy is
-imported lazily on that path alone, function-scoped, and is unreachable
-without an input shaped that way. See `_namespace_for_rows`.
+**Imports.** Importing this module remains third-party-free (§3.3, §10.1
+requirement 2). Three function-scoped, lazy paths are permitted: numpy for an
+input carrying no array at all -- GUDHI's `persistence()` list or an empty
+diagram list -- on the `akriti[numpy]` extra (see `_namespace_for_rows`);
+`array-api-compat` through the shared namespace resolver when a caller's
+backend has no native `__array_namespace__`, on `akriti[torch]`; and pyarrow
+inside `to_parquet()`, on `akriti[parquet]`. None is reached by module import,
+and each is confined to the function that needs it.
 """
 
 from __future__ import annotations
 
+import csv
+import io
+import itertools
 import math
 import numbers
 import warnings
@@ -67,6 +77,8 @@ from akriti.diagrams.core import (
     DiagramBatch,
     DiagramMeta,
     PersistenceDiagram,
+    _parse_optional_version,
+    namespace_of,
 )
 
 __all__ = [
@@ -75,6 +87,9 @@ __all__ = [
     "from_gudhi",
     "from_persim",
     "from_ripser",
+    "to_arrays",
+    "to_csv",
+    "to_parquet",
 ]
 
 # §9.3, Appendix A.5: the two backends compute over different fields by
@@ -90,16 +105,15 @@ _RIPSER_DEFAULT_COEFF_FIELD = 2
 # level in some filtration code; the adapter (not the core type) is the
 # correct place to clamp, and it MUST warn when it does." The RFC fixes no
 # threshold, so one is fixed here and stated: a `death < birth` gap is
-# absorbed only when it is within floating-point noise of zero, scaled to the
-# magnitude of the birth value, since noise is relative -- a 1e-10 gap at 1e6
-# is the same defect as a 1e-16 gap at 1.0. Anything larger is a backend bug
+# absorbed only when it is within eight local downward float64 ULPs of the
+# birth value. The spacing is computed with `nextafter` after conversion to
+# float64, so the allowance follows the representable grid at every magnitude
+# (including zero and subnormals) rather than adding an arbitrary absolute
+# floor or using a broad relative tolerance. Anything larger is a backend bug
 # and reaches §3.1's I6 check unmodified, which reports its magnitude.
-#
-# The floor sits four orders of magnitude above float64 epsilon (~2.2e-16),
-# which absorbs accumulated rounding through a filtration without coming near
-# any persistence value a diagram would be read for.
-_CLAMP_RTOL = 1e-12
-_CLAMP_ATOL = 1e-12
+_CLAMP_ULPS = 8
+_FLOAT64_MIN_SUBNORMAL = float.fromhex("0x0.0000000000001p-1022")
+_FLOAT64_SMALLEST_NORMAL = float.fromhex("0x1.0p-1022")
 
 # I2 fixes `int32` as the storage dtype for degrees, so a degree outside this
 # range is not one this type can hold. Named rather than inlined because two
@@ -108,27 +122,46 @@ _CLAMP_ATOL = 1e-12
 _INT32_MIN = -(2**31)
 _INT32_MAX = 2**31 - 1
 
+# §8's reserved `provenance` keys, in full. Every one of them names the writer
+# that measured it -- two adapter-time counts, a dtype, two source keys, and
+# the two `essential_bars*` keys whose writers §8 lists by name -- and none of
+# those writers is a caller. They are refused in `_build_meta` on exactly the
+# ground `backend` and `backend_version` already are.
+#
+# Named as a set rather than checked one adapter at a time because the defect
+# this closes was that the refusal *was* per-adapter, by accident: a caller's
+# key lost the merge wherever the adapter wrote one of its own and survived
+# wherever it did not, so `from_persim` and `from_array` -- the two that record
+# no essential-bar claim (§11) -- were the two that would accept one.
+_ADAPTER_OWNED_PROVENANCE = frozenset(
+    {
+        "essential_bars",
+        "essential_bars_dropped",
+        "essential_bars_finitized_at",
+        "essential_bars_source",
+        "coeff_field_source",
+        "source_dtype",
+        "clamped_rows",
+        "padding_removed",
+    }
+)
+
+# §10.3's recognised `columns=` names, matched case-insensitively. `diagram_id`
+# is deliberately absent and refused by name rather than falling in here: a
+# table headed with it is a batch CSV wanting the `.akd` format, which is a
+# different message from "unknown column name" (§10.1 requirement 1).
+_COLUMN_NAMES = frozenset({"birth", "death", "dim"})
+
+# §6.1 fixes `float64` as the storage dtype for coordinates, and float64 holds
+# every integer up to 2**53 exactly and only some of them above it. Named for
+# the same reason as the two bounds above: the array path and the row path
+# must refuse the same values.
+_FLOAT64_EXACT_INT = 2**53
+
 
 # ---------------------------------------------------------------------------
 # Namespace and dtype
 # ---------------------------------------------------------------------------
-
-
-def _namespace_of(x: Array) -> Any:
-    """The array's namespace (§3.3).
-
-    Spelled as a direct `__array_namespace__` call, matching `core.py`. §3.3's
-    resolution rule adds an `array_api_compat` fallback for backends that
-    implement the standard without declaring it (torch alone, D18); that
-    resolver does not exist yet, and adding it here alone would produce
-    diagrams whose namespace `core.py` cannot re-derive. Both move together;
-    see TODO.md.
-    """
-    return x.__array_namespace__()
-
-
-def _has_namespace(x: Any) -> bool:
-    return hasattr(x, "__array_namespace__")
 
 
 def _is_row_sequence(obj: Any) -> bool:
@@ -142,27 +175,112 @@ def _is_row_sequence(obj: Any) -> bool:
     return isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray))
 
 
+def _is_coordinate_slot(obj: Any) -> bool:
+    """Whether `obj` sits where a single filtration value belongs. §11.
+
+    A scalar, of any type: what it *is* is `_as_coordinate`'s question. What
+    this rules out is anything holding more than one value -- a sequence, or
+    an array of rank one or more -- because that is where a `(birth, death)`
+    pair and a `(dim, (birth, death))` row part company, and `_is_interval`
+    needs exactly that distinction.
+
+    `str` counts as a slot, `_is_row_sequence` having already excluded it from
+    the sequences: `["a", "b"]` is then an interval whose coordinates are
+    refused by name, rather than a non-interval whose row stops being a row.
+    """
+    return not _is_row_sequence(obj) and getattr(obj, "ndim", 0) == 0
+
+
+def _is_interval(obj: Any) -> bool:
+    """Whether `obj` is one `(birth, death)` pair, however it is spelled. §11.
+
+    **Structural, and it has to be**, because the one thing it must never
+    accept is a *row*: `_is_persistence_row` asks this of `obj[1]`, so a
+    `(dim, (birth, death))` arriving here is what separates a two-row extended
+    member from a single row, and the whole detector rests on that. A pair of
+    coordinates is therefore a two-element sequence *both of whose entries
+    hold one value* (`_is_coordinate_slot`), which is exactly that distinction
+    and no more of one. "Neither entry is a sequence" is the same rule written
+    one degree too weakly, and gets a member of two array-interval rows wrong:
+    the row `[0, array([b, d])]` has no sequence in it either.
+
+    Asking instead whether both entries were `numbers.Real` answered the same
+    question by a stronger test, and paid for it on values rather than shape:
+    `[0, ["a", "b"]]` stopped being a row, so four of them became "extended
+    persistence" -- a message about scope for an input whose defect is a
+    string where a filtration value belongs. Admissibility is
+    `_columns_from_pairs`' question and it answers it by row index and field
+    name.
+
+    **A rank-1 two-element array is a pair too**, and leaving it out was the
+    same bug from the other end. `numpy.ndarray` is not a registered
+    `Sequence`, so `[dim, array([b, d])]` was not a row, four of them were
+    four list members that are not rows, and `_is_extended_persistence` --
+    written specifically so that acceptance would not depend on how many bars
+    an input carried -- refused at four what it accepted at three and five. An
+    extended member cannot be confused for one of these: a member holds rows,
+    not coordinates, and no row is rank-1 of length two.
+    """
+    if _is_row_sequence(obj):
+        return len(obj) == 2 and all(_is_coordinate_slot(value) for value in obj)
+    return getattr(obj, "ndim", None) == 1 and tuple(getattr(obj, "shape", ())) == (2,)
+
+
+def _is_persistence_row(obj: Any) -> bool:
+    """Whether `obj` is one `(dim, (birth, death))` row. §11.
+
+    Structural only, and deliberately so: it exists to tell a *row* from a
+    *list of rows*, which is the one distinction `_is_extended_persistence`
+    turns on. Whether the values in a row are admissible is
+    `_columns_from_pairs`' question, and it answers it by row index and field
+    name. So `[0, [True, False]]` is a row here and is refused there, with a
+    message about a boolean where a filtration value belongs rather than about
+    extended persistence. `_is_interval` carries what "a pair" means and why
+    that reading is the structural one.
+    """
+    return _is_row_sequence(obj) and len(obj) == 2 and _is_interval(obj[1])
+
+
 def _is_extended_persistence(obj: Any) -> bool:
-    """Whether `obj` is GUDHI's `extended_persistence()` 4-tuple. §11.
+    """Whether `obj` is GUDHI's four-element extended-persistence list. §11.
 
     §11's table lists two GUDHI forms and this is neither, so it is refused
     rather than attempted. It is also the one part of that exclusion an
-    adapter can see: the call returns a *tuple* of exactly four
+    adapter can see: the call returns a *list* of exactly four
     `list[(dim, (birth, death))]` -- ordinary, relative, extended+ and
     extended- -- where `persistence()` returns one flat list of rows.
 
-    Keyed on both facts, because either alone refuses real input. A
-    `persistence()` result of four bars handed over as a tuple is also four
-    things long; what separates them is that these members are *lists of
-    rows* and a `persistence()` row is a `(dim, (birth, death))` pair.
+    The outer container is a list in GUDHI 3.13. A `persistence()` result of
+    four bars is also four things long, so **length is not the discriminator
+    and MUST NOT be used as one**: what separates the two is that an extended
+    member is a *list of rows* and a `persistence()` member is a single
+    `(dim, (birth, death))` row. Testing only that the members are lists
+    refuses `[[0, [0.0, 1.0]], ...]` -- a four-bar `persistence()` result
+    whose rows were spelled with lists, which every other bar count accepts --
+    so the same input form would be admissible at three bars and at five and
+    rejected at four. Cardinality-dependent acceptance is §4's
+    shape-depends-on-what-else-was-there hazard in the adapter's own gate.
+
+    That hazard is closed only as far as `_is_persistence_row` recognises a
+    row, so **a spelling of a row it does not recognise reopens it**, at four
+    members and nowhere else. `_is_interval` carries the two that were
+    missing -- an array interval and a non-numeric one -- and why the reading
+    it makes is structural.
+
+    GUDHI itself returns tuple rows, so this decides nothing about live
+    backend output; it decides what happens to output that has been through a
+    serializer, which is what §11.2's frozen fixtures are.
 
     A single member passed alone is not detected, being indistinguishable
     from ordinary output; `from_gudhi`'s docstring states that residual case.
     """
     return (
-        isinstance(obj, tuple)
+        isinstance(obj, list)
         and len(obj) == 4
-        and all(isinstance(member, list) for member in obj)
+        and all(
+            isinstance(member, list) and not _is_persistence_row(member)
+            for member in obj
+        )
     )
 
 
@@ -186,25 +304,72 @@ def _namespace_for_rows() -> Any:
     plain import makes numpy's stubs part of every `mypy` run, where they fail
     to parse against this project's 3.10 floor -- a third-party syntax error
     standing between us and type-checking our own code.
+
+    **The namespace comes back through `namespace_of`, not off the probe.**
+    §3.3 requires resolution to go through exactly one function, and the
+    hazard it names is a codebase holding two namespace objects for one
+    backend: `array_api_compat.array_namespace` on a NumPy array returns
+    `array_api_compat.numpy` rather than `numpy` (A.7.5), and I7's `is` then
+    raises on arrays that legitimately share a namespace. A second direct
+    `__array_namespace__()` call agrees with the resolver today and is exactly
+    the second spelling that rule exists to forbid.
+
+    **The feature probe below must stay, and must stay ahead of that call.**
+    It is what makes routing through the resolver safe rather than circular:
+    `namespace_of` falls back to `array_api_compat` for any object without the
+    method, so a numpy older than 2.0 would resolve to `array_api_compat.numpy`
+    -- the two-objects hazard, reached through the very rule meant to prevent
+    it -- or fail naming `akriti[torch]`, an extra that has nothing to do with
+    this caller's problem. Refusing first turns both into the `ImportError`
+    that names `akriti[numpy]`.
     """
     try:
         numpy = import_module("numpy")
-    except ImportError as exc:  # pragma: no cover - environment-dependent
+    except ModuleNotFoundError as exc:  # pragma: no cover - environment-dependent
+        if exc.name != "numpy":
+            raise
         raise ImportError(
             "this input carries no array to derive an array namespace from, "
             "so building one needs numpy, which is not installed. Install "
             "`akriti[numpy]`, or pass an array instead of a Python list."
         ) from exc
+    except ImportError:
+        raise
+
+    try:
+        installed_version = metadata.version("numpy")
+    except metadata.PackageNotFoundError as exc:
+        raise ImportError(
+            "numpy distribution metadata is unavailable; install "
+            "`akriti[numpy]` (numpy >=2.0)."
+        ) from exc
+    except ValueError as exc:
+        raise ImportError(
+            "numpy distribution metadata could not be read; install "
+            "`akriti[numpy]` (numpy >=2.0)."
+        ) from exc
+    try:
+        epoch, release, unstable = _parse_optional_version(installed_version)
+    except (TypeError, ValueError) as exc:
+        raise ImportError(
+            f"could not parse the installed numpy version {installed_version!r}; "
+            "install `akriti[numpy]` (numpy >=2.0)."
+        ) from exc
+    floor = (0, (2, 0, 0))
+    if (epoch, release) < floor or ((epoch, release) == floor and unstable):
+        raise ImportError(
+            f"numpy >=2.0 is required for Python-row inputs (found "
+            f"{installed_version!r}); install `akriti[numpy]`."
+        )
 
     probe = numpy.empty(0)
     if not hasattr(probe, "__array_namespace__"):  # pragma: no cover - old numpy
         raise ImportError(
-            f"numpy {numpy.__version__} has no main-namespace array API "
-            "(`__array_namespace__`), which arrived in numpy 2.0, so it "
-            "cannot back a diagram. Install `akriti[numpy]`, which declares "
-            "the >=2.0 floor."
+            "the installed numpy has no main-namespace array API "
+            "(`__array_namespace__`), which is required from numpy >=2.0; "
+            "install `akriti[numpy]`."
         )
-    return probe.__array_namespace__()
+    return namespace_of(probe)
 
 
 def _require_real(column: Array, xp: Any, what: str) -> None:
@@ -245,9 +410,51 @@ def _require_int32_range(column: Array, xp: Any) -> None:
         )
 
 
+def _require_float64_exact(column: Array, xp: Any, what: str) -> None:
+    """Refuse an integral column `float64` cannot hold exactly. I2, §6.1.
+
+    `_require_int32_range`'s argument, one column over. That guard exists
+    because "the cast does not report"; neither does this one, and the
+    consequence here is worse than a wrong value, because §3.1's invariants
+    run on the *converted* columns. Above `2**53` the float64 grid is coarser
+    than the integers, so a violation can be rounded away before the check
+    that exists to catch it:
+
+        birth = 2**53 + 1, death = 2**53      # I6: death < birth
+        astype(float64)  ->  both 9007199254740992.0
+
+    and a diagram that should have raised is stored as a zero-persistence bar
+    -- clean, plausible and wrong, which is §9's category. The same pair one
+    ULP lower raises correctly, so whether an invalid bar is caught would
+    otherwise depend on its magnitude.
+
+    **Integral dtypes only.** A float input has already been rounded to the
+    grid by whoever built it, and there is nothing left for this to detect;
+    `float(2**53 + 1)` is `2**53` in Python before any adapter is called.
+    What this catches is an exactly-representable input we would be the ones
+    to damage.
+
+    The bounds are read with `int`, never `float`. `float(xp.max(column))` on
+    the very value this refuses returns `2**53`, so the comparison would be
+    made in the arithmetic whose limits it is testing and the check would pass
+    itself.
+    """
+    if not xp.isdtype(column.dtype, "integral") or int(column.shape[0]) == 0:
+        return
+    low, high = int(xp.min(column)), int(xp.max(column))
+    if low < -_FLOAT64_EXACT_INT or high > _FLOAT64_EXACT_INT:
+        raise ValueError(
+            f"{what} holds an integer outside +/-2**53, which is the range "
+            "float64 represents exactly; §6.1 stores coordinates as float64, "
+            f"so converting would round it. Its range is [{low}, {high}] -- "
+            "pass float64 directly if the rounding is intended"
+        )
+
+
 def _as_float64(column: Array, xp: Any, what: str = "a coordinate column") -> Array:
     """I2, §6.1: storage is the namespace's own `float64`, whatever arrived."""
     _require_real(column, xp, what)
+    _require_float64_exact(column, xp, what)
     return xp.astype(column, xp.float64)
 
 
@@ -363,6 +570,17 @@ def _as_coordinate(value: Any, *, where: str) -> float:
             f"{where} must be a real filtration value (§6.1); got "
             f"{value!r} of type {type(value).__name__}"
         )
+    # `_require_float64_exact`'s check on the one path that has no column to
+    # check: GUDHI's `persistence()` form reaches storage as Python scalars,
+    # and the `float()` below is where an exactly-representable integer would
+    # be rounded onto the float64 grid -- silently, and before §3.1 sees the
+    # row. Restricted to `Integral` for the reason given there.
+    if isinstance(value, numbers.Integral) and abs(int(value)) > _FLOAT64_EXACT_INT:
+        raise ValueError(
+            f"{where} is {value}, an integer outside +/-2**53, which is the "
+            "range float64 represents exactly; §6.1 stores coordinates as "
+            "float64, so converting would round it"
+        )
     return float(value)
 
 
@@ -412,7 +630,7 @@ def _warn_clamped(clamped: _Clamped, *, stacklevel: int = 3) -> None:
 
 
 def _clamp_i6(births: Array, deaths: Array, xp: Any) -> tuple[Array, _Clamped]:
-    """Repair `death < birth` rows that are floating-point noise. §3.1.
+    """Repair small representational `death < birth` rows. §3.1.
 
     Returns the (possibly repaired) deaths and a report of what was repaired:
     the count, which the caller records as `provenance["clamped_rows"]` (§8),
@@ -421,28 +639,66 @@ def _clamp_i6(births: Array, deaths: Array, xp: Any) -> tuple[Array, _Clamped]:
     -- but this function does not issue it, so that a batch adapter can warn
     once for the whole call.
 
-    Violations larger than `_CLAMP_ATOL + _CLAMP_RTOL * |birth|` are left
-    exactly as they arrived, so §3.1's I6 check raises on them and names the
-    magnitude -- "a backend that returns `death < birth` has a bug ... and we
-    surface it rather than absorb it".
+    A positive gap is repaired only when it is at most eight local downward
+    float64 ULPs of `birth`. The local spacing is
+    `birth - nextafter(birth, -inf)` on finite rows after the coordinates have
+    been converted to float64. This is a representational threshold, not a
+    persistence-significance tolerance. Larger violations are left exactly as
+    they arrived, so §3.1's I6 check raises on them and names the magnitude --
+    "a backend that returns `death < birth` has a bug ... and we surface it
+    rather than absorb it".
     """
     # Only a row with two finite coordinates can carry an I6 violation worth
     # repairing: an `inf` death is an essential bar (§5) and violates nothing,
     # and any other non-finite value violates I4 or I5, which are core's to
     # refuse rather than the adapter's to absorb. Both operands are masked to
     # zero rather than subtracted and filtered afterwards, because `inf - inf`
-    # is `nan` and raises an invalid-operation warning on the way.
+    # is `nan` and raises an invalid-operation warning on the way. Finding the
+    # candidate first also keeps valid extreme rows out of every arithmetic
+    # operation below.
     comparable = xp.isfinite(births) & xp.isfinite(deaths)
+    candidate = comparable & (deaths < births)
     zero = xp.zeros_like(births)
-    gap = xp.where(comparable, births, zero) - xp.where(comparable, deaths, zero)
-    tolerance = _CLAMP_ATOL + _CLAMP_RTOL * xp.abs(xp.where(comparable, births, zero))
-    repair = (gap > 0.0) & (gap <= tolerance)
+    safe_birth = xp.where(candidate, births, zero)
+    safe_death = xp.where(candidate, deaths, zero)
+
+    # `nextafter` on zero or a subnormal produces a subnormal and can raise
+    # under strict NumPy floating-point errors. Probe a benign normal value in
+    # those lanes, then select the exact minimum-subnormal spacing they share.
+    subnormal = xp.abs(safe_birth) <= _FLOAT64_SMALLEST_NORMAL
+    spacing_probe = xp.where(subnormal, xp.ones_like(safe_birth), safe_birth)
+    below = xp.nextafter(spacing_probe, xp.full_like(spacing_probe, -math.inf))
+    normal_spacing = spacing_probe - below
+    spacing = xp.where(
+        subnormal,
+        xp.full_like(safe_birth, _FLOAT64_MIN_SUBNORMAL),
+        normal_spacing,
+    )
+    tolerance = xp.where(candidate, _CLAMP_ULPS * spacing, zero)
+
+    # Compare only against the local tolerance; do not form a wide
+    # `birth - death` on a candidate that will be refused. Clip the threshold
+    # at the minimum finite float so a candidate one ULP above that endpoint
+    # does not overflow while subtracting eight ULPs. The subtraction is zero
+    # on non-candidates and bounded by the local tolerance elsewhere.
+    minimum = -xp.finfo(safe_birth.dtype).max
+    at_lower_edge = safe_birth <= minimum + tolerance
+    threshold_birth = xp.where(at_lower_edge, zero, safe_birth)
+    threshold = xp.where(
+        at_lower_edge,
+        xp.full_like(safe_birth, minimum),
+        threshold_birth - tolerance,
+    )
+    repair = candidate & (safe_death >= threshold)
     n_repaired = int(xp.sum(xp.astype(repair, xp.int64)))
     total = int(births.shape[0])
     if n_repaired == 0:
         return deaths, _Clamped(0, total, 0.0)
 
-    worst = float(xp.max(xp.where(repair, gap, zero)))
+    repaired_birth = xp.where(repair, births, zero)
+    repaired_death = xp.where(repair, deaths, zero)
+    gap = repaired_birth - repaired_death
+    worst = float(xp.max(gap))
     return xp.where(repair, births, deaths), _Clamped(n_repaired, total, worst)
 
 
@@ -461,10 +717,38 @@ def _build_meta(
 ) -> DiagramMeta:
     """Merge the adapter's recorded facts with the caller's metadata. §8.
 
-    The caller's `provenance` and `params` are kept, and a key the adapter
-    measured wins over a caller's key of the same name: the adapter is the one
-    party that saw the backend's output, and `provenance` exists to be
-    auditable rather than assertable.
+    The caller's `provenance` and `params` are kept, **except for §8's seven
+    reserved `provenance` keys, which are refused outright**
+    (`_ADAPTER_OWNED_PROVENANCE`). Each of those names the writer that measured
+    it and none of those writers is a caller: `essential_bars` has two, "`from_giotto`
+    at construction and `finitize()` later ... the only places that set this
+    key"; `essential_bars_source` is "Written only by `from_*`"; the rest are
+    counts and dtypes read off the backend's own output. `provenance` exists to
+    be auditable rather than assertable, and a fact a caller can state is not
+    one a reader can audit.
+
+    **Refused rather than silently overwritten**, which is what stood here.
+    Overwriting protects a key only where the adapter happens to write one of
+    its own, so the protection was a property of which adapter was called
+    rather than of the key: `from_persim` and `from_array` record no
+    essential-bar claim (§11, D2), which made them the two adapters that would
+    accept one from a caller and return a diagram carrying `essential_bars`
+    with no `essential_bars_source` -- the pairing §11 requires in the same
+    construction. Refusal is uniform, and it tells a caller their key went
+    nowhere instead of discarding it in silence.
+
+    The pairing cannot be enforced in `DiagramMeta` instead, which is why this
+    is the adapter's boundary to hold: `finitize` (§5) legitimately writes
+    `essential_bars` onto a diagram that has no source to inherit, so a
+    constructor rule would refuse the one writer §8 requires.
+
+    A caller with a genuine fact to record -- the host that captured a fixture,
+    the dtype an array had before a JSON round trip -- has the rest of the
+    mapping, which is open. What is closed is the seven names a reader trusts.
+
+    Both mappings are required to *be* mappings before anything is merged into
+    them; `_as_metadata_mapping` carries the three ways the previous
+    `dict(x or {})` got that wrong.
 
     `backend` and `backend_version` are refused outright rather than merged.
     An unknown field raises `TypeError` from `DiagramMeta` itself, naming the
@@ -477,15 +761,20 @@ def _build_meta(
     `coeff_field="two"` admissible on them, and §8 types the field `int |
     None` for every diagram however it was built.
 
-    The checked value is written *back*, which is the half an earlier version
-    left out. `_require_coeff_field` admits any `numbers.Integral` so that a
-    field read out of an array is not refused for being an `int64` -- and then
-    storing that `int64` unconverted puts a value in `coeff_field` that §8's
-    `int | None` does not describe and that `json.dumps` refuses, which is
-    §10.2's failure arriving from the one §8 field `_require_json_representable`
-    does not reach. `from_gudhi` and `from_ripser` already store a builtin
-    `int`, having gone through `_coeff_field`; assigning here is what makes the
-    other three agree rather than differ by which adapter was called.
+    The converted value is written *back*, which is the half an earlier
+    version left out. `_require_coeff_field` admits any `numbers.Integral` so
+    that a field read out of an array is not refused for being an `int64` --
+    and then storing that `int64` unconverted puts a value in `coeff_field`
+    that §8's `int | None` does not describe. `from_gudhi` and `from_ripser`
+    already store a builtin `int`, having gone through `_coeff_field`;
+    assigning here is what makes the other three agree rather than differ by
+    which adapter was called.
+
+    Since this line is a *narrowing* and not the check, an `int64` that
+    reached `DiagramMeta` unconverted would be refused there rather than
+    stored: the type validates its five scalar fields and both mapping fields
+    at the public boundary. What the line buys is that a caller's `int64` is
+    accepted at all, uniformly across the five adapters.
     """
     for reserved in ("backend", "backend_version"):
         if reserved in meta:
@@ -497,13 +786,20 @@ def _build_meta(
     if meta.get("coeff_field") is not None:
         meta["coeff_field"] = _require_coeff_field(meta["coeff_field"])
 
-    caller_provenance = dict(meta.pop("provenance", {}) or {})
-    caller_params = dict(meta.pop("params", {}) or {})
+    caller_provenance = _as_metadata_mapping(
+        meta.pop("provenance", None), what="provenance"
+    )
+    caller_params = _as_metadata_mapping(meta.pop("params", None), what="params")
+    reserved_keys = sorted(_ADAPTER_OWNED_PROVENANCE.intersection(caller_provenance))
+    if reserved_keys:
+        raise TypeError(
+            f"provenance[{reserved_keys[0]!r}] is recorded by the adapter and "
+            "cannot be passed in: §8 reserves this key for the writer that "
+            "measured it, and a fact a caller can state is not one a reader "
+            f"can audit (RFC-0001 §8, §11). Refused: {reserved_keys}"
+        )
     caller_provenance.update(provenance)
     caller_params.update(params or {})
-
-    _require_json_representable(caller_provenance, "provenance")
-    _require_json_representable(caller_params, "params")
 
     return DiagramMeta(
         backend=backend,
@@ -514,96 +810,39 @@ def _build_meta(
     )
 
 
-def _require_json_representable(mapping: dict[str, Any], field: str) -> None:
-    """§8: every `params` and `provenance` value must survive `meta.json`.
+def _as_metadata_mapping(stated: Any, *, what: str) -> dict[str, Any]:
+    """A caller's `params` or `provenance`, as the mapping §8 types it.
 
-    §8 admits `str`, `int`, `float`, `bool`, `None`, and lists or `str`-keyed
-    mappings of those, and requires adapters to convert at the point of
-    recording -- `str(arr.dtype)`, a Python `int` for the counts, which the
-    adapter-side keys already do. This check covers the other half of the
-    merged mapping: what the caller passed in through `**meta`.
+    `dict(stated or {})` stood here, and it answered one mistake three ways.
+    A falsy non-mapping -- `0`, `False`, `""`, `[]`, `set()` -- was absorbed by
+    the `or` and **silently discarded**, so `provenance=0` built a diagram
+    that recorded nothing and said nothing, which is the outcome `_build_meta`
+    refuses `backend=` and `DiagramMeta` refuses an unknown field to prevent.
+    A truthy one reached `dict()` and raised its words -- `dictionary update
+    sequence element #0 has length 1` -- naming neither this library, this
+    adapter, nor the argument. And a sequence of pairs was accepted outright,
+    storing a mapping built from an argument that is not one.
 
-    Checked at the adapter rather than at `save()`, which is §8's own stated
-    reason for the rule. A `Path` in `provenance` produces a diagram that
-    satisfies §3.1 and §8's key rules completely and cannot be written, and
-    the exception then names `meta.json` at a call arbitrarily far from the
-    adapter that accepted the value.
+    `DiagramMeta(provenance=0)` raises, so the adapter was looser than the
+    type it wraps on precisely the path §11 makes it the boundary for.
 
-    `tuple` is not admitted, deliberately, despite `json.dumps` accepting one:
-    it round-trips back as a `list`, so a diagram carrying one would fail
-    §10.1 requirement 1's `load(dump(d)) == d` rather than fail to save. A
-    value that cannot survive the round trip is refused at the same boundary
-    as one that cannot make it.
+    **`None` is "stated nothing", not a bad mapping**, on `_coeff_field`'s
+    reading of `coeff_field=None`: §8 makes every field optional and spells an
+    absent value `None`, so a caller who has no `provenance` and passes the
+    field anyway has said the same thing as a caller who omitted it.
 
-    Scalars are matched by exact type rather than `isinstance`, which is the
-    one place this function is deliberately stricter than `json.dumps`. §8
-    names the NumPy scalar as the hazard, and `numpy.float64` subclasses
-    `float`: an `isinstance` gate admits it, and §3.3 keeps this module to the
-    standard library, so there is no `numpy.generic` to test against instead.
-    Exact types catch it, and catch `float32` -- which is not a `float`
-    subclass and does not serialise -- through the same clause. §8's remedy is
-    unchanged either way: convert at the call site.
-
-    `nan` and `inf` are refused for §10.2's stated reason: "`inf` lives in
-    `bars.npz`, where NumPy represents it correctly, and never in the JSON.
-    This is the reason for the split." Neither is valid JSON -- `json.dumps`
-    emits the bare tokens `NaN` and `Infinity` by default, which any
-    conforming reader rejects, and §10.3 makes the same point about Parquet's
-    IEEE 754 `double` being unlike JSON's number. `nan` fails §10.1
-    requirement 1 outright besides, since `nan != nan` makes a round-tripped
-    diagram compare unequal to itself. Essential bars are unaffected: they
-    live in `deaths`, not in metadata.
+    Only the container is checked here. Key and value admissibility is §8's
+    JSON rule, which `DiagramMeta` enforces on the assembled mapping, after
+    the adapter's own keys have been merged in.
     """
-    scalars = (str, bool, int, float)
-
-    def check_keys(m: Mapping[Any, Any], path: str) -> None:
-        """§8 admits `str`-keyed mappings, at the top level and below it.
-
-        Applied to the mapping itself as well as to nested ones, because
-        `json.dumps` does not refuse an `int` key -- it rewrites it as a
-        string, so `params={1: "x"}` reloads as `{"1": "x"}` and the diagram
-        that comes back is not the one that went out.
-        """
-        for key in m:
-            if not isinstance(key, str):
-                raise TypeError(
-                    f"{field}{path} has the key {key!r} of type "
-                    f"{type(key).__name__}; §8 admits str-keyed mappings "
-                    f"only, since §10.2 stores this as JSON -- json.dumps "
-                    f"would silently rewrite it as {str(key)!r}"
-                )
-
-    def check(value: Any, path: str) -> None:
-        if value is None or type(value) in scalars:
-            if type(value) is float and not math.isfinite(value):
-                raise TypeError(
-                    f"{field}{path} is {value!r}; §10.2 keeps non-finite "
-                    "values out of the JSON entirely -- json.dumps writes "
-                    "them as the bare tokens NaN and Infinity, which are not "
-                    "valid JSON, and nan does not even survive a round trip "
-                    "as itself (§10.1 requirement 1)"
-                )
-            return
-        if isinstance(value, list):
-            for i, item in enumerate(value):
-                check(item, f"{path}[{i}]")
-            return
-        if isinstance(value, Mapping):
-            check_keys(value, path)
-            for key, item in value.items():
-                check(item, f"{path}[{key!r}]")
-            return
+    if stated is None:
+        return {}
+    if not isinstance(stated, Mapping):
         raise TypeError(
-            f"{field}{path} is {value!r} of type {type(value).__name__}, "
-            "which §8 does not admit: every value must be JSON-representable "
-            "(str, int, float, bool, None, or a list or str-keyed mapping of "
-            "those), because §10.2 stores this mapping as UTF-8 JSON. A NumPy "
-            "scalar is the usual culprit -- convert it at the call site"
+            f"{what}= must be a str-keyed mapping (RFC-0001 §8); got "
+            f"{type(stated).__name__}"
         )
-
-    check_keys(mapping, "")
-    for key, value in mapping.items():
-        check(value, f"[{key!r}]")
+    return dict(stated)
 
 
 def _installed_version(distribution: str) -> str | None:
@@ -622,15 +861,26 @@ def _installed_version(distribution: str) -> str | None:
 
 
 def _require_coeff_field(stated: Any) -> int:
-    """§8's `coeff_field: int | None`, checked wherever a caller states one.
+    """A caller's coefficient field, narrowed to §8's `int | None`.
 
-    `DiagramMeta` validates the *source* key and not the value beside it, so
-    without this a `coeff_field="two"` recorded with `coeff_field_source =
-    "caller"` is a provenance entry that reads as authoritative and describes
-    no field at all -- the one outcome D17's source key exists to prevent.
+    **This is a conversion, not the type check.** `DiagramMeta` refuses a
+    `coeff_field` that is not an exact builtin `int`, so `coeff_field="two"`
+    recorded with `coeff_field_source = "caller"` -- a provenance entry that
+    reads as authoritative and describes no field at all, the outcome D17's
+    source key exists to prevent -- is refused whether or not this function
+    runs.
+
+    What this adds is the widening the type deliberately does not carry:
+    `numbers.Integral` rather than `int`, so that a field read out of an array
+    is not refused for being an `int64`, converted here because storing that
+    `int64` unconverted would put a value in `coeff_field` that §8's
+    `int | None` does not describe and §10.2 cannot serialise. The widening
+    belongs at the adapter boundary because that is where a caller's array
+    scalar actually arrives.
 
     `bool` is excluded for `_as_degree`'s reason: the field of one element is
-    not what a caller means by `coeff_field=True`.
+    not what a caller means by `coeff_field=True`. `DiagramMeta` excludes it
+    too, so the two agree rather than one relying on the other.
     """
     if isinstance(stated, bool) or not isinstance(stated, numbers.Integral):
         raise TypeError(
@@ -722,7 +972,7 @@ def _columns_from_table(
 
     if arr.shape[1] == 3:
         if dim is not None:
-            raise ValueError(
+            raise TypeError(
                 "an (n, 3) array already carries a degree column, so dim= "
                 "would be a second source for one fact; drop it, or pass an "
                 "(n, 2) array"
@@ -737,6 +987,244 @@ def _columns_from_table(
         )
     degree = _as_degree(dim)
     return xp.full((arr.shape[0],), degree, dtype=xp.int32), arr[:, 0], arr[:, 1]
+
+
+def _columns_from_gudhi_intervals(
+    arr: Array, xp: Any, *, dim: int | None
+) -> tuple[Array, Array, Array]:
+    """Read GUDHI's interval-array form, which is rank-2 `(n, 2)` only. §11."""
+    if arr.ndim != 2 or arr.shape[1] != 2:
+        raise ValueError(
+            "GUDHI's interval array form is only rank-2 (n, 2) with dim=; "
+            f"got shape {tuple(arr.shape)}"
+        )
+    if dim is None:
+        raise TypeError(
+            "a GUDHI (n, 2) interval array carries no homological degree; pass dim=<k>"
+        )
+    degree = _as_degree(dim)
+    return xp.full((arr.shape[0],), degree, dtype=xp.int32), arr[:, 0], arr[:, 1]
+
+
+def _normalised_column_names(columns: Any) -> tuple[tuple[str, str], ...]:
+    """The checks on `columns=` that need no array at all. §10.3.
+
+    Returns each entry as `(as the caller spelled it, casefolded)`.
+
+    Split from `_named_columns` so that §10.3's ordering rule -- "MUST raise on
+    the argument, before `arr` is inspected, so the failure does not depend on
+    the data" -- is what the call order expresses rather than a comment.
+    **Everything decidable from `columns=` alone lives here**: its type, its
+    entries' types, the `diagram_id` refusal, the recognised vocabulary, and
+    §10.3's cardinality rule that `birth` and `death` appear exactly once each
+    and `dim` at most once. Only the length agreement with `arr`'s width needs
+    the array, and that is `_named_columns`.
+
+    That split is what lets `columns=` settle §11's degree question by itself.
+    With every name recognised, none repeated, and `birth`/`death` both
+    present, a two-entry `columns` can only be `(birth, death)` and a
+    three-entry one can only also name `dim` -- so the width never has to be
+    consulted to know which case the caller is in.
+
+    **`diagram_id` is refused here, ahead of the shape check, deliberately.** A
+    table headed `diagram_id,dim,birth,death` is a batch CSV, and that caller
+    needs the `.akd` format rather than the true and unhelpful news that
+    `from_array` reads `(n, 2)` and `(n, 3)`. It is the one name whose meaning
+    survives being the wrong width.
+    """
+    if isinstance(columns, (str, bytes, bytearray)) or not isinstance(
+        columns, Sequence
+    ):
+        raise TypeError(
+            "columns= must be a sequence of strings, one per array column; "
+            f"got {type(columns).__name__}"
+        )
+    names: list[tuple[str, str]] = []
+    for index, name in enumerate(columns):
+        if not isinstance(name, str):
+            raise TypeError(
+                f"columns[{index}] must be a string column name; got "
+                f"{type(name).__name__}"
+            )
+        normal = name.casefold()
+        if normal == "diagram_id":
+            raise TypeError(
+                "column 'diagram_id' identifies a batch and cannot be read by "
+                "from_array; use the normative .akd batch format"
+            )
+        # The caller's own spelling is carried alongside the folded one so that
+        # a message about `columns=["Birth", "DEATH", "Xyz"]` quotes what they
+        # typed. Matching is case-insensitive; complaining need not be.
+        names.append((name, normal))
+
+    # §10.3's vocabulary and cardinality rules, both decidable here. A name
+    # that is not one of the three MUST raise rather than fall through to
+    # position -- an unrecognised name is the one case where the positional
+    # reading has been actively contradicted.
+    seen: list[str] = []
+    for index, (spelled, normal) in enumerate(names):
+        if normal not in _COLUMN_NAMES:
+            raise ValueError(
+                f"unknown column name {spelled!r} at columns[{index}]; expected "
+                "birth, death or dim"
+            )
+        if normal in seen:
+            raise ValueError(f"duplicate column name {spelled!r} in columns=")
+        seen.append(normal)
+
+    # "`columns` MUST name `birth` and `death` exactly once each, and `dim` at
+    # most once" (§10.3). The exactly-once half is already given by the
+    # duplicate check above, so what is left is the presence of each. A
+    # repeated name and a missing one are one defect seen from two ends --
+    # `["birth", "birth", "dim"]` names two births and no death -- and neither
+    # is resolvable by falling back to position, the argument having been
+    # supplied precisely to override position.
+    missing = [name for name in ("birth", "death") if name not in seen]
+    if missing:
+        raise ValueError(
+            f"columns= is missing required column name(s): {', '.join(missing)}"
+        )
+    return tuple(names)
+
+
+def _named_columns(
+    names: tuple[tuple[str, str], ...], n_columns: int
+) -> tuple[str, ...]:
+    """The one `columns=` rule that needs `arr`: its width. §10.3, §11.
+
+    Everything else was decided in `_normalised_column_names`, on the argument
+    alone and before `arr` was touched, which is §10.3's ordering rule. What
+    is left cannot be: "`columns` MUST have one entry per column of `arr`, and
+    a length disagreement MUST raise" names both sides, so it is the one check
+    the data participates in.
+
+    `names` therefore already holds distinct recognised names including
+    `birth` and `death`, so `n_columns` being 2 or 3 makes this a valid header
+    for that width, and the caller's order is returned as-is.
+    """
+    if len(names) != n_columns:
+        raise ValueError(
+            f"columns= has length {len(names)}, but the array has {n_columns} columns"
+        )
+    return tuple(normal for _, normal in names)
+
+
+def _columns_from_named_table(
+    arr: Array, xp: Any, *, spelled: tuple[tuple[str, str], ...], dim: int | None
+) -> tuple[Array, Array, Array]:
+    """Read a named `(n,2)`/`(n,3)` array, with names winning over position.
+
+    Takes `columns=` **already validated** -- `from_array` runs
+    `_normalised_column_names` before it resolves a namespace, so that §10.3's
+    "MUST raise on the argument, before `arr` is inspected" is expressed by
+    where the call sits rather than asserted in a comment here. What is left is
+    the order §10.3 and §11 put the remaining two steps in: §11's shape
+    refusal, then the width agreement that only means anything once the width
+    is one this adapter reads.
+    """
+    if arr.ndim != 2 or arr.shape[1] not in (2, 3):
+        raise ValueError(
+            "expected an array of shape (n, 2) or (n, 3) (RFC-0001 §11); got "
+            f"shape {tuple(arr.shape)}"
+        )
+    names = _named_columns(spelled, int(arr.shape[1]))
+    positions = {name: index for index, name in enumerate(names)}
+    if len(names) == 3 and dim is not None:
+        raise TypeError(
+            "a named (n, 3) array already carries a dim column, so external "
+            "dim= is a conflicting second source"
+        )
+    if len(names) == 2 and dim is None:
+        raise TypeError(
+            "a named (n, 2) array carries no homological degree; pass dim=<k>"
+        )
+    if len(names) == 2:
+        degree = _as_degree(dim)
+        dims = xp.full((arr.shape[0],), degree, dtype=xp.int32)
+    else:
+        dims = arr[:, positions["dim"]]
+    return dims, arr[:, positions["birth"]], arr[:, positions["death"]]
+
+
+def _is_array_block(obj: Any) -> bool:
+    """Whether `obj` is array-shaped enough to ask for a namespace. §3.3.
+
+    Duck-typed on the three attributes every path below reads -- `ndim` and
+    `shape` for the `(n, 2)` check, `dtype` for `_as_float64` -- rather than
+    on `__array_namespace__`, which torch does not expose and which
+    `namespace_of` exists to work around (§3.3, A.7).
+    """
+    return all(hasattr(obj, name) for name in ("ndim", "shape", "dtype"))
+
+
+def _first_array_block(blocks: Sequence[Any]) -> Any | None:
+    """The first real array block, skipping Python row blocks. §3.3, §11.
+
+    **Every block is checked on the way past, not just the one returned.** A
+    degree list holds `(n, 2)` arrays or blocks of rows (§11); a member that
+    is neither -- `None`, a bare number, a mapping -- used to reach
+    `namespace_of` untouched and fail there, with `array_namespace requires at
+    least one non-scalar array input`. That is the namespace's words for a
+    refusal §11 owes the caller, naming neither the adapter, the argument, nor
+    which block was wrong, and it is exactly what `_columns_from_degree_list`
+    wraps `asarray` to prevent one path over. Both paths owe the same refusal;
+    this is the third.
+
+    It belongs here rather than in that loop because this function runs first:
+    the namespace these adapters build with is resolved from what this returns,
+    so `[3]` failed a line earlier than `[None]` did -- one on the resolution,
+    one inside the loop -- for no reason a caller could see.
+
+    `None` where every block is a Python row block, which is the array-less
+    input `_namespace_for_rows` answers.
+    """
+    first: Any | None = None
+    for degree, block in enumerate(blocks):
+        if _is_row_sequence(block):
+            continue
+        if not _is_array_block(block):
+            raise ValueError(
+                f"diagram at index {degree} must have shape (n, 2) "
+                f"(RFC-0001 §11); this block is neither an array nor a "
+                f"sequence of rows: {_abbreviated(block)}"
+            )
+        if first is None:
+            first = block
+    return first
+
+
+def _abbreviated(obj: Any, limit: int = 120) -> str:
+    """`repr(obj)`, bounded, for a message that quotes a caller's block.
+
+    A degree block can hold every bar of a large diagram, and an error that
+    pastes forty thousand rows into the terminal is one the caller scrolls
+    past rather than reads.
+    """
+    text = repr(obj)
+    return text if len(text) <= limit else text[: limit - 3] + "..."
+
+
+def _wrong_adapter_hint(block: Any) -> str:
+    """Name `from_gudhi` when an unreadable block is a `persistence()` row.
+
+    The one input form this failure has a specific cause for. GUDHI's
+    `persistence()` returns `list[(dim, (birth, death))]` and Ripser's `dgms`
+    is `list[(n, 2)]`; §11 accepts each at one adapter, and handing the first
+    to `from_ripser` or `from_persim` reads a `(dim, (birth, death))` row as a
+    degree block, which is not rectangular and cannot convert. The reverse
+    mistake is already refused by name from `_columns_from_pairs`, so this
+    closes the asymmetry rather than adding a rule.
+
+    Silent on every other unreadable block: a jagged `(n, 2)` block is a
+    mis-shaped block, not a misrouted call, and a hint naming another adapter
+    would send that caller somewhere their data does not belong.
+    """
+    if not _is_persistence_row(block):
+        return ""
+    return (
+        ". A (dim, (birth, death)) row is GUDHI's persistence() form, which "
+        "this adapter does not accept -- pass it to from_gudhi"
+    )
 
 
 def _columns_from_degree_list(
@@ -756,8 +1244,8 @@ def _columns_from_degree_list(
     """
     dim_blocks, birth_blocks, death_blocks = [], [], []
     for degree, block in enumerate(dgms):
-        if _has_namespace(block):
-            block_xp = _namespace_of(block)
+        if not _is_row_sequence(block):
+            block_xp = namespace_of(block)
             if block_xp is not xp:
                 raise ValueError(
                     f"the diagram at index {degree} has array namespace "
@@ -772,7 +1260,26 @@ def _columns_from_degree_list(
             # `[["0.0", "1.0"]]` would become a clean, plausible and wrong
             # (0.0, 1.0) bar, and only on this path -- the same rows inside a
             # NumPy array are refused.
-            block = xp.asarray(block)
+            #
+            # Wrapped because a block whose rows are not all the same width
+            # fails *inside* `asarray`, so the shape refusal below is never
+            # reached and the caller gets the namespace's words instead:
+            # NumPy's "setting an array element with a sequence. The requested
+            # array has an inhomogeneous shape after 1 dimensions" names
+            # neither the adapter, the argument, nor which block was wrong.
+            # Both paths owe §11's refusal, and they give the same one.
+            try:
+                block = (
+                    xp.empty((0, 2), dtype=xp.float64)
+                    if len(block) == 0
+                    else xp.asarray(block)
+                )
+            except (TypeError, ValueError) as exc:
+                raise ValueError(
+                    f"diagram at index {degree} must have shape (n, 2) "
+                    f"(RFC-0001 §11); these rows could not be read as an "
+                    f"array at all: {_abbreviated(block)}" + _wrong_adapter_hint(block)
+                ) from exc
         if block.ndim != 2 or block.shape[1] != 2:
             raise ValueError(
                 f"diagram at index {degree} must have shape (n, 2) "
@@ -855,7 +1362,81 @@ def _source_dtype(arr: Any) -> dict[str, str]:
     dtype, and inventing `"float64"` for one would record a fact about our own
     conversion rather than about the input.
     """
-    return {"source_dtype": str(arr.dtype)} if _has_namespace(arr) else {}
+    return {"source_dtype": str(arr.dtype)} if hasattr(arr, "dtype") else {}
+
+
+def _require_infinite_infinity_values(value: object) -> None:
+    """Refuse a giotto `infinity_values` that finitizes essential bars. §5.
+
+    Takes `object` rather than the parameter's declared `float` so the runtime
+    checks below are checks rather than assertions: the whole point is the
+    argument a caller actually passed, which the annotation describes and does
+    not enforce.
+
+    **`None` is separated from every other rejected value because it is
+    giotto's default.** A caller who passes `infinity_values=vr.infinity_values`
+    off an unconfigured transformer lands there, and "not a real number" would
+    describe the type rather than what went wrong with their data.
+
+    `bool` is excluded ahead of `numbers.Real`, which it registers as, on
+    `_as_coordinate`'s precedent: `infinity_values=True` is not a filtration
+    value, and letting it through would report it as a finite sentinel of 1.0.
+
+    `nan` and `-inf` fall out of the equality rather than needing their own
+    branch -- `nan == inf` is `False` -- and both are rejected on the same
+    ground, being deaths §5 does not recognise for a class that never dies.
+    """
+    if value is None:
+        raise ValueError(
+            "infinity_values=None is giotto's default, and it encodes classes "
+            "still alive at the cutoff as a death of max_edge_length -- a "
+            "finite sentinel, which RFC-0001 §5 forbids and which cannot be "
+            "told apart from a bar that genuinely died at that value. "
+            "Re-run the transformer with infinity_values=numpy.inf and adapt "
+            "that output; this adapter will not guess which rows were "
+            "essential."
+        )
+    if isinstance(value, bool) or not isinstance(value, numbers.Real):
+        raise TypeError(
+            "infinity_values= must be the float you gave the transformer -- "
+            "pass vr.infinity_values off the fitted transformer (RFC-0001 §5, "
+            f"§11); got {value!r} of type {type(value).__name__}"
+        )
+    if float(value) != math.inf:
+        raise ValueError(
+            f"infinity_values={value!r} finitizes every class still alive at "
+            "the cutoff, and RFC-0001 §5 stores essential bars as inf: a "
+            "finite sentinel is 'unrecoverable ... indistinguishable from a "
+            "genuine bar that happened to die at that value'. Only numpy.inf "
+            "is accepted; re-run the transformer with it."
+        )
+
+
+def _source_dtype_of_blocks(blocks: Sequence[Any]) -> dict[str, str]:
+    """§8's `source_dtype` over a per-degree list. §11.
+
+    Ripser's `dgms` and persim's input are lists of one array per degree, and
+    nothing requires those arrays to share a dtype. Reading the first block
+    alone -- which is what this did -- records `"float32"` for a
+    `[float32, float64]` input, a statement about degree 0 presented as one
+    about the diagram.
+
+    **A mixed list records no key rather than one of the two.** §8 gives
+    `source_dtype` one slot and no vocabulary for a disagreement, and the
+    alternatives are worse in the direction §8 exists to prevent: a compound
+    `"float32,float64"` invents a spelling no reader is expecting, and picking
+    either member is the bug being fixed. Absence already carries "no dtype
+    could be determined" for the array-less case, and this widens it to "not
+    one dtype" rather than adding a second way to be wrong.
+
+    **The diagram itself is not refused.** The bars are valid whatever their
+    incoming dtypes were; it is only the record about them that cannot be
+    written, and §3.1's surface-a-violation rule is about invariants on data,
+    not about metadata a backend never promised. Neither backend emits a mixed
+    list in practice, so this describes a hand-assembled input.
+    """
+    dtypes = {str(b.dtype) for b in blocks if hasattr(b, "dtype")}
+    return {"source_dtype": dtypes.pop()} if len(dtypes) == 1 else {}
 
 
 # ---------------------------------------------------------------------------
@@ -875,9 +1456,10 @@ def from_gudhi(obj: Any, *, dim: int | None = None, **meta: Any) -> PersistenceD
       states no degree, so `dim=k` is required.
 
     **Extended persistence is out of scope, and only partly detectable.**
-    `extended_persistence()` returns a 4-tuple of `list[(dim, (birth, death))]`
-    -- ordinary, relative, extended+ and extended- -- which is structurally
-    distinct from `persistence()`'s flat list, so the tuple itself is
+    `extended_persistence()` returns a four-element list of
+    `list[(dim, (birth, death))]` -- ordinary, relative, extended+ and extended-
+    -- which is structurally distinct from `persistence()`'s flat list, so the
+    outer list itself is
     rejected by name. **A single member of it, passed alone, is not.** The
     relative and extended- members raise at construction on I6, with an error
     about death times rather than about scope; the ordinary and extended+
@@ -918,25 +1500,33 @@ def from_gudhi(obj: Any, *, dim: int | None = None, **meta: Any) -> PersistenceD
         "coeff_field_source": source,
     }
 
-    if _has_namespace(obj):
-        xp = _namespace_of(obj)
-        dims, births, deaths = _columns_from_table(obj, xp, dim=dim)
+    if isinstance(obj, tuple):
+        raise TypeError(
+            "from_gudhi rejects a flat tuple of persistence rows; pass the "
+            "ordinary persistence() result as a list"
+        )
+    if not _is_row_sequence(obj) and not hasattr(obj, "ndim"):
+        raise TypeError(
+            "from_gudhi accepts SimplexTree.persistence() output "
+            "(list[(dim, (birth, death))]) or a rank-2 interval array; got "
+            f"{type(obj).__name__}"
+        )
+    # Two branches, not three: the gate above already refused everything that
+    # is neither a row sequence nor array-shaped, so `_is_row_sequence` is a
+    # partition here and a third arm would be unreachable code carrying a
+    # message no input can produce.
+    if not _is_row_sequence(obj):
+        xp = namespace_of(obj)
+        dims, births, deaths = _columns_from_gudhi_intervals(obj, xp, dim=dim)
         provenance.update(_source_dtype(obj))
-    elif _is_row_sequence(obj):
+    else:
         if dim is not None:
-            raise ValueError(
+            raise TypeError(
                 "a persistence() list already carries a degree per bar, so "
                 "dim= would be a second source for one fact"
             )
         xp = _namespace_for_rows()
         dims, births, deaths = _columns_from_pairs(obj, xp)
-    else:
-        raise TypeError(
-            "from_gudhi accepts SimplexTree.persistence() output "
-            "(list[(dim, (birth, death))]) or "
-            "persistence_intervals_in_dimension(k) output ((n, 2), with "
-            f"dim=k); got {type(obj).__name__}"
-        )
 
     diagram, clamped = _diagram_from_columns(
         dims=dims,
@@ -973,6 +1563,14 @@ def from_ripser(obj: Any, **meta: Any) -> PersistenceDiagram:
     Ripser's documented default of 2 where the caller passed none. **Pass
     `coeff_field=` whenever you set `coeff=` on the backend.**
     """
+    stated_filtration = meta.get("filtration")
+    if stated_filtration not in (None, "rips"):
+        raise TypeError(
+            "from_ripser always records filtration='rips'; conflicting "
+            f"filtration={stated_filtration!r} cannot be accepted"
+        )
+    meta["filtration"] = "rips"
+
     if isinstance(obj, Mapping):
         if "dgms" not in obj:
             raise ValueError(
@@ -980,13 +1578,13 @@ def from_ripser(obj: Any, **meta: Any) -> PersistenceDiagram:
                 f"mapping has keys {sorted(map(str, obj.keys()))}"
             )
         dgms: Sequence[Any] = obj["dgms"]
-        if not _is_row_sequence(dgms):
+        if not isinstance(dgms, list):
             raise TypeError(
                 "a ripser() result carries its diagrams under 'dgms' as a "
                 "list of (n, 2) arrays, degree by index (RFC-0001 §11); this "
                 f"mapping's 'dgms' is {type(dgms).__name__}"
             )
-    elif _is_row_sequence(obj):
+    elif isinstance(obj, list):
         dgms = obj
     else:
         raise TypeError(
@@ -996,11 +1594,8 @@ def from_ripser(obj: Any, **meta: Any) -> PersistenceDiagram:
         )
 
     field, source = _coeff_field(meta, _RIPSER_DEFAULT_COEFF_FIELD)
-    xp = (
-        _namespace_of(dgms[0])
-        if dgms and _has_namespace(dgms[0])
-        else _namespace_for_rows()
-    )
+    first_array = _first_array_block(dgms)
+    xp = namespace_of(first_array) if first_array is not None else _namespace_for_rows()
     dims, births, deaths = _columns_from_degree_list(dgms, xp)
 
     provenance = {
@@ -1008,8 +1603,7 @@ def from_ripser(obj: Any, **meta: Any) -> PersistenceDiagram:
         "essential_bars_source": "faithful",
         "coeff_field_source": source,
     }
-    if dgms and _has_namespace(dgms[0]):
-        provenance.update(_source_dtype(dgms[0]))
+    provenance.update(_source_dtype_of_blocks(dgms))
 
     diagram, clamped = _diagram_from_columns(
         dims=dims,
@@ -1037,20 +1631,17 @@ def from_persim(obj: Any, **meta: Any) -> PersistenceDiagram:
     are therefore absent rather than guessed, and §11 puts `from_persim` out
     of scope for D17 for the same reason.
     """
-    if not _is_row_sequence(obj):
+    if not isinstance(obj, list):
         raise TypeError(
             f"from_persim accepts list[(n, 2)], degree by index; got "
             f"{type(obj).__name__}"
         )
 
-    xp = (
-        _namespace_of(obj[0])
-        if obj and _has_namespace(obj[0])
-        else _namespace_for_rows()
-    )
+    first_array = _first_array_block(obj)
+    xp = namespace_of(first_array) if first_array is not None else _namespace_for_rows()
     dims, births, deaths = _columns_from_degree_list(obj, xp)
 
-    provenance = dict(_source_dtype(obj[0])) if obj and _has_namespace(obj[0]) else {}
+    provenance = _source_dtype_of_blocks(obj)
     diagram, clamped = _diagram_from_columns(
         dims=dims,
         births=births,
@@ -1066,7 +1657,11 @@ def from_persim(obj: Any, **meta: Any) -> PersistenceDiagram:
 
 
 def from_array(
-    arr: Array, *, dim: int | None = None, **meta: Any
+    arr: Array,
+    *,
+    columns: Sequence[str] | None = None,
+    dim: int | None = None,
+    **meta: Any,
 ) -> PersistenceDiagram:
     """A raw array as a `PersistenceDiagram`. §11.
 
@@ -1074,7 +1669,8 @@ def from_array(
 
     - `(n, 2)` with an explicit `dim=k`.
     - `(n, 3)` with columns `(birth, death, dim)` -- giotto's order, matched
-      deliberately (§11).
+      deliberately (§11). A supplied `columns=` sequence names columns in
+      their actual order, case-insensitively, and wins over position (§10.3).
 
     The array's namespace is preserved (§3.3): an array from JAX gives a
     JAX-backed diagram. What is converted is dtype (§6.1, I2).
@@ -1085,14 +1681,24 @@ def from_array(
     says what produced it, and §8's keys record what an adapter observed
     rather than what it hopes.
     """
-    if not _has_namespace(arr):
+    # §10.3: `columns=` is judged on the argument **before `arr` is inspected
+    # at all** -- ahead of the row-sequence refusal below and ahead of
+    # `namespace_of`, so an invalid header fails identically whatever it was
+    # passed beside, including an object that would raise on attribute access.
+    spelled = None if columns is None else _normalised_column_names(columns)
+    if isinstance(arr, (list, tuple, str, bytes, bytearray)):
         raise TypeError(
-            "from_array accepts an array carrying __array_namespace__ "
-            f"(RFC-0001 §3.3); got {type(arr).__name__}"
+            "from_array accepts an array object, not a Python row/list "
+            f"({type(arr).__name__}); pass an array with an "
+            "__array_namespace__"
         )
-
-    xp = _namespace_of(arr)
-    dims, births, deaths = _columns_from_table(arr, xp, dim=dim)
+    xp = namespace_of(arr)
+    if spelled is None:
+        dims, births, deaths = _columns_from_table(arr, xp, dim=dim)
+    else:
+        dims, births, deaths = _columns_from_named_table(
+            arr, xp, spelled=spelled, dim=dim
+        )
     diagram, clamped = _diagram_from_columns(
         dims=dims,
         births=births,
@@ -1111,12 +1717,29 @@ def from_giotto(
     arr: Array,
     *,
     reduced_homology: bool,
+    infinity_values: float,
     strip_padding: bool | None = None,
     **meta: Any,
 ) -> DiagramBatch:
     """A giotto-tda transform result as a `DiagramBatch`. §11, §11.1, §5.1.
 
     Input is `(n_samples, n_bars, 3)` with columns `(birth, death, dim)`.
+
+    **`infinity_values` is required, and only `inf` is accepted.** giotto's
+    own default is `None`, which assigns every class still alive at the cutoff
+    a death of `max_edge_length` -- a finite sentinel, which §5 refuses in the
+    first row of its table of rejected conventions: "Unrecoverable. The bar is
+    now indistinguishable from a genuine bar that happened to die at that
+    value." Nothing in the returned array separates that row from a bar that
+    really died there, so the adapter cannot repair it and does not try. Pass
+    `infinity_values=vr.infinity_values` off the fitted transformer, having
+    constructed the transformer with `infinity_values=numpy.inf`.
+
+    This is measured rather than inferred, and the measurement is committed:
+    `tests/fixtures/giotto_output.json` was captured without the argument, and
+    its `reduced_homology=False` sample carries 40 H0 bars, no `inf`, and
+    exactly one death equal to `max_edge_length`. §5.1's derivation below
+    would have labelled that diagram `"faithful"`.
 
     **`reduced_homology` is required, and required for a measured reason.**
     With giotto's default of `True`, exactly one H0 class -- the essential one
@@ -1129,6 +1752,22 @@ def from_giotto(
     when `True`, `"faithful"` when `False` -- and `essential_bars_source` is
     set to the same value in the same construction (§8). The flag itself is
     recorded in `params`, being a raw fact of the original call (§5.1).
+
+    **That derivation is §5.1's, and it is only sound because `inf` is the one
+    accepted `infinity_values`.** §5.1 states the rule as though
+    `reduced_homology` were its only input; on giotto's default sentinel,
+    `"faithful"` would describe a diagram whose essential bar had been
+    finitized, and `"lost_upstream"` -- which §5.1 scopes to the H0 class
+    reduced homology removes -- would say nothing about an essential H1 class
+    finitized the same way. Narrowing the accepted input is what makes the
+    unchanged rule true, rather than reinterpreting it.
+
+    `infinity_values` is deliberately *not* recorded in `params`, unlike
+    `reduced_homology`. §8 requires every `params` value to be
+    JSON-representable and `inf` has no JSON spelling, and with one accepted
+    value there is no fact left to record: every diagram this returns has
+    `infinity_values=inf`, and its essential bars are visible as `inf` in the
+    data itself.
 
     **Nothing is fabricated.** The missing essential bar is not reconstructed:
     its birth is the minimum vertex birth across the cloud, which is
@@ -1163,11 +1802,13 @@ def from_giotto(
     `from_ripser`: A.5 could not measure giotto's default (§9.2), and this
     project does not assert a backend default it has not measured (§11).
     """
-    if not _has_namespace(arr):
+    if isinstance(arr, (list, tuple, str, bytes, bytearray)):
         raise TypeError(
-            "from_giotto accepts an array carrying __array_namespace__ "
-            f"(RFC-0001 §3.3); got {type(arr).__name__}"
+            "from_giotto accepts an array object, not a Python row/list "
+            f"({type(arr).__name__}); pass an array with an "
+            "__array_namespace__"
         )
+    xp = namespace_of(arr)
     if arr.ndim != 3 or arr.shape[2] != 3:
         raise ValueError(
             "giotto output has shape (n_samples, n_bars, 3) (RFC-0001 §11); "
@@ -1200,7 +1841,7 @@ def from_giotto(
             f"{type(strip_padding).__name__}"
         )
 
-    xp = _namespace_of(arr)
+    _require_infinite_infinity_values(infinity_values)
 
     # Checked here rather than only inside the loop, for the reason the
     # metadata preflight below gives at length: a zero-sample batch never
@@ -1240,14 +1881,14 @@ def from_giotto(
     # `TypeError` for an unknown field.
     #
     # `clamped_rows` is listed for that identity and not because anything here
-    # measured one. `_diagram_from_columns` adds the key before calling
-    # `_build_meta`, so in real construction an adapter-owned `clamped_rows`
-    # overwrites a caller's key of that name -- which is `_build_meta`'s
-    # documented rule, the adapter being the party that saw the backend's
-    # output. Omitting it here made the preflight *stricter* than the
-    # construction it stands in for: `provenance={"clamped_rows": <junk>}` is
-    # accepted and overwritten by every other adapter, and was refused by this
-    # one alone.
+    # measured one: `_diagram_from_columns` adds the key before calling
+    # `_build_meta`, so the mapping real construction passes carries it and the
+    # mapping this preflight passes must too. The divergence it guards against
+    # has outlived the rule that first caused it -- a caller's `clamped_rows`
+    # used to be accepted and overwritten, and is now refused outright
+    # (`_ADAPTER_OWNED_PROVENANCE`) -- because the refusal reads the *caller's*
+    # mapping and this dict is the adapter's. Whichever way the rule falls,
+    # a zero-sample batch must fall the same way as a one-sample batch.
     _build_meta(
         backend="giotto",
         backend_version=version,
@@ -1267,7 +1908,13 @@ def from_giotto(
     clamped_rows = clamped_total = 0
     clamped_worst = 0.0
     for i in range(int(arr.shape[0])):
-        sample = arr[i]
+        # Spelled with an index per axis rather than `arr[i]`. The array API
+        # standard requires a rank-3 array be indexed by three indices or an
+        # ellipsis; NumPy, torch and JAX all accept the short form anyway, and
+        # `array_api_strict` -- the conformance backend this project is
+        # written against (§3.3) -- raises `IndexError`. `from_giotto` was the
+        # one adapter that could not take a strict array.
+        sample = arr[i, :, :]
         births, deaths, dims = sample[:, 0], sample[:, 1], sample[:, 2]
 
         # The degree column is validated for the whole sample *before* the
@@ -1339,3 +1986,180 @@ def from_giotto(
         )
 
     return DiagramBatch.from_diagrams(diagrams, xp=xp)
+
+
+# ---------------------------------------------------------------------------
+# Exporters (§10.3)
+# ---------------------------------------------------------------------------
+
+
+def _warn_export_loss(*, arrays: bool = False, batch: bool = False) -> None:
+    """Warn once about information not represented by an exporter. §10.3."""
+    losses = ["all DiagramMeta"]
+    if arrays:
+        losses.append("global inter-degree order")
+    if batch:
+        losses.append("empty-member/cardinality information")
+    warnings.warn(
+        "export discards " + " and ".join(losses) + ".",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
+def _export_rows(
+    obj: PersistenceDiagram | DiagramBatch,
+) -> tuple[bool, list[tuple[int, int, float, float]]]:
+    """Return ``(is_batch, rows)`` in stored order, without metadata. §10.3."""
+    if isinstance(obj, PersistenceDiagram):
+        return False, [
+            (0, int(dim), float(birth), float(death))
+            for dim, birth, death in zip(obj.dims, obj.births, obj.deaths, strict=True)
+        ]
+    if isinstance(obj, DiagramBatch):
+        rows: list[tuple[int, int, float, float]] = []
+        bounds = [int(offset) for offset in obj.offsets]
+        for diagram_id, (lo, hi) in enumerate(itertools.pairwise(bounds)):
+            rows.extend(
+                (diagram_id, int(dim), float(birth), float(death))
+                for dim, birth, death in zip(
+                    obj.dims[lo:hi], obj.births[lo:hi], obj.deaths[lo:hi], strict=True
+                )
+            )
+        return True, rows
+    raise TypeError(
+        f"exporters accept PersistenceDiagram or DiagramBatch; got {type(obj).__name__}"
+    )
+
+
+def to_arrays(obj: PersistenceDiagram) -> dict[int, Array]:
+    """Export one diagram as degree-keyed ``(n, 2)`` arrays. §10.3.
+
+    The input must be a ``PersistenceDiagram`` backed by one array namespace.
+    Rows retain their within-degree order, duplicate multiplicity, float64
+    dtype and essential ``+inf`` deaths. Metadata and global inter-degree row
+    order are intentionally not represented.
+    """
+    if not isinstance(obj, PersistenceDiagram):
+        raise TypeError(
+            "to_arrays accepts PersistenceDiagram only; DiagramBatch has no "
+            "single-diagram output shape"
+        )
+    degrees = sorted({int(dim) for dim in obj.dims})
+    result = {
+        degree: obj.xp.stack(
+            (obj.births[obj.dims == degree], obj.deaths[obj.dims == degree]),
+            axis=1,
+        )
+        for degree in degrees
+    }
+    _warn_export_loss(arrays=True)
+    return result
+
+
+def to_csv(obj: PersistenceDiagram | DiagramBatch) -> str:
+    """Export bars as UTF-8-compatible CSV text with an LF header. §10.3.
+
+    A diagram uses ``dim,birth,death``. A batch prepends ``diagram_id`` and
+    preserves member and row order; empty members have no rows and therefore
+    cannot be recovered from the CSV alone. Floats use Python's shortest
+    round-trip spelling, including the literal ``inf`` and signed zero.
+    """
+    is_batch, rows = _export_rows(obj)
+    output = io.StringIO(newline="")
+    writer = csv.writer(output, lineterminator="\n")
+    writer.writerow(
+        ("diagram_id", "dim", "birth", "death")
+        if is_batch
+        else ("dim", "birth", "death")
+    )
+    for diagram_id, dim, birth, death in rows:
+        values = (
+            (diagram_id, dim, repr(birth), repr(death))
+            if is_batch
+            else (dim, repr(birth), repr(death))
+        )
+        writer.writerow(values)
+    text = output.getvalue()
+    _warn_export_loss(batch=is_batch)
+    return text
+
+
+def _parquet_version_is_supported(version: str) -> bool:
+    """Return whether a parsed pyarrow version meets the 25.0.0 floor."""
+    epoch, release, unstable = _parse_optional_version(version)
+    floor = (0, (25, 0, 0))
+    return (epoch, release) > floor or ((epoch, release) == floor and not unstable)
+
+
+def _load_pyarrow() -> Any:
+    """Import and validate optional pyarrow on every call. §10.1, §10.3."""
+    try:
+        pyarrow = import_module("pyarrow")
+    except ModuleNotFoundError as exc:
+        if exc.name != "pyarrow":
+            raise
+        raise ImportError(
+            "to_parquet requires pyarrow >=25.0.0; install `akriti[parquet]`"
+        ) from exc
+    try:
+        version = metadata.version("pyarrow")
+    except metadata.PackageNotFoundError as exc:
+        raise ImportError(
+            "pyarrow metadata is unavailable; install `akriti[parquet]`"
+        ) from exc
+    try:
+        supported = _parquet_version_is_supported(version)
+    except (TypeError, ValueError) as exc:
+        raise ImportError(
+            "could not parse the installed pyarrow version; install `akriti[parquet]`"
+        ) from exc
+    if not supported:
+        raise ImportError(
+            f"pyarrow >=25.0.0 is required (found {version!r}); "
+            "install `akriti[parquet]`"
+        )
+    return pyarrow
+
+
+def to_parquet(obj: PersistenceDiagram | DiagramBatch) -> Any:
+    """Export bars as an explicit-schema ``pyarrow.Table``. §10.3.
+
+    The optional pyarrow dependency is imported and version-checked only in
+    this function. Metadata is not attached to the table. Diagram rows retain
+    stored order, duplicates, signed zero and essential ``+inf`` deaths; batch
+    rows carry an int64 ``diagram_id`` column.
+    """
+    is_batch, rows = _export_rows(obj)
+    pyarrow = _load_pyarrow()
+    if is_batch:
+        schema = pyarrow.schema(
+            [
+                pyarrow.field("diagram_id", pyarrow.int64()),
+                pyarrow.field("dim", pyarrow.int32()),
+                pyarrow.field("birth", pyarrow.float64()),
+                pyarrow.field("death", pyarrow.float64()),
+            ]
+        )
+        columns = [
+            pyarrow.array([row[0] for row in rows], type=pyarrow.int64()),
+            pyarrow.array([row[1] for row in rows], type=pyarrow.int32()),
+            pyarrow.array([row[2] for row in rows], type=pyarrow.float64()),
+            pyarrow.array([row[3] for row in rows], type=pyarrow.float64()),
+        ]
+    else:
+        schema = pyarrow.schema(
+            [
+                pyarrow.field("dim", pyarrow.int32()),
+                pyarrow.field("birth", pyarrow.float64()),
+                pyarrow.field("death", pyarrow.float64()),
+            ]
+        )
+        columns = [
+            pyarrow.array([row[1] for row in rows], type=pyarrow.int32()),
+            pyarrow.array([row[2] for row in rows], type=pyarrow.float64()),
+            pyarrow.array([row[3] for row in rows], type=pyarrow.float64()),
+        ]
+    table = pyarrow.Table.from_arrays(columns, schema=schema)
+    _warn_export_loss(batch=is_batch)
+    return table

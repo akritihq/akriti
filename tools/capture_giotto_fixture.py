@@ -38,6 +38,22 @@ OUT = (
 HOMOLOGY_DIMENSIONS = (0, 1)
 MAX_EDGE = 4.0
 
+# RFC-0001 §5, and the one setting this capture originally got wrong.
+#
+# giotto's default is `None`, which gives every class still alive at
+# `MAX_EDGE` a death of `MAX_EDGE` -- a finite sentinel, indistinguishable
+# from a bar that genuinely died there, which §5 refuses outright. The
+# committed fixture predates this constant and carries that sentinel: its
+# `reduced_homology=False` sample holds 40 H0 bars, no `inf`, and one death of
+# exactly 4.0. `from_giotto` now refuses such output rather than labelling it
+# `essential_bars="faithful"`, so a recapture is required before that adapter
+# can be exercised end to end on real giotto output.
+#
+# Recapturing is deliberately left to whoever has the pinned environment
+# (giotto-tda 0.6.2 on scikit-learn 1.3.2, named below); §11.2 forbids editing
+# a fixture by hand, and that includes substituting `inf` for the sentinel.
+INFINITY_VALUES = np.inf
+
 
 def circle(n: int = 40, noise: float = 0.05, seed: int = 0) -> np.ndarray:
     """The same 40-point noisy circle Appendix A.1 measured the H0 loss on."""
@@ -94,13 +110,15 @@ def main() -> int:
             homology_dimensions=HOMOLOGY_DIMENSIONS,
             max_edge_length=MAX_EDGE,
             reduced_homology=reduced,
+            infinity_values=INFINITY_VALUES,
         )
         key = f"reduced_{str(reduced).lower()}"
         data["samples"][key] = {
             "call": (
                 "VietorisRipsPersistence(homology_dimensions="
                 f"{HOMOLOGY_DIMENSIONS}, max_edge_length={MAX_EDGE}, "
-                f"reduced_homology={reduced}).fit_transform(X)"
+                f"reduced_homology={reduced}, "
+                f"infinity_values={INFINITY_VALUES}).fit_transform(X)"
             ),
             # n_samples == 1: §11 requires `from_giotto` to return a
             # DiagramBatch of length one here rather than a bare diagram.

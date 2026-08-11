@@ -44,6 +44,7 @@ def _sorted_bars(dgm: np.ndarray) -> np.ndarray:
 
 
 @pytest.mark.backend
+@pytest.mark.alpha
 def test_gudhi_encodes_essential_bars_as_inf(circle: np.ndarray) -> None:
     """RFC-0001 §5.1: GUDHI is faithful -- the essential bar is inf."""
     gudhi = pytest.importorskip("gudhi")
@@ -62,6 +63,7 @@ def test_gudhi_encodes_essential_bars_as_inf(circle: np.ndarray) -> None:
 
 
 @pytest.mark.backend
+@pytest.mark.rips
 def test_ripser_encodes_essential_bars_as_inf(circle: np.ndarray) -> None:
     """RFC-0001 §5.1: Ripser is faithful -- the essential bar is inf."""
     ripser_mod = pytest.importorskip("ripser")
@@ -75,6 +77,7 @@ def test_ripser_encodes_essential_bars_as_inf(circle: np.ndarray) -> None:
 
 
 @pytest.mark.backend
+@pytest.mark.cross_backend
 def test_gudhi_and_ripser_agree_within_float32_precision(circle: np.ndarray) -> None:
     """RFC-0001 §6.2: cross-backend agreement needs rtol=1e-6, not exactness.
 
@@ -108,6 +111,7 @@ def test_gudhi_and_ripser_agree_within_float32_precision(circle: np.ndarray) -> 
 
 
 @pytest.mark.backend
+@pytest.mark.cross_backend
 def test_backends_are_declared_float64(circle: np.ndarray) -> None:
     """RFC-0001 §6.1: dtype is float64 even where the precision is not."""
     gudhi = pytest.importorskip("gudhi")
@@ -123,6 +127,7 @@ def test_backends_are_declared_float64(circle: np.ndarray) -> None:
 
 
 @pytest.mark.backend
+@pytest.mark.distances
 def test_persim_returns_finite_distance_between_infinitely_distant_diagrams() -> None:
     """RFC-0001 §9.1: the delegation hazard core/distances.py must guard against.
 
@@ -154,6 +159,7 @@ def test_persim_returns_finite_distance_between_infinitely_distant_diagrams() ->
 
 
 @pytest.mark.backend
+@pytest.mark.distances
 def test_persim_warning_does_not_distinguish_right_from_wrong() -> None:
     """RFC-0001 §9.1 / A.4: the warning cannot be used to detect the failure.
 
@@ -182,6 +188,7 @@ def test_persim_warning_does_not_distinguish_right_from_wrong() -> None:
 
 
 @pytest.mark.backend
+@pytest.mark.distances
 def test_persim_handles_empty_diagrams() -> None:
     """RFC-0001 §11.2: an empty diagram is a legitimate input, not an error."""
     persim = pytest.importorskip("persim")
