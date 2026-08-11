@@ -2491,6 +2491,131 @@ section the earlier ones had no need for.
   name what it is an exception to, and §9 is a referent a public reader can
   follow.
 
+- **2026-08-10 (54)** — Condensation pass on the two blocks the last review
+  measured as the largest non-specification text in the RFC: §12.2's decision
+  cells and every entry in Appendix B past 13. No requirement changed. The RFC
+  falls from 33,685 words to 29,206, and every word of that comes out of those
+  two blocks: §12.2's cells go from 4,197 words to 2,061 and Appendix B from
+  4,844 to 2,479, 8.5% of the document against 14.4%. §1 through §11 are up ten
+  words, 21,823 to 21,833 — two pointer repairs and the keyword promotion below
+  — and Appendix A twelve, for the third.
+
+  **§12.2's cells become outcome, normative pointer, reopen condition**, which
+  is the shape a settled row needs and the shape §12's own preamble already
+  claims for it. The sixteen cells fall from 4,197 words to 2,061. The bound
+  that replaces the earlier "move open decisions to prose" remedy is a size
+  bound, because §12.1 is empty and both offending rows were settled: no
+  resolution cell now exceeds 1,100 characters, against D18's 4,854 and D17's
+  4,095, and no cell needs a paragraph. That is the rule entry 16 states for
+  this document — tables are for genuinely short, structured data — applied to
+  the RFC's own worst table rather than only to this file's.
+
+  **Checked before cutting, since the cells were the third copy of an argument
+  and not obviously the disposable one.** For every row, the requirement each
+  cell restated was located in the section the row points at: §6.3 carries all
+  seven of D14's clauses in uppercase, §3.3 D16's identity test and D18's
+  resolution rule, §8 D15's derivability argument and D17's `coeff_field_source`
+  reasoning, §11 D17's two residual limits, §9.3 the CI assertion, §10.1 D12's
+  requirement-5 argument. Nothing was cut that only the cell carried, with one
+  exception recorded below.
+
+  **The duplication was of argument, not of text, and the review item overstated
+  it.** "Reproduce the history entries nearly verbatim" is true of no cell: an
+  8-gram overlap against this file runs 16% for D18, 21% for D17, 26% for D16
+  and 51% for D15 — the same reasoning rewritten, which is worse than a copy
+  rather than better, because two independent phrasings of one argument drift
+  without either looking stale.
+
+  **A pointer defect surfaced while verifying D12.** §10.1 credited Appendix A.6
+  with "the one argument for CSV that survives them, and the condition under
+  which D12 should be reopened". A.6 carries neither and says so, pointing at
+  §10.1 and §12.2; only D12's cell has ever stated them. Two cross-references
+  aimed at each other around a claim living in a third place, which is the
+  failure entry 53 fixed at A.5 one pass earlier. §10.1 now names D12, and D12
+  keeps both, condensed.
+
+  **Three referents this pass broke itself. Two were found by re-checking every
+  pointer into §12.2 and every "entry N" in Appendix B afterwards rather than
+  trusting the edits; the third was not, and that is the part worth recording.**
+  §8 closed its `coeff_field_source` argument with "§12.2 carries the
+  full argument and what was rejected", which stopped being true the moment D17's
+  cell became a summary: it now names D17 for the outcome and the rejected
+  options and this file for the argument. And entry 45's "five counterfactual
+  torch illustrations move to JAX" counted D16's own cell as one of the five,
+  which the condensation dropped, leaving four in the document. The count is
+  deleted rather than corrected to four, on entry 45's own precedent for §3.3's
+  "Three limits": a count that a later pass can falsify without touching the
+  claim is not worth carrying.
+
+  **The third is A.6's, and the sweep above could not have caught it.** A.6
+  credited D12 with "why a ratio drawn from this table does not transfer", true
+  until this pass cut that rationale out of D12's cell — the same A.6/D12 pair as
+  the defect above, in the opposite direction, and the reason the sweep missed
+  it: re-checking every pointer *into* §12.2 does not re-check the pointers back
+  out of it, and a condensation breaks both kinds. A.6 now states the reason
+  itself, the ratio being a quotient by the fastest thing in the table and
+  therefore sensitive to how that baseline is sampled, and names D12 only as what
+  the durable claim rests on. Twelve words into Appendix A, no keyword either
+  way. **The generalisable rule is that a cut cell is a referent as well as a
+  referrer**, and the check that follows from it is bidirectional: every pointer
+  into the cut text, and every claim the cut text was cited for. All twenty-one
+  tables still have a constant pipe count per block and no escaped `\|`, which is
+  entry 40's invariant.
+
+  **This pass is not keyword-neutral and does not claim to be.** Entries 50, 51
+  and 53 each certified five identical BCP 14 counts; this one takes the document
+  from 168 MUST to 162 and from 39 MUST NOT to 38. Nine keywords left the cut
+  text. Seven of them sat in a §12.2 cell or a changelog entry restating a body
+  clause that is still there in uppercase: four were D14's — the matching, the
+  symmetric tolerance, the equivalence-relation disclaimer and the
+  `core/distances.py` prohibition, which §6.3 states at lines 1149, 1189, 1208
+  and 1187 — one was D16's CI assertion, which §3.3 states, and two were in
+  Appendix B's entries 41 and 42. Two further tokens moved
+  and cancel: entry 34 lost its mention of a §7 MUST whose loss it was reporting,
+  and entry 39 gained one naming the obligation it promoted.
+
+  **Two of the nine had no uppercase counterpart, and the first attempt at this
+  entry argued that away instead of fixing it.** D18's cell was the only place in
+  the document stating that namespace resolution MUST go through exactly one
+  function and that its answer MUST depend on the input and never on the
+  environment. §3.3 said both, declaratively, in a bolded heading. The argument
+  written here first was that nothing became unenforceable, since §3.3's "the
+  native method MUST be preferred wherever it exists" forces the same behaviour
+  and a preference that binds cannot be changed by installing a package. That is
+  true and it is not the point. Under entry 38's caps-only rule, a requirement
+  that drops out of uppercase has been demoted, and **a condensation pass that
+  demotes a requirement has changed one** — which is exactly what this pass was
+  supposed not to do, and worse for being explained rather than repaired.
+  **§3.3's sentence is promoted instead**, restoring both keywords at the site
+  that owns the rule rather than in a decision-log cell that was never the right
+  home for them. The document lands at 162 MUST and 38 MUST NOT, and §1-§11 at
+  155 and 37, up two from 153: the body now carries in uppercase what a §12.2
+  cell used to carry, which is the direction this should have moved in anyway.
+  Entry 39's precedent covers the promotion; nothing else in the pass touches a
+  requirement.
+
+  **Scope widened past the entries the item named, and the item's model was
+  wrong about them.** Entries 41-53 fall from 3,128 words to 1,069; entries
+  46, 51, 52 and 53 are untouched at 62, 70, 43 and 56, having already met the
+  bar. The item asked for all thirteen to be pared "as 1-13 already are" while
+  scoping itself to 41-53, and both halves of that needed correcting. Six
+  entries between 14 and 40 were over the same bar — 35 at 227 words, 34 at 151,
+  32 at 120, 39 at 119, 38 at 112 and 20 at 111, inside the range entry 34
+  declared condensed and no pass has objected to since — and 14-40 now measure
+  1,091 against 1,504. The shape adopted is not 1-13's 10-22 words either: a
+  pass that resolves five decisions cannot be logged in eleven, and the
+  standard applied is 46/51/52/53's 43-70, with entry 47's 108 the longest
+  survivor. Fourteen entries still exceed 70 words. Eleven of them record a
+  normative change and are as short as naming what changed allows; the other
+  three — 34, 50 and this pass's own 54 — are condensation passes that changed
+  no requirement, which is the least defensible length in the appendix.
+
+  **The pattern the last review asked to watch is broken here, in the right
+  direction.** Revisions 50-53 each shrank the body and grew Appendix B. This
+  pass shrinks Appendix B by 2,365 words including its own new entry, which is
+  107 words, and a fraction of what this entry runs to — which is the split the
+  two files exist to have.
+
 ---
 
 ## Original "Note on Dx" text
