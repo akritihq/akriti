@@ -7,17 +7,24 @@ GPLv3 `hopcroftkarp` transitively, and GUDHI ships a wheel with no license
 metadata at all. Both were found by hand on 2026-07-29. Neither would be found
 again by hand.
 
-Run against a clean environment that has only the default install:
+Run the strict checks in a clean environment. Check the empty default closure
+before installing the permissive-only `io` extra:
 
     python -m venv .venv-closure
     .venv-closure/bin/pip install .
     .venv-closure/bin/python tools/check_license_closure.py
+    .venv-closure/bin/pip install ".[io]"
+    .venv-closure/bin/python tools/check_license_closure.py --profile io
 
-Or check a permitted extra:
+The development environment intentionally contains reviewed copyleft
+dependencies. Audit it for visibility in explicit report-only mode:
 
-    .venv-closure/bin/python tools/check_license_closure.py --profile rips
+    python tools/check_license_closure.py --profile dev --allow-copyleft
 
-Exit status 0 if the closure is clean, 1 otherwise.
+In strict mode, exit status is 0 if the closure is clean and 1 otherwise.
+For non-default profiles, `--allow-copyleft` reports the same findings but
+returns 0. The default profile's separate empty-closure rule always fails when
+any third-party distribution is present.
 """
 
 from __future__ import annotations
@@ -377,17 +384,19 @@ def audit() -> list[Finding]:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
+    parser = argparse.ArgumentParser(
+        description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument(
         "--profile",
         default="default",
         choices=SUPPORTED_PROFILES,
-        help="install profile being checked; only 'default' is enforced strictly",
+        help="install profile being checked; 'default' also requires an empty closure",
     )
     parser.add_argument(
         "--allow-copyleft",
         action="store_true",
-        help="report but do not fail; for auditing an extras profile",
+        help="report but do not fail; for development and non-permissive extras",
     )
     args = parser.parse_args(argv)
 

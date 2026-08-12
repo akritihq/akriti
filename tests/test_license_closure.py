@@ -22,6 +22,29 @@ license_closure = importlib.util.module_from_spec(_SPEC)
 sys.modules[_SPEC.name] = license_closure
 _SPEC.loader.exec_module(license_closure)
 
+_DEV_AUDIT_COMMAND = (
+    "python tools/check_license_closure.py --profile dev --allow-copyleft"
+)
+_STRICT_AUDIT_COMMANDS = (
+    "python -m venv .venv-closure",
+    ".venv-closure/bin/pip install .",
+    ".venv-closure/bin/python tools/check_license_closure.py",
+    '.venv-closure/bin/pip install ".[io]"',
+    ".venv-closure/bin/python tools/check_license_closure.py --profile io",
+)
+
+
+def _documented_checker_commands(document: str) -> list[str]:
+    prefixes = (
+        "python tools/check_license_closure.py",
+        ".venv-closure/bin/python tools/check_license_closure.py",
+    )
+    return [
+        line
+        for raw_line in document.splitlines()
+        if (line := raw_line.strip()).startswith(prefixes)
+    ]
+
 
 def _extract_optional_profile_keys(section_body: str) -> set[str]:
     profiles = set()
@@ -254,6 +277,77 @@ def test_mismatched_exception_remains_report_only_when_explicitly_allowed(
 
     assert license_closure.main(["--profile", "extras", "--allow-copyleft"]) == 0
     assert "reporting only" in capsys.readouterr().out
+
+
+def test_documented_dev_audit_is_report_only(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    finding = license_closure.Finding(
+        "copyleft-package", "1.0", "GPL-3.0", "strong-copyleft"
+    )
+    monkeypatch.setattr(license_closure, "audit", lambda: [finding])
+
+    assert license_closure.main(["--profile", "dev", "--allow-copyleft"]) == 0
+    assert "reporting only" in capsys.readouterr().out
+
+
+@pytest.mark.parametrize("profile", ["default", "io"])
+def test_documented_strict_audits_fail_on_copyleft(
+    monkeypatch: pytest.MonkeyPatch,
+    profile: str,
+) -> None:
+    finding = license_closure.Finding(
+        "copyleft-package", "1.0", "GPL-3.0", "strong-copyleft"
+    )
+    monkeypatch.setattr(license_closure, "audit", lambda: [finding])
+
+    assert license_closure.main(["--profile", profile]) == 1
+
+
+def test_contributor_guidance_separates_dev_and_strict_closure_audits() -> None:
+    root = Path(__file__).parents[1]
+    contributing = (root / "CONTRIBUTING.md").read_text(encoding="utf-8")
+    checker = (root / "tools/check_license_closure.py").read_text(encoding="utf-8")
+    pull_request_template = (root / ".github/pull_request_template.md").read_text(
+        encoding="utf-8"
+    )
+
+    expected_checker_commands = {
+        _DEV_AUDIT_COMMAND,
+        _STRICT_AUDIT_COMMANDS[2],
+        _STRICT_AUDIT_COMMANDS[4],
+    }
+    assert set(_documented_checker_commands(contributing)) == expected_checker_commands
+    assert set(_documented_checker_commands(checker)) == expected_checker_commands
+    for document in (contributing, checker):
+        document_lines = [line.strip() for line in document.splitlines()]
+        positions = [
+            document_lines.index(command) for command in _STRICT_AUDIT_COMMANDS
+        ]
+        assert positions == sorted(positions)
+        assert all(
+            document_lines.count(command) == 1 for command in _STRICT_AUDIT_COMMANDS
+        )
+
+    clean_workflow_link = (
+        "[strict licence-closure checks]"
+        "(../blob/main/CONTRIBUTING.md#strict-licence-closure-checks)"
+    )
+    assert clean_workflow_link in pull_request_template
+    assert "`python tools/check_license_closure.py` passes" not in pull_request_template
+
+
+def test_cli_help_preserves_copyable_audit_commands(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    with pytest.raises(SystemExit) as exc_info:
+        license_closure.main(["--help"])
+
+    assert exc_info.value.code == 0
+    help_lines = {line.strip() for line in capsys.readouterr().out.splitlines()}
+    assert _DEV_AUDIT_COMMAND in help_lines
+    assert set(_STRICT_AUDIT_COMMANDS) <= help_lines
 
 
 def test_invalid_profile_is_rejected_before_audit(
