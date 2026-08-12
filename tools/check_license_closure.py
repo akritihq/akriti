@@ -33,6 +33,23 @@ from dataclasses import dataclass
 # not shipped to anyone.
 IGNORED = {"pip", "setuptools", "wheel", "pkg-resources", "akriti"}
 
+SUPPORTED_PROFILES = frozenset(
+    {
+        "default",
+        "extras",
+        "rips",
+        "alpha",
+        "distances",
+        "numpy",
+        "io",
+        "torch",
+        "bio",
+        "test",
+        "lint",
+        "dev",
+    }
+)
+
 PERMISSIVE = {
     "MIT",
     "MIT-CMU",
@@ -238,20 +255,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--profile",
         default="default",
-        choices=(
-            "default",
-            "extras",
-            "rips",
-            "alpha",
-            "distances",
-            "numpy",
-            "io",
-            "torch",
-            "bio",
-            "test",
-            "lint",
-            "dev",
-        ),
+        choices=SUPPORTED_PROFILES,
         help="install profile being checked; only 'default' is enforced strictly",
     )
     parser.add_argument(

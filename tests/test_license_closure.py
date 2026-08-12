@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import importlib.util
+import re
+import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 import pytest
@@ -119,6 +122,24 @@ def test_invalid_profile_is_rejected_before_audit(
     assert "invalid choice" in capsys.readouterr().err
 
 
+def test_supported_profiles_match_pyproject_optional_dependency_keys() -> None:
+    pyproject = Path(__file__).parents[1] / "pyproject.toml"
+    contents = pyproject.read_text(encoding="utf-8")
+    section = re.search(
+        r"(?ms)^\[project\.optional-dependencies\]\s*\n(?P<body>.*?)(?=^\[|\Z)",
+        contents,
+    )
+    assert section is not None
+    optional_profiles = set(
+        re.findall(r"^(\w+)\s*=", section.group("body"), re.MULTILINE)
+    )
+
+    assert optional_profiles | {
+        "default",
+        "extras",
+    } == license_closure.SUPPORTED_PROFILES
+
+
 @pytest.mark.parametrize(
     "profile",
     [
@@ -165,6 +186,40 @@ def test_mismatched_exception_points_to_license_aliases(
 
     assert license_closure.main(["--profile", "rips"]) == 1
     assert "_EXCEPTION_LICENSE_ALIASES" in capsys.readouterr().out
+
+
+def test_invalid_static_exception_fails_during_module_import() -> None:
+    source = Path(__file__).parents[1] / "tools/check_license_closure.py"
+    contents = source.read_text(encoding="utf-8")
+    original = '"hypothesis": (\n        "MPL-2.0",'
+    replacement = '"hypothesis": (\n        "LGPL-2.1",'
+    assert contents.count(original) == 1
+
+    with tempfile.TemporaryDirectory() as directory:
+        copy = Path(directory) / "check_license_closure.py"
+        copy.write_text(contents.replace(original, replacement), encoding="utf-8")
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-c",
+                (
+                    "import importlib.util, sys; "
+                    "spec = importlib.util.spec_from_file_location("
+                    "'closure', sys.argv[1]); "
+                    "module = importlib.util.module_from_spec(spec); "
+                    "sys.modules['closure'] = module; spec.loader.exec_module(module)"
+                ),
+                str(copy),
+            ],
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    assert result.returncode != 0
+    assert "hypothesis" in result.stderr
+    assert "LGPL-2.1" in result.stderr
+    assert "_EXCEPTION_LICENSE_ALIASES" in result.stderr
 
 
 def test_empty_default_closure_still_passes(
