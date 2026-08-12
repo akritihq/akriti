@@ -21,7 +21,9 @@ probe_backends = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(probe_backends)
 
 
-def test_probe_sources_are_readable_after_chdir(monkeypatch, tmp_path) -> None:
+def test_probe_sources_are_readable_after_chdir(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     """Release-gate source paths remain readable independently of the CWD."""
     monkeypatch.chdir(tmp_path)
 
