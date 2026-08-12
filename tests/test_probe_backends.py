@@ -98,6 +98,24 @@ def test_trivial_rows_require_exact_zero_persistence() -> None:
     assert probe_backends._trivial_mask(diagram).tolist() == [True, False]
 
 
+def test_float32_value_gate_rejects_true_float64_precision() -> None:
+    """A declared float64 array is not evidence that its values are single precision."""
+    float32_values = np.array([np.float64(np.float32(0.1))])
+    float64_value = np.array([np.nextafter(1.0, 2.0)])
+
+    probe_backends._require_float32_values(
+        float32_values,
+        section="A.3",
+        label="Ripser H1",
+    )
+    with pytest.raises(probe_backends.ProbeDriftError, match=r"A\.3.*float32"):
+        probe_backends._require_float32_values(
+            float64_value,
+            section="A.3",
+            label="Ripser H1",
+        )
+
+
 def test_warning_capture_handles_an_empty_warning_list() -> None:
     """A warning-free backend case is measured without indexing a missing warning."""
     value, caught = probe_backends._measure_with_warnings(
@@ -188,6 +206,13 @@ def test_coefficient_carrier_scan_detects_field_aliases() -> None:
     ]
     assert probe_backends._coefficient_carriers(NestedResult()) == ["metadata.prime"]
     assert probe_backends._coefficient_carriers(array_result) == ["metadata.prime"]
+
+    with pytest.raises(probe_backends.ProbeDriftError, match=r"A\.5.*metadata\.prime"):
+        probe_backends._require_no_coefficient_carriers(
+            array_result,
+            section="A.5",
+            label="giotto returned value",
+        )
 
 
 def test_parameter_default_guard_fails_before_signature_lookup() -> None:

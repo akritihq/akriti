@@ -85,6 +85,21 @@ def _require_array_shape(
     return value
 
 
+def _require_float32_values(value, *, section: str, label: str) -> None:
+    """Require a float64 result whose values are exactly float32-representable."""
+    _require(
+        isinstance(value, np.ndarray) and value.dtype == np.dtype(np.float64),
+        section,
+        f"{label} must be a float64 ndarray before its precision can be measured",
+    )
+    round_trip = value.astype(np.float32).astype(np.float64)
+    _require(
+        bool(np.array_equal(value, round_trip)),
+        section,
+        f"{label} values no longer round-trip exactly through float32",
+    )
+
+
 def _require_batch_shape(
     value, *, samples: int, section: str, label: str
 ) -> np.ndarray:
@@ -214,6 +229,17 @@ def _coefficient_carriers(value) -> list[str]:
 
     visit(value, "")
     return sorted(carriers)
+
+
+def _require_no_coefficient_carriers(value, *, section: str, label: str) -> list[str]:
+    """Fail with measured-section context if a returned object carries a field."""
+    carriers = _coefficient_carriers(value)
+    _require(
+        not carriers,
+        section,
+        f"{label} exposes coefficient fields: {carriers}",
+    )
+    return carriers
 
 
 def _parameter_default(callable_obj, name: str, *, section: str, label: str):
@@ -507,6 +533,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     _require(
         g1.dtype == np.dtype(np.float64), "A.3", f"GUDHI dtype changed: {g1.dtype}"
     )
+    _require_float32_values(r1, section="A.3", label="Ripser H1")
     raw_agrees = np.allclose(r1, g1, rtol=1e-6, atol=0)
     _require(not bool(raw_agrees), "A.3", "raw row order unexpectedly agrees")
     print(f"  same row order: {raw_agrees}")
@@ -642,16 +669,10 @@ def main(argv: Sequence[str] | None = None) -> int:
         max_dimension=2
     )
     res3 = st3.persistence(homology_coeff_field=3)
-    carriers_g = _coefficient_carriers(st3)
-    returned_carriers_g = _coefficient_carriers(res3)
-    _require(
-        not carriers_g, "A.5", f"GUDHI object exposes coefficient fields: {carriers_g}"
+    carriers_g = _require_no_coefficient_carriers(
+        st3, section="A.5", label="GUDHI object"
     )
-    _require(
-        not returned_carriers_g,
-        "A.5",
-        f"GUDHI returned value exposes coefficient fields: {returned_carriers_g}",
-    )
+    _require_no_coefficient_carriers(res3, section="A.5", label="GUDHI returned value")
     _require(
         isinstance(res3, list) and bool(res3),
         "A.5",
@@ -686,8 +707,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "A.5",
         f"Ripser returned {type(out3).__name__}, expected dict",
     )
-    carriers_r = _coefficient_carriers(out3)
-    _require(not carriers_r, "A.5", f"Ripser returned coefficient fields: {carriers_r}")
+    carriers_r = _require_no_coefficient_carriers(
+        out3, section="A.5", label="Ripser returned value"
+    )
     print(f"  ripser  parameter: ripser(..., coeff=...) default={default_r}")
     print(f"          returns   : dict keys {sorted(out3.keys())}")
     print(f"          keys naming a coeff field: {carriers_r or 'NONE'}")
@@ -701,6 +723,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             samples=1,
             section="A.5",
             label="giotto coefficient-field result",
+        )
+        _require_no_coefficient_carriers(
+            arr3, section="A.5", label="giotto returned value"
         )
         estimator_coeff = _required_attribute(
             vr3,
