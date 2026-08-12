@@ -175,19 +175,8 @@ def license_of(dist: md.Distribution) -> str:
 
 def classify(license_str: str) -> str:
     """Classify exact aliases and explicit compounds; unknown input fails closed."""
-    if not license_str or not license_str.isascii():
-        # A pasted license body is not a machine-readable answer.
-        return "unknown"
-    if len(license_str) > MAX_LICENSE_LENGTH:
-        return "unknown"
-
-    normalized = _normalize_license(license_str)
-    if (
-        not normalized
-        or len(normalized) > MAX_LICENSE_LENGTH
-        or normalized.startswith("<FULL TEXT>")
-    ):
-        # A pasted license body is not a machine-readable answer.
+    normalized = _machine_readable_license(license_str)
+    if normalized is None:
         return "unknown"
 
     valid, verdicts = _parse_expression(normalized)
@@ -203,6 +192,23 @@ def classify(license_str: str) -> str:
 def _normalize_license(license_str: str) -> str:
     """Normalize only case and repeated whitespace for exact alias matching."""
     return re.sub(r"\s+", " ", license_str.strip().upper())
+
+
+def _machine_readable_license(license_str: str) -> str | None:
+    """Normalize bounded ASCII metadata; reject bodies and ambiguous input."""
+    if not license_str or not license_str.isascii():
+        return None
+    if len(license_str) > MAX_LICENSE_LENGTH:
+        return None
+
+    normalized = _normalize_license(license_str)
+    if (
+        not normalized
+        or len(normalized) > MAX_LICENSE_LENGTH
+        or normalized.startswith("<FULL TEXT>")
+    ):
+        return None
+    return normalized
 
 
 def _parse_expression(value: str, nesting: int = 0) -> tuple[bool, set[str]]:
@@ -314,9 +320,9 @@ _EXCEPTION_LICENSE_ALIASES = {
 
 def _canonical_exception_license(license_str: str) -> str | None:
     """Return a reviewed exception licence's canonical name, if exact."""
-    if not license_str.isascii():
+    normalized = _machine_readable_license(license_str)
+    if normalized is None:
         return None
-    normalized = _normalize_license(license_str)
     return _EXCEPTION_LICENSE_ALIASES.get(normalized)
 
 

@@ -85,6 +85,7 @@ def test_empty_and_full_text_are_unknown(license_name: str) -> None:
     ("license_name", "expected"),
     [
         ("MIT-0", "permissive"),
+        ("MIT-CMU", "permissive"),
         ("3-Clause BSD License", "permissive"),
         ("mit   license", "permissive"),
         ("LGPL", "weak-copyleft"),
@@ -132,6 +133,7 @@ def test_malformed_restricted_and_unknown_licenses_fail_closed(
     [
         ("MIT AND BSD-3-Clause", "permissive"),
         ("Apache-2.0 OR MIT", "permissive"),
+        ("Apache-2.0 OR BSD-2-Clause", "permissive"),
         ("LGPL-3.0; MIT", "weak-copyleft"),
         ("MIT OR GPL-3.0", "strong-copyleft"),
         ("GPL-3.0 AND Proprietary", "strong-copyleft"),
@@ -182,6 +184,29 @@ def test_hypothesis_exception_rejects_unicode_confusable_alias(
     finding = license_closure.Finding(
         "hypothesis", "1.0", license_name, license_closure.classify(license_name)
     )
+    monkeypatch.setattr(license_closure, "audit", lambda: [finding])
+
+    assert license_closure.main(["--profile", "test"]) == 1
+    output = capsys.readouterr().out
+    assert "allowed exception" not in output
+    assert f"detected {license_name}" in output
+
+
+@pytest.mark.parametrize(
+    "license_name",
+    [
+        "MPL" + " " * (license_closure.MAX_LICENSE_LENGTH + 1) + "2.0",
+        "<full text> MPL-2.0",
+        "MPL-\u0662.0",
+    ],
+)
+def test_hypothesis_exception_rejects_classifier_invalid_metadata(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    license_name: str,
+) -> None:
+    assert license_closure.classify(license_name) == "unknown"
+    finding = license_closure.Finding("hypothesis", "1.0", license_name, "unknown")
     monkeypatch.setattr(license_closure, "audit", lambda: [finding])
 
     assert license_closure.main(["--profile", "test"]) == 1
