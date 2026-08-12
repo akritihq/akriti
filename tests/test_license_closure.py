@@ -29,7 +29,12 @@ def _extract_optional_profile_keys(section_body: str) -> set[str]:
         if stripped.startswith("#"):
             continue
         if stripped.startswith(("\"", "'")):
-            if re.match(r"^[\"'].*?[\"']\s*=", stripped):
+            quoted_key = re.match(
+                r'''^(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')'''
+                r"(?:\s*\.\s*[A-Za-z0-9_-]+)*\s*=",
+                stripped,
+            )
+            if quoted_key:
                 raise ValueError(
                     f"unrecognized optional-dependency key on line {line_number}: "
                     f"{stripped.split('=', 1)[0].strip()!r}"
@@ -172,6 +177,11 @@ def test_optional_profile_keys_reject_unrecognized_assignment() -> None:
         _extract_optional_profile_keys("gpu.tools = []\n")
 
 
+def test_optional_profile_keys_reject_quoted_dotted_assignment() -> None:
+    with pytest.raises(ValueError, match="unrecognized optional-dependency key"):
+        _extract_optional_profile_keys('"gpu".tools = []\n')
+
+
 def test_profile_choice_help_preserves_declared_order(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
@@ -186,10 +196,10 @@ def test_profile_choice_help_preserves_declared_order(
         license_closure.main(["--profile", "invalid"])
 
     error = capsys.readouterr().err
-    assert (
-        "choose from default, extras, rips, alpha, distances, numpy, io, torch, "
-        "bio, test, lint, dev"
-    ) in error
+    declared = license_closure.SUPPORTED_PROFILES
+    repr_choices = ", ".join(map(repr, declared))
+    usage_choices = "{" + ",".join(declared) + "}"
+    assert f"choose from {repr_choices}" in error or usage_choices in error
 
 
 @pytest.mark.parametrize(
