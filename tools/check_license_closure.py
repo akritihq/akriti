@@ -192,6 +192,22 @@ def _canonical_exception_license(license_str: str) -> str | None:
     return _EXCEPTION_LICENSE_ALIASES.get(normalized)
 
 
+def _validate_exception_configuration(
+    exceptions: dict[str, tuple[str, str]] | None = None,
+) -> None:
+    """Ensure every configured exception license has a canonical alias."""
+    configured = ALLOWED_EXCEPTIONS if exceptions is None else exceptions
+    for package, (expected, _reason) in configured.items():
+        if _canonical_exception_license(expected) is None:
+            raise ValueError(
+                f"{package}: unsupported expected licence {expected!r}; "
+                "update _EXCEPTION_LICENSE_ALIASES"
+            )
+
+
+_validate_exception_configuration()
+
+
 def audit() -> list[Finding]:
     findings = []
     for dist in md.distributions():
@@ -222,6 +238,20 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument(
         "--profile",
         default="default",
+        choices=(
+            "default",
+            "extras",
+            "rips",
+            "alpha",
+            "distances",
+            "numpy",
+            "io",
+            "torch",
+            "bio",
+            "test",
+            "lint",
+            "dev",
+        ),
         help="install profile being checked; only 'default' is enforced strictly",
     )
     parser.add_argument(
@@ -261,7 +291,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 continue
             print(
                 f"           exception not allowed: detected {f.license}; "
-                f"expected {expected}"
+                f"expected {expected}; update _EXCEPTION_LICENSE_ALIASES if "
+                "this is a valid metadata alias"
             )
             violations.append(f)
             continue

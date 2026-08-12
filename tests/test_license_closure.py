@@ -102,6 +102,71 @@ def test_mismatched_exception_remains_report_only_when_explicitly_allowed(
     assert "reporting only" in capsys.readouterr().out
 
 
+def test_invalid_profile_is_rejected_before_audit(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        license_closure,
+        "audit",
+        lambda: pytest.fail("audit must not run for an invalid profile"),
+    )
+
+    with pytest.raises(SystemExit) as exc_info:
+        license_closure.main(["--profile", "defualt"])
+
+    assert exc_info.value.code == 2
+    assert "invalid choice" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "profile",
+    [
+        "default",
+        "extras",
+        "rips",
+        "alpha",
+        "distances",
+        "numpy",
+        "io",
+        "torch",
+        "bio",
+        "test",
+        "lint",
+        "dev",
+    ],
+)
+def test_all_supported_profiles_are_accepted(
+    monkeypatch: pytest.MonkeyPatch,
+    profile: str,
+) -> None:
+    monkeypatch.setattr(license_closure, "audit", lambda: [])
+
+    assert license_closure.main(["--profile", profile]) == 0
+
+
+def test_exception_configuration_rejects_unsupported_expected_license() -> None:
+    exceptions = {"somepkg": ("LGPL-2.1", "reviewed")}
+
+    with pytest.raises(
+        ValueError, match=r"somepkg.*LGPL-2.1.*_EXCEPTION_LICENSE_ALIASES"
+    ):
+        license_closure._validate_exception_configuration(exceptions)
+
+
+def test_mismatched_exception_points_to_license_aliases(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    finding = license_closure.Finding(
+        "hypothesis", "1.0", "AGPL-3.0", "strong-copyleft"
+    )
+    monkeypatch.setattr(license_closure, "audit", lambda: [finding])
+
+    assert license_closure.main(["--profile", "rips"]) == 1
+    assert "_EXCEPTION_LICENSE_ALIASES" in capsys.readouterr().out
+
+
 def test_empty_default_closure_still_passes(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
