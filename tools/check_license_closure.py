@@ -26,6 +26,7 @@ import argparse
 import importlib.metadata as md
 import re
 import sys
+from collections.abc import Sequence
 from dataclasses import dataclass
 
 # Packaging tooling that pip puts in every venv. Not part of our closure and
@@ -136,10 +137,7 @@ def license_of(dist: md.Distribution) -> str:
 def classify(license_str: str) -> str:
     """permissive | weak-copyleft | strong-copyleft | unknown"""
     if not license_str or license_str.startswith("<full text>"):
-        # A pasted license body is not a machine-readable answer. Fall through
-        # to unknown so it gets a manual entry rather than a guess.
-        if "BSD" in license_str.upper():
-            return "permissive"
+        # A pasted license body is not a machine-readable answer.
         return "unknown"
 
     upper = license_str.upper()
@@ -180,6 +178,20 @@ def classify(license_str: str) -> str:
     return "unknown"
 
 
+_EXCEPTION_LICENSE_ALIASES = {
+    "MPL-2.0": "MPL-2.0",
+    "MPL 2.0": "MPL-2.0",
+    "MOZILLA PUBLIC LICENSE 2.0": "MPL-2.0",
+    "MOZILLA PUBLIC LICENSE 2.0 (MPL 2.0)": "MPL-2.0",
+}
+
+
+def _canonical_exception_license(license_str: str) -> str | None:
+    """Return a reviewed exception licence's canonical name, if exact."""
+    normalized = re.sub(r"\s+", " ", license_str.strip().upper())
+    return _EXCEPTION_LICENSE_ALIASES.get(normalized)
+
+
 def audit() -> list[Finding]:
     findings = []
     for dist in md.distributions():
@@ -205,7 +217,7 @@ def audit() -> list[Finding]:
     return sorted(unique.values(), key=lambda f: f.name)
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--profile",
@@ -217,7 +229,7 @@ def main() -> int:
         action="store_true",
         help="report but do not fail; for auditing an extras profile",
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     findings = audit()
     width = max((len(f.name) for f in findings), default=10)
@@ -239,9 +251,19 @@ def main() -> int:
 
         if f.verdict == "permissive":
             continue
-        if f.name in ALLOWED_EXCEPTIONS:
-            expected, reason = ALLOWED_EXCEPTIONS[f.name]
-            print(f"           allowed exception ({expected}): {reason}")
+        exception = ALLOWED_EXCEPTIONS.get(normalize(f.name))
+        if exception:
+            expected, reason = exception
+            actual_canonical = _canonical_exception_license(f.license)
+            expected_canonical = _canonical_exception_license(expected)
+            if actual_canonical is not None and actual_canonical == expected_canonical:
+                print(f"           allowed exception ({expected}): {reason}")
+                continue
+            print(
+                f"           exception not allowed: detected {f.license}; "
+                f"expected {expected}"
+            )
+            violations.append(f)
             continue
         violations.append(f)
 
