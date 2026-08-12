@@ -48,6 +48,9 @@ SUPPORTED_PROFILES = (
     "dev",
 )
 
+MAX_LICENSE_LENGTH = 4096
+MAX_LICENSE_NESTING = 64
+
 PERMISSIVE = {
     "MIT",
     "MIT-CMU",
@@ -68,11 +71,14 @@ PERMISSIVE = {
     "HPND",
     "MIT LICENSE",
     "BSD LICENSE",
+    "MIT-0",
+    "3-CLAUSE BSD LICENSE",
 }
 WEAK_COPYLEFT = {
     "MPL-2.0",
     "MPL 2.0",
     "MOZILLA PUBLIC LICENSE 2.0",
+    "MOZILLA PUBLIC LICENSE 2.0 (MPL 2.0)",
     "LGPL",
     "LGPL-2.1",
     "LGPL-3.0",
@@ -90,15 +96,26 @@ STRONG_COPYLEFT = {
     "AGPLV3",
     "GNU AGPLV3",
     "GNU GENERAL PUBLIC LICENSE",
+    "GNU GENERAL PUBLIC LICENSE V3 (GPLV3)",
     "SSPL",
     "SSPL-1.0",
 }
 
-# Reviewed exceptions. Every entry needs a name, a license, and a reason a human
-# signed off on. Test-only packages never reach a user's runtime environment.
-ALLOWED_EXCEPTIONS: dict[str, tuple[str, str]] = {
-    "hypothesis": (
+
+@dataclass(frozen=True)
+class ExceptionPolicy:
+    expected_license: str
+    profiles: frozenset[str]
+    reason: str
+
+
+# Reviewed exceptions. Every entry needs an exact license, an explicit profile
+# scope, and a reason a human signed off on. Test-only packages never reach a
+# user's runtime environment.
+ALLOWED_EXCEPTIONS: dict[str, ExceptionPolicy] = {
+    "hypothesis": ExceptionPolicy(
         "MPL-2.0",
+        frozenset({"test", "dev"}),
         "test-only; weak file-level copyleft, never shipped, not linked",
     ),
 }
@@ -150,47 +167,134 @@ def license_of(dist: md.Distribution) -> str:
 
 
 def classify(license_str: str) -> str:
-    """permissive | weak-copyleft | strong-copyleft | unknown"""
-    if not license_str or license_str.startswith("<full text>"):
+    """Classify exact aliases and explicit compounds; unknown input fails closed."""
+    if not license_str or not license_str.isascii():
+        # A pasted license body is not a machine-readable answer.
+        return "unknown"
+    if len(license_str) > MAX_LICENSE_LENGTH:
+        return "unknown"
+
+    normalized = _normalize_license(license_str)
+    if (
+        not normalized
+        or len(normalized) > MAX_LICENSE_LENGTH
+        or normalized.startswith("<FULL TEXT>")
+    ):
         # A pasted license body is not a machine-readable answer.
         return "unknown"
 
-    upper = license_str.upper()
-    # Split compound expressions: "BSD-3-Clause AND MIT AND Zlib"
-    parts = re.split(r"\s+(?:AND|OR)\s+|;\s*", upper)
-    parts = [p.strip(" ()") for p in parts if p.strip(" ()")]
-
-    verdicts = set()
-    for part in parts:
-        strong = part in STRONG_COPYLEFT or any(
-            tok in part for tok in STRONG_COPYLEFT if len(tok) > 3
-        )
-        if strong:
-            verdicts.add("strong-copyleft")
-        elif part in WEAK_COPYLEFT or any(t in part for t in ("MPL", "LGPL")):
-            verdicts.add("weak-copyleft")
-        elif part in PERMISSIVE or any(
-            t in part
-            for t in (
-                "MIT",
-                "BSD",
-                "APACHE",
-                "ISC",
-                "ZLIB",
-                "PSF",
-                "PYTHON SOFTWARE FOUNDATION",
-                "CC0",
-                "HPND",
-            )
-        ):
-            verdicts.add("permissive")
-        else:
-            verdicts.add("unknown")
+    valid, verdicts = _parse_expression(normalized)
+    if not valid:
+        return "unknown"
 
     for level in ("strong-copyleft", "unknown", "weak-copyleft", "permissive"):
         if level in verdicts:
             return level
     return "unknown"
+
+
+def _normalize_license(license_str: str) -> str:
+    """Normalize only case and repeated whitespace for exact alias matching."""
+    return re.sub(r"\s+", " ", license_str.strip().upper())
+
+
+def _parse_expression(value: str, nesting: int = 0) -> tuple[bool, set[str]]:
+    """Parse a bounded expression into verdicts, rejecting malformed syntax."""
+    value = value.strip()
+    if not value or nesting > MAX_LICENSE_NESTING:
+        return False, set()
+    if re.match(r"^(?:AND|OR)(?:\s|$)", value) or re.search(r"\s(?:AND|OR)$", value):
+        return False, set()
+
+    parts, separators, balanced = _split_top_level(value)
+    if not balanced or len(parts) != len(separators) + 1:
+        return False, set()
+    if separators:
+        verdicts: set[str] = set()
+        for part in parts:
+            valid, part_verdicts = _parse_expression(part, nesting)
+            if not valid:
+                return False, set()
+            verdicts.update(part_verdicts)
+        return True, verdicts
+
+    verdict = _LICENSE_VERDICTS.get(value)
+    if verdict is not None:
+        return True, {verdict}
+
+    inner = _outer_parenthesized_content(value)
+    if inner is not None:
+        return _parse_expression(inner, nesting + 1)
+    if "(" in value or ")" in value:
+        return False, set()
+    return True, {"unknown"}
+
+
+def _split_top_level(value: str) -> tuple[list[str], list[str], bool]:
+    """Split only top-level operators while validating balanced parentheses."""
+    parts: list[str] = []
+    separators: list[str] = []
+    start = 0
+    depth = 0
+    index = 0
+    while index < len(value):
+        character = value[index]
+        if character == "(":
+            depth += 1
+            if depth > MAX_LICENSE_NESTING:
+                return [], [], False
+        elif character == ")":
+            depth -= 1
+            if depth < 0:
+                return [], [], False
+        elif depth == 0:
+            if character == ";":
+                parts.append(value[start:index])
+                separators.append(";")
+                start = index + 1
+            else:
+                for operator in ("AND", "OR"):
+                    end = index + len(operator)
+                    if (
+                        value.startswith(operator, index)
+                        and index > 0
+                        and value[index - 1].isspace()
+                        and end < len(value)
+                        and value[end].isspace()
+                    ):
+                        parts.append(value[start:index])
+                        separators.append(operator)
+                        start = end
+                        index = end - 1
+                        break
+        index += 1
+    if depth != 0:
+        return [], [], False
+    parts.append(value[start:])
+    return parts, separators, True
+
+
+def _outer_parenthesized_content(value: str) -> str | None:
+    if not value.startswith("(") or not value.endswith(")"):
+        return None
+    depth = 0
+    for index, character in enumerate(value):
+        if character == "(":
+            depth += 1
+        elif character == ")":
+            depth -= 1
+            if depth == 0:
+                if index != len(value) - 1:
+                    return None
+                return value[1:-1].strip()
+    return None
+
+
+_LICENSE_VERDICTS = {
+    **dict.fromkeys(PERMISSIVE, "permissive"),
+    **dict.fromkeys(WEAK_COPYLEFT, "weak-copyleft"),
+    **dict.fromkeys(STRONG_COPYLEFT, "strong-copyleft"),
+}
 
 
 _EXCEPTION_LICENSE_ALIASES = {
@@ -203,21 +307,45 @@ _EXCEPTION_LICENSE_ALIASES = {
 
 def _canonical_exception_license(license_str: str) -> str | None:
     """Return a reviewed exception licence's canonical name, if exact."""
-    normalized = re.sub(r"\s+", " ", license_str.strip().upper())
+    if not license_str.isascii():
+        return None
+    normalized = _normalize_license(license_str)
     return _EXCEPTION_LICENSE_ALIASES.get(normalized)
 
 
 def _validate_exception_configuration(
-    exceptions: dict[str, tuple[str, str]] | None = None,
+    exceptions: dict[str, ExceptionPolicy] | None = None,
 ) -> None:
-    """Ensure every configured exception license has a canonical alias."""
+    """Ensure every configured exception policy is explicit and supported."""
     configured = ALLOWED_EXCEPTIONS if exceptions is None else exceptions
-    for package, (expected, _reason) in configured.items():
-        if _canonical_exception_license(expected) is None:
+    for package, policy in configured.items():
+        if not isinstance(policy, ExceptionPolicy):
+            raise ValueError(f"{package}: exception must be an ExceptionPolicy")
+        if not isinstance(policy.expected_license, str):
+            raise ValueError(f"{package}: expected licence must be a string")
+        expected_canonical = _canonical_exception_license(policy.expected_license)
+        if expected_canonical is None:
             raise ValueError(
-                f"{package}: unsupported expected licence {expected!r}; "
+                f"{package}: unsupported expected licence {policy.expected_license!r}; "
                 "update _EXCEPTION_LICENSE_ALIASES"
             )
+        if policy.expected_license != expected_canonical:
+            raise ValueError(
+                f"{package}: expected licence {policy.expected_license!r} must use "
+                f"canonical spelling {expected_canonical!r}"
+            )
+        if not isinstance(policy.profiles, frozenset) or not policy.profiles:
+            raise ValueError(f"{package}: exception profiles must be nonempty")
+        if not all(isinstance(profile, str) for profile in policy.profiles):
+            raise ValueError(f"{package}: exception profiles must contain only strings")
+        unsupported = set(policy.profiles) - set(SUPPORTED_PROFILES)
+        if unsupported:
+            raise ValueError(
+                f"{package}: unsupported profiles {sorted(unsupported)!r}; "
+                f"choose from {SUPPORTED_PROFILES!r}"
+            )
+        if not isinstance(policy.reason, str) or not policy.reason.strip():
+            raise ValueError(f"{package}: exception reason must be nonempty")
 
 
 _validate_exception_configuration()
@@ -285,11 +413,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             continue
         exception = ALLOWED_EXCEPTIONS.get(normalize(f.name))
         if exception:
-            expected, reason = exception
+            expected = exception.expected_license
             actual_canonical = _canonical_exception_license(f.license)
             expected_canonical = _canonical_exception_license(expected)
+            if args.profile not in exception.profiles:
+                profiles = ", ".join(sorted(exception.profiles))
+                print(
+                    f"           exception not allowed for profile {args.profile!r}; "
+                    f"allowed profiles: {profiles}"
+                )
+                violations.append(f)
+                continue
             if actual_canonical is not None and actual_canonical == expected_canonical:
-                print(f"           allowed exception ({expected}): {reason}")
+                print(f"           allowed exception ({expected}): {exception.reason}")
                 continue
             print(
                 f"           exception not allowed: detected {f.license}; "

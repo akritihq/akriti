@@ -7,6 +7,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from dataclasses import FrozenInstanceError
 from pathlib import Path
 
 import pytest
@@ -58,6 +59,74 @@ def test_empty_and_full_text_are_unknown(license_name: str) -> None:
 
 
 @pytest.mark.parametrize(
+    ("license_name", "expected"),
+    [
+        ("MIT-0", "permissive"),
+        ("3-Clause BSD License", "permissive"),
+        ("mit   license", "permissive"),
+        ("LGPL", "weak-copyleft"),
+        ("LGPL-2.1", "weak-copyleft"),
+        ("LGPL-3.0", "weak-copyleft"),
+        ("LGPLv3", "weak-copyleft"),
+        ("GNU General Public License v3 (GPLv3)", "strong-copyleft"),
+        ("M\u0131T", "unknown"),
+        ("B\u017fD", "unknown"),
+        ("Moz\u0131lla Publ\u0131c L\u0131cense 2.0", "unknown"),
+    ],
+)
+def test_exact_verified_aliases_classify_without_substring_matching(
+    license_name: str, expected: str
+) -> None:
+    assert license_closure.classify(license_name) == expected
+
+
+@pytest.mark.parametrize(
+    "license_name",
+    [
+        "MIT-like proprietary license",
+        "BSD-3-Clause with non-commercial restriction",
+        "Business Source License 1.1 (converts to MIT after 4 years)",
+        "MIT AND unknown-license",
+        "MIT OR",
+        "AND MIT",
+        "MIT;",
+        "GPL-3.0;",
+        "; GPL-3.0",
+        "GPL-3.0 AND (MIT) trailing",
+        "MIT)",
+        "(MIT",
+        "MIT (proprietary addendum)",
+    ],
+)
+def test_malformed_restricted_and_unknown_licenses_fail_closed(
+    license_name: str,
+) -> None:
+    assert license_closure.classify(license_name) == "unknown"
+
+
+@pytest.mark.parametrize(
+    ("license_name", "expected"),
+    [
+        ("MIT AND BSD-3-Clause", "permissive"),
+        ("Apache-2.0 OR MIT", "permissive"),
+        ("LGPL-3.0; MIT", "weak-copyleft"),
+        ("MIT OR GPL-3.0", "strong-copyleft"),
+        ("GPL-3.0 AND Proprietary", "strong-copyleft"),
+        ("BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0", "permissive"),
+        ("MIT AND (BSD-3-Clause OR Apache-2.0)", "permissive"),
+        ("Mozilla Public License 2.0 (MPL 2.0); MIT", "weak-copyleft"),
+        ("GPL-3.0 OR OR MIT", "unknown"),
+        ("(MIT) AND (GPL-3.0)", "strong-copyleft"),
+        ("(MIT AND BSD-3-Clause)", "permissive"),
+    ],
+)
+def test_explicit_compound_licenses_classify_all_components(
+    license_name: str, expected: str
+) -> None:
+    assert license_closure.classify(license_name) == expected
+
+
+@pytest.mark.parametrize(
     "license_name",
     [
         "MPL-2.0",
@@ -66,18 +135,70 @@ def test_empty_and_full_text_are_unknown(license_name: str) -> None:
         "Mozilla Public License 2.0 (MPL 2.0)",
     ],
 )
+@pytest.mark.parametrize("profile", ["test", "dev"])
 def test_hypothesis_exception_accepts_reviewed_mpl_aliases(
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
     license_name: str,
+    profile: str,
 ) -> None:
     finding = license_closure.Finding(
         "Hypothesis", "1.0", license_name, license_closure.classify(license_name)
     )
     monkeypatch.setattr(license_closure, "audit", lambda: [finding])
 
-    assert license_closure.main(["--profile", "rips"]) == 0
+    assert license_closure.main(["--profile", profile]) == 0
     assert "allowed exception" in capsys.readouterr().out
+
+
+def test_hypothesis_exception_rejects_unicode_confusable_alias(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    license_name = "Moz\u0131lla Publ\u0131c L\u0131cense 2.0"
+    finding = license_closure.Finding(
+        "hypothesis", "1.0", license_name, license_closure.classify(license_name)
+    )
+    monkeypatch.setattr(license_closure, "audit", lambda: [finding])
+
+    assert license_closure.main(["--profile", "test"]) == 1
+    output = capsys.readouterr().out
+    assert "allowed exception" not in output
+    assert f"detected {license_name}" in output
+
+
+@pytest.mark.parametrize(
+    "license_name",
+    [
+        "(" * 100 + "MIT" + ")" * 100,
+        "MIT " * 2000,
+    ],
+)
+def test_overlong_or_deeply_nested_license_is_unknown(license_name: str) -> None:
+    assert license_closure.classify(license_name) == "unknown"
+
+
+def test_raw_overlong_whitespace_collapsed_license_is_unknown() -> None:
+    license_name = "MIT" + " " * (license_closure.MAX_LICENSE_LENGTH + 1) + "LICENSE"
+
+    assert license_closure.classify(license_name) == "unknown"
+
+
+@pytest.mark.parametrize("profile", ["io", "rips"])
+def test_hypothesis_mpl_exception_is_rejected_outside_test_and_dev_profiles(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    profile: str,
+) -> None:
+    finding = license_closure.Finding(
+        "hypothesis", "1.0", "MPL-2.0", license_closure.classify("MPL-2.0")
+    )
+    monkeypatch.setattr(license_closure, "audit", lambda: [finding])
+
+    assert license_closure.main(["--profile", profile]) == 1
+    output = capsys.readouterr().out
+    assert f"profile {profile!r}" in output
+    assert "dev, test" in output
 
 
 @pytest.mark.parametrize(
@@ -102,7 +223,7 @@ def test_hypothesis_exception_rejects_changed_or_compound_licences(
     )
     monkeypatch.setattr(license_closure, "audit", lambda: [finding])
 
-    assert license_closure.main(["--profile", "rips"]) == 1
+    assert license_closure.main(["--profile", "test"]) == 1
     output = capsys.readouterr().out
     assert "allowed exception" not in output
     assert f"detected {license_name}" in output
@@ -229,12 +350,55 @@ def test_all_supported_profiles_are_accepted(
 
 
 def test_exception_configuration_rejects_unsupported_expected_license() -> None:
-    exceptions = {"somepkg": ("LGPL-2.1", "reviewed")}
+    exceptions = {
+        "somepkg": license_closure.ExceptionPolicy(
+            "LGPL-2.1", frozenset({"test"}), "reviewed"
+        )
+    }
 
     with pytest.raises(
         ValueError, match=r"somepkg.*LGPL-2.1.*_EXCEPTION_LICENSE_ALIASES"
     ):
         license_closure._validate_exception_configuration(exceptions)
+
+
+def test_exception_configuration_requires_canonical_expected_license() -> None:
+    exceptions = {
+        "somepkg": license_closure.ExceptionPolicy(
+            "MPL 2.0", frozenset({"test"}), "reviewed"
+        )
+    }
+
+    with pytest.raises(ValueError, match=r"somepkg.*MPL 2\.0.*MPL-2\.0"):
+        license_closure._validate_exception_configuration(exceptions)
+
+
+@pytest.mark.parametrize(
+    ("profiles", "reason", "message"),
+    [
+        (frozenset(), "reviewed", "nonempty"),
+        (frozenset({"not-a-profile"}), "reviewed", "unsupported profile"),
+        (frozenset({"test", 1}), "reviewed", "only strings"),
+        (frozenset({"test"}), " ", "reason"),
+    ],
+)
+def test_exception_configuration_rejects_invalid_policy_fields(
+    profiles: frozenset[str], reason: str, message: str
+) -> None:
+    policy_type = getattr(license_closure, "ExceptionPolicy", None)
+    assert policy_type is not None
+    policy = policy_type("MPL-2.0", profiles, reason)
+    with pytest.raises(ValueError, match=message):
+        license_closure._validate_exception_configuration({"somepkg": policy})
+
+
+def test_exception_policy_is_immutable() -> None:
+    policy_type = getattr(license_closure, "ExceptionPolicy", None)
+    assert policy_type is not None
+    policy = policy_type("MPL-2.0", frozenset({"test"}), "reviewed")
+
+    with pytest.raises(FrozenInstanceError):
+        policy.reason = "changed"  # type: ignore[misc]
 
 
 def test_mismatched_exception_points_to_license_aliases(
@@ -246,15 +410,15 @@ def test_mismatched_exception_points_to_license_aliases(
     )
     monkeypatch.setattr(license_closure, "audit", lambda: [finding])
 
-    assert license_closure.main(["--profile", "rips"]) == 1
+    assert license_closure.main(["--profile", "test"]) == 1
     assert "_EXCEPTION_LICENSE_ALIASES" in capsys.readouterr().out
 
 
 def test_invalid_static_exception_fails_during_module_import() -> None:
     source = Path(__file__).parents[1] / "tools/check_license_closure.py"
     contents = source.read_text(encoding="utf-8")
-    original = '"hypothesis": (\n        "MPL-2.0",'
-    replacement = '"hypothesis": (\n        "LGPL-2.1",'
+    original = '"hypothesis": ExceptionPolicy(\n        "MPL-2.0",'
+    replacement = '"hypothesis": ExceptionPolicy(\n        "LGPL-2.1",'
     assert contents.count(original) == 1
 
     with tempfile.TemporaryDirectory() as directory:
