@@ -11,7 +11,9 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-_PROBE_PATH = Path("rfcs/evidence/probe_backends.py")
+_ROOT = Path(__file__).resolve().parents[1]
+_PROBE_PATH = _ROOT / "rfcs/evidence/probe_backends.py"
+_WORKFLOW_PATH = _ROOT / ".github/workflows/ci.yml"
 _SPEC = importlib.util.spec_from_file_location("probe_backends", _PROBE_PATH)
 assert _SPEC is not None
 assert _SPEC.loader is not None
@@ -19,9 +21,38 @@ probe_backends = importlib.util.module_from_spec(_SPEC)
 _SPEC.loader.exec_module(probe_backends)
 
 
+def test_probe_sources_are_readable_after_chdir(monkeypatch, tmp_path) -> None:
+    """Release-gate source paths remain readable independently of the CWD."""
+    monkeypatch.chdir(tmp_path)
+
+    assert _PROBE_PATH.read_text(encoding="utf-8")
+    assert _WORKFLOW_PATH.read_text(encoding="utf-8")
+
+
+def test_every_read_text_call_declares_utf8_encoding() -> None:
+    """Test source reads must not depend on the host locale encoding."""
+    source = Path(__file__).read_text(encoding="utf-8")
+    tree = ast.parse(source)
+
+    read_text_calls = [
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "read_text"
+    ]
+
+    assert read_text_calls
+    assert all(
+        any(keyword.arg == "encoding" and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value == "utf-8" for keyword in call.keywords)
+        for call in read_text_calls
+    )
+
+
 def test_workflow_requires_giotto_and_does_not_suppress_evidence_failures() -> None:
     """The evidence job must fail when installation or the probe drifts."""
-    workflow = Path(".github/workflows/ci.yml").read_text()
+    workflow = _WORKFLOW_PATH.read_text(encoding="utf-8")
     evidence_job = workflow.split("  rfc-evidence:\n", 1)[1].split("\n  build:", 1)[0]
 
     assert "continue-on-error: true" not in evidence_job
@@ -30,7 +61,7 @@ def test_workflow_requires_giotto_and_does_not_suppress_evidence_failures() -> N
 
 def test_probe_has_one_shared_max_edge_and_uses_it_for_both_backends() -> None:
     """A.1/A.5 must not silently compare different filtration cutoffs."""
-    tree = ast.parse(Path("rfcs/evidence/probe_backends.py").read_text())
+    tree = ast.parse(_PROBE_PATH.read_text(encoding="utf-8"))
 
     def keyword_uses_max_edge(call: ast.Call, keyword: str) -> bool:
         value = next((kw.value for kw in call.keywords if kw.arg == keyword), None)
