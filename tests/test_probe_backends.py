@@ -44,8 +44,12 @@ def test_every_read_text_call_declares_utf8_encoding() -> None:
 
     assert read_text_calls
     assert all(
-        any(keyword.arg == "encoding" and isinstance(keyword.value, ast.Constant)
-            and keyword.value.value == "utf-8" for keyword in call.keywords)
+        any(
+            keyword.arg == "encoding"
+            and isinstance(keyword.value, ast.Constant)
+            and keyword.value.value == "utf-8"
+            for keyword in call.keywords
+        )
         for call in read_text_calls
     )
 
