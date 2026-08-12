@@ -28,9 +28,9 @@ def _extract_optional_profile_keys(section_body: str) -> set[str]:
         stripped = line.lstrip()
         if stripped.startswith("#"):
             continue
-        if stripped.startswith(("\"", "'")):
+        if stripped.startswith(('"', "'")):
             quoted_key = re.match(
-                r'''^(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')'''
+                r"""^(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*')"""
                 r"(?:\s*\.\s*[A-Za-z0-9_-]+)*\s*=",
                 stripped,
             )
