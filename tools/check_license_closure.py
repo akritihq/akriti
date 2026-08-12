@@ -33,21 +33,19 @@ from dataclasses import dataclass
 # not shipped to anyone.
 IGNORED = {"pip", "setuptools", "wheel", "pkg-resources", "akriti"}
 
-SUPPORTED_PROFILES = frozenset(
-    {
-        "default",
-        "extras",
-        "rips",
-        "alpha",
-        "distances",
-        "numpy",
-        "io",
-        "torch",
-        "bio",
-        "test",
-        "lint",
-        "dev",
-    }
+SUPPORTED_PROFILES = (
+    "default",
+    "extras",
+    "rips",
+    "alpha",
+    "distances",
+    "numpy",
+    "io",
+    "torch",
+    "bio",
+    "test",
+    "lint",
+    "dev",
 )
 
 PERMISSIVE = {

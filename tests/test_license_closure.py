@@ -22,6 +22,31 @@ sys.modules[_SPEC.name] = license_closure
 _SPEC.loader.exec_module(license_closure)
 
 
+def _extract_optional_profile_keys(section_body: str) -> set[str]:
+    profiles = set()
+    for line_number, line in enumerate(section_body.splitlines(), start=1):
+        stripped = line.lstrip()
+        if stripped.startswith("#"):
+            continue
+        if stripped.startswith(("\"", "'")):
+            if re.match(r"^[\"'].*?[\"']\s*=", stripped):
+                raise ValueError(
+                    f"unrecognized optional-dependency key on line {line_number}: "
+                    f"{stripped.split('=', 1)[0].strip()!r}"
+                )
+            continue
+        assignment = re.match(r"^\s*([^=]+?)\s*=", line)
+        if assignment is None:
+            continue
+        key = assignment.group(1).strip()
+        if not re.fullmatch(r"[A-Za-z0-9_-]+", key):
+            raise ValueError(
+                f"unrecognized optional-dependency key on line {line_number}: {key!r}"
+            )
+        profiles.add(key)
+    return profiles
+
+
 @pytest.mark.parametrize("license_name", ["", "<full text> BSD 3-Clause License"])
 def test_empty_and_full_text_are_unknown(license_name: str) -> None:
     assert license_closure.classify(license_name) == "unknown"
@@ -130,14 +155,41 @@ def test_supported_profiles_match_pyproject_optional_dependency_keys() -> None:
         contents,
     )
     assert section is not None
-    optional_profiles = set(
-        re.findall(r"^(\w+)\s*=", section.group("body"), re.MULTILINE)
-    )
+    optional_profiles = _extract_optional_profile_keys(section.group("body"))
 
-    assert optional_profiles | {
+    assert set(license_closure.SUPPORTED_PROFILES) == optional_profiles | {
         "default",
         "extras",
-    } == license_closure.SUPPORTED_PROFILES
+    }
+
+
+def test_optional_profile_keys_accept_hyphenated_bare_keys() -> None:
+    assert _extract_optional_profile_keys("gpu-tools = []\n") == {"gpu-tools"}
+
+
+def test_optional_profile_keys_reject_unrecognized_assignment() -> None:
+    with pytest.raises(ValueError, match="unrecognized optional-dependency key"):
+        _extract_optional_profile_keys("gpu.tools = []\n")
+
+
+def test_profile_choice_help_preserves_declared_order(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    monkeypatch.setattr(
+        license_closure,
+        "audit",
+        lambda: pytest.fail("audit must not run for an invalid profile"),
+    )
+
+    with pytest.raises(SystemExit):
+        license_closure.main(["--profile", "invalid"])
+
+    error = capsys.readouterr().err
+    assert (
+        "choose from default, extras, rips, alpha, distances, numpy, io, torch, "
+        "bio, test, lint, dev"
+    ) in error
 
 
 @pytest.mark.parametrize(
