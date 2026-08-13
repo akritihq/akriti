@@ -79,7 +79,7 @@ rips = ["ripser>=0.6.4"]
 # are marked "MIT (GPL v3)" upstream, and the PyPI wheel bundles them --
 # gudhi.AlphaComplex is importable from a plain `pip install gudhi`. Treat the
 # whole wheel as GPLv3-encumbered. https://gudhi.inria.fr/licensing/
-alpha = ["gudhi>=3.9"]
+alpha = ["gudhi>=3.13.0"]
 
 # Diagram distances and vectorisations. MIT; GPLv3 hopcroftkarp transitively.
 # NOTE: persim returns a finite bottleneck distance between diagrams that are
