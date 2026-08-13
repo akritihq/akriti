@@ -336,4 +336,21 @@ def test_check_array_shim_rejects_conflicting_old_and_new_values() -> None:
 @pytest.mark.backend
 def test_main_returns_zero_on_a_clean_optional_backend_probe() -> None:
     """The probe exposes a testable success return while giotto remains optional."""
+    # Import each backend the way the rest of the suite does, before `main`
+    # imports it internally. Two reasons, and the second is not obvious.
+    #
+    # A missing backend should skip rather than error, as in
+    # test_rfc0001_backend_claims.py.
+    #
+    # persim 0.3.8 also contains invalid escape sequences, which are a
+    # SyntaxWarning at *compile* time, which `filterwarnings = ["error"]` turns
+    # fatal. `importorskip` suppresses warnings during import, so the module
+    # compiles and lands in sys.modules before `main` reaches its own
+    # `import persim`. Without this the test fails only when persim has no
+    # cached bytecode -- pip byte-compiles on install and hides it, uv does
+    # not -- so it passes in CI and fails on a fresh contributor venv.
+    pytest.importorskip("gudhi")
+    pytest.importorskip("ripser")
+    pytest.importorskip("persim")
+
     assert probe_backends.main([]) == 0
