@@ -116,7 +116,7 @@ bio = ["anndata>=0.10"]
 test = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
-    "hypothesis>=6.161.8",   # MPL-2.0, weak copyleft. Test-only, never shipped.
+    "hypothesis>=6.165.2",   # MPL-2.0, weak copyleft. Test-only, never shipped.
     # Conformance reference for RFC-0001 §3.3. Rejects NumPy-only calls that
     # numpy's own __array_namespace__ silently permits (it returns numpy
     # itself, so hasattr checks pass spuriously). BSD. Test-only.
@@ -131,7 +131,7 @@ test = [
     "akriti[numpy]",
 ]
 lint = [
-    "ruff>=0.16.0",
+    "ruff>=0.16.2",
     "mypy>=2.3.0",
 ]
 dev = ["akriti[test,lint,rips,alpha,distances]"]
