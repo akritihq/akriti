@@ -73,6 +73,8 @@ Implementation follows the RFCs in `rfcs/`. `akriti.diagrams` is specified by
 **RFC-0001**; read it before touching `diagrams/`. If the code and the RFC
 disagree, one of them is a bug — say which.
 
+**Before reviewing an RFC or a change to one, read `REVIEWING.md`** -- what RFC review passes turned up that generalise.
+
 Three consequences of RFC-0001 that are easy to get wrong:
 
 - Essential bars are stored as `inf`. Never a sentinel, never dropped.
