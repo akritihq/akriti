@@ -108,7 +108,7 @@ io = ["akriti[numpy]"]
 torch = ["torch>=2.0"]
 
 # Domain integration.
-bio = ["anndata>=0.10"]
+bio = ["anndata>=0.11.4"]
 
 # giotto-tda is AGPLv3 and MUST NOT enter any user-facing extra. It is present
 # for compat-shim fixtures only, and it does not currently run on scikit-learn
