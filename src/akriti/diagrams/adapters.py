@@ -122,11 +122,13 @@ _FLOAT64_SMALLEST_NORMAL = float.fromhex("0x1.0p-1022")
 _INT32_MIN = -(2**31)
 _INT32_MAX = 2**31 - 1
 
-# §8's reserved `provenance` keys, in full. Every one of them names the writer
-# that measured it -- two adapter-time counts, a dtype, two source keys, and
-# the two `essential_bars*` keys whose writers §8 lists by name -- and none of
-# those writers is a caller. They are refused in `_build_meta` on exactly the
-# ground `backend` and `backend_version` already are.
+# §8's reserved `provenance` keys, in full -- eight of them. Every one names
+# the writer that measured it: two adapter-time counts (`clamped_rows`,
+# `padding_removed`), a dtype (`source_dtype`), two source keys
+# (`essential_bars_source`, `coeff_field_source`), and the three remaining
+# `essential_bars*` keys whose writers §8 lists by name. None of those writers
+# is a caller. They are refused in `_build_meta` on exactly the ground
+# `backend` and `backend_version` already are.
 #
 # Named as a set rather than checked one adapter at a time because the defect
 # this closes was that the refusal *was* per-adapter, by accident: a caller's
@@ -267,18 +269,41 @@ def _is_extended_persistence(obj: Any) -> bool:
     missing -- an array interval and a non-numeric one -- and why the reading
     it makes is structural.
 
-    GUDHI itself returns tuple rows, so this decides nothing about live
-    backend output; it decides what happens to output that has been through a
-    serializer, which is what §11.2's frozen fixtures are.
+    **The same argument binds the two container axes, which is what an earlier
+    version got wrong.** Both the outer container and each member were pinned
+    to `list` exactly, while `_is_persistence_row` accepted any row sequence --
+    so of the twelve ways one extended result can be spelled, only the three
+    with `list` in both container slots were named as out of scope. The other
+    nine were refused with a message about *shape*, which §11 forbids in the
+    same sentence that requires the rejection: "MUST name the scope exclusion
+    rather than the shape". A caller told that row 0 is mis-shaped goes hunting
+    for a typo in data that is exactly what GUDHI handed them, and a caller
+    holding a four-element *tuple* was told this adapter rejects "a flat tuple
+    of persistence rows", which is a different input form entirely.
+
+    So both containers are read with `_is_row_sequence`, the same predicate the
+    rows are. This cannot widen the detector onto ordinary output, because
+    what discriminates is unchanged and is a property of the members rather
+    than of any container: a `persistence()` result's members *are* rows, and
+    an extended result's members are lists *of* rows. A flat tuple of four
+    bars still reaches the flat-tuple refusal, and a four-bar `persistence()`
+    list is still accepted whatever its rows are spelled as.
+
+    GUDHI itself returns a list of lists of tuple rows, so this decides nothing
+    about live backend output; it decides what happens to output that has been
+    through a serializer, which is what §11.2's frozen fixtures are. JSON
+    spells every container a `list` and the detector already worked there --
+    it is the round trips that *preserve* tuples, or a caller who writes
+    `tuple(st.extended_persistence())`, that this closes.
 
     A single member passed alone is not detected, being indistinguishable
     from ordinary output; `from_gudhi`'s docstring states that residual case.
     """
     return (
-        isinstance(obj, list)
+        _is_row_sequence(obj)
         and len(obj) == 4
         and all(
-            isinstance(member, list) and not _is_persistence_row(member)
+            _is_row_sequence(member) and not _is_persistence_row(member)
             for member in obj
         )
     )
@@ -333,8 +358,6 @@ def _namespace_for_rows() -> Any:
             "so building one needs numpy, which is not installed. Install "
             "`akriti[numpy]`, or pass an array instead of a Python list."
         ) from exc
-    except ImportError:
-        raise
 
     try:
         installed_version = metadata.version("numpy")
@@ -717,7 +740,7 @@ def _build_meta(
 ) -> DiagramMeta:
     """Merge the adapter's recorded facts with the caller's metadata. §8.
 
-    The caller's `provenance` and `params` are kept, **except for §8's seven
+    The caller's `provenance` and `params` are kept, **except for §8's eight
     reserved `provenance` keys, which are refused outright**
     (`_ADAPTER_OWNED_PROVENANCE`). Each of those names the writer that measured
     it and none of those writers is a caller: `essential_bars` has two, "`from_giotto`
@@ -744,7 +767,29 @@ def _build_meta(
 
     A caller with a genuine fact to record -- the host that captured a fixture,
     the dtype an array had before a JSON round trip -- has the rest of the
-    mapping, which is open. What is closed is the seven names a reader trusts.
+    mapping, which is open. What is closed is the eight names a reader trusts.
+
+    **`params` is refused on a collision rather than on a name list**, and the
+    difference is §8's own: "`provenance` is meant to be backend-agnostic;
+    `params` is not". `provenance["essential_bars"]` means the same thing on
+    every diagram, so the name can be reserved outright; `params` holds one
+    backend's call parameters, so a key that one adapter measures is ordinary
+    caller data at the other four. Reserving `reduced_homology` by name would
+    refuse a `from_array` caller recording what produced the array they are
+    adapting, which is exactly what `params` is for.
+
+    So the rule is the narrower one: a caller may state any `params` key **the
+    adapter did not measure in this call**. Today that refuses exactly
+    `from_giotto`'s `reduced_homology` (§5.1 gives it one writer, and it is the
+    argument, not the caller's mapping) and nothing else, since no other
+    adapter writes `params` at all. It stays correct without a list to
+    maintain if one later does.
+
+    Refused rather than overwritten for the reason the provenance keys are: a
+    caller who passes `params={"reduced_homology": False}` alongside
+    `reduced_homology=True` has contradicted themselves, and the useful answer
+    says so. Overwriting silently discards one of the two, and which one
+    survives is invisible in the result.
 
     Both mappings are required to *be* mappings before anything is merged into
     them; `_as_metadata_mapping` carries the three ways the previous
@@ -799,7 +844,18 @@ def _build_meta(
             f"can audit (RFC-0001 §8, §11). Refused: {reserved_keys}"
         )
     caller_provenance.update(provenance)
-    caller_params.update(params or {})
+
+    measured_params = params or {}
+    contested = sorted(set(measured_params).intersection(caller_params))
+    if contested:
+        raise TypeError(
+            f"params[{contested[0]!r}] is measured by this adapter from its "
+            "own argument, which is that key's one writer, so a second value "
+            "for it in params= is a contradiction rather than a fact "
+            "(RFC-0001 §8; §5.1 for this key). Pass it as the keyword "
+            f"argument alone. Refused: {contested}"
+        )
+    caller_params.update(measured_params)
 
     return DiagramMeta(
         backend=backend,
@@ -1735,11 +1791,15 @@ def from_giotto(
     `infinity_values=vr.infinity_values` off the fitted transformer, having
     constructed the transformer with `infinity_values=numpy.inf`.
 
-    This is measured rather than inferred, and the measurement is committed:
-    `tests/fixtures/giotto_output.json` was captured without the argument, and
-    its `reduced_homology=False` sample carries 40 H0 bars, no `inf`, and
-    exactly one death equal to `max_edge_length`. §5.1's derivation below
-    would have labelled that diagram `"faithful"`.
+    This is measured rather than inferred, and **both settings are committed**:
+    `tests/fixtures/giotto_output.json` carries one capture per setting, from a
+    single run in the pinned environment. Under `samples`
+    (`infinity_values=inf`) the `reduced_homology=False` case has 40 H0 bars,
+    exactly one death at `inf`, and no death equal to `max_edge_length`. Under
+    `samples_default_infinity` (giotto's own `None`) the same call gives the
+    same 40 bars with that one death sitting at `max_edge_length` instead --
+    the finite sentinel this adapter refuses, and the array §11.2 requires the
+    refusal to be tested against.
 
     **`reduced_homology` is required, and required for a measured reason.**
     With giotto's default of `True`, exactly one H0 class -- the essential one
@@ -1751,7 +1811,9 @@ def from_giotto(
     `provenance["essential_bars"]` is *derived* from it -- `"lost_upstream"`
     when `True`, `"faithful"` when `False` -- and `essential_bars_source` is
     set to the same value in the same construction (§8). The flag itself is
-    recorded in `params`, being a raw fact of the original call (§5.1).
+    recorded in `params`, being a raw fact of the original call (§5.1) -- so
+    `params={"reduced_homology": ...}` is refused rather than merged, this
+    argument being the one writer §5.1 gives that key.
 
     **That derivation is §5.1's, and it is only sound because `inf` is the one
     accepted `infinity_values`.** §5.1 states the rule as though

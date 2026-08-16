@@ -966,3 +966,376 @@ def test_invariant_errors_name_the_value_that_broke_them() -> None:
             births=np.asarray([0.0], dtype=np.float32),
             deaths=np.asarray([1.0], dtype=np.float64),
         )
+
+
+# -- §8 read-only metadata, every mutator rather than a sample ------------
+#
+# The three the suite already exercised (`dict.__setitem__`, `list.append`)
+# were the three easiest to reach. `pop`, `update`, `setdefault`, `extend`,
+# `sort` and the in-place operators are the *realistic* ways a caller mutates
+# a mapping, and each is a separate override: dropping any one silently
+# restores `dict`'s or `list`'s own method, and metadata that §8 calls
+# immutable starts changing under an already-hashed diagram (§8.1).
+
+_FROZEN_LIST_MUTATIONS = {
+    "setitem": lambda seq: seq.__setitem__(0, "x"),
+    "delitem": lambda seq: seq.__delitem__(0),
+    "append": lambda seq: seq.append("x"),
+    "extend": lambda seq: seq.extend(["x"]),
+    "insert": lambda seq: seq.insert(0, "x"),
+    "pop": lambda seq: seq.pop(),
+    "remove": lambda seq: seq.remove("a"),
+    "clear": lambda seq: seq.clear(),
+    "reverse": lambda seq: seq.reverse(),
+    "sort": lambda seq: seq.sort(),
+    "iadd": lambda seq: seq.__iadd__(["x"]),
+    "imul": lambda seq: seq.__imul__(2),
+}
+
+_FROZEN_DICT_MUTATIONS = {
+    "setitem": lambda m: m.__setitem__("k", "x"),
+    "delitem": lambda m: m.__delitem__("a"),
+    "clear": lambda m: m.clear(),
+    "pop": lambda m: m.pop("a"),
+    "popitem": lambda m: m.popitem(),
+    "setdefault": lambda m: m.setdefault("k", "x"),
+    "update": lambda m: m.update({"k": "x"}),
+    "ior": lambda m: m.__ior__({"k": "x"}),
+}
+
+
+@pytest.mark.parametrize("field", ["params", "provenance"])
+@pytest.mark.parametrize("mutation", _FROZEN_LIST_MUTATIONS.keys())
+def test_every_frozen_list_mutator_is_refused(field: str, mutation: str) -> None:
+    """§8: a stored list refuses the whole `MutableSequence` surface."""
+    meta = DiagramMeta(**{field: {"items": ["a", "b"]}})  # type: ignore[arg-type]
+    stored = getattr(meta, field)["items"]
+
+    with pytest.raises(TypeError, match="read-only"):
+        _FROZEN_LIST_MUTATIONS[mutation](stored)
+
+    assert stored == ["a", "b"], f"{mutation} mutated the list before raising"
+
+
+@pytest.mark.parametrize("field", ["params", "provenance"])
+@pytest.mark.parametrize("mutation", _FROZEN_DICT_MUTATIONS.keys())
+def test_every_frozen_dict_mutator_is_refused(field: str, mutation: str) -> None:
+    """§8: a stored mapping refuses the whole `MutableMapping` surface.
+
+    `pop` and `setdefault` matter most: both have a default argument, so a
+    missing override does not raise even on an absent key -- it mutates and
+    returns quietly."""
+    meta = DiagramMeta(**{field: {"nested": {"a": 1}}})  # type: ignore[arg-type]
+    stored = getattr(meta, field)["nested"]
+
+    with pytest.raises(TypeError, match="read-only"):
+        _FROZEN_DICT_MUTATIONS[mutation](stored)
+
+    assert stored == {"a": 1}, f"{mutation} mutated the mapping before raising"
+
+
+def test_the_frozen_containers_still_read_like_their_builtins() -> None:
+    """Refusing writes must not cost the read surface §10.1 round-trips."""
+    meta = DiagramMeta(params={"items": ["a", "b"], "nested": {"a": 1}})
+
+    assert list(meta.params["items"]) == ["a", "b"]
+    assert meta.params["items"][1] == "b"
+    assert "a" in meta.params["nested"]
+    assert dict(meta.params["nested"]) == {"a": 1}
+    assert json.loads(json.dumps(meta.params)) == {
+        "items": ["a", "b"],
+        "nested": {"a": 1},
+    }
+
+
+# -- §4.2 B1-B7, over a batch built by hand rather than by from_diagrams --
+#
+# `from_diagrams` cannot produce a malformed `offsets`, so routing every batch
+# test through it leaves B2-B7 asserted nowhere: the checks existed and no
+# test had ever seen one fire. `DiagramBatch` is a public dataclass, so a
+# caller reaching these is a supported path, not a private one.
+
+xps = pytest.importorskip("array_api_strict")
+
+
+def _buffers(n: int) -> tuple[Any, Any, Any]:
+    return (
+        np.zeros(n, dtype=np.int32),
+        np.zeros(n, dtype=np.float64),
+        np.ones(n, dtype=np.float64),
+    )
+
+
+def test_offsets_must_be_rank_1() -> None:
+    """B6: `offsets.shape[0]` answers happily on a rank-2 array, so the
+    length check below would pass while every slice was wrong."""
+    dims, births, deaths = _buffers(1)
+    with pytest.raises(ValueError, match=r"rank-1 \(B6\); got ndim 2"):
+        DiagramBatch(
+            dims, births, deaths, np.array([[0, 1]], dtype=np.int64), [DiagramMeta()]
+        )
+
+
+def test_offsets_must_be_int64() -> None:
+    """B7: an int32 offset silently truncates past 2**31 bars."""
+    dims, births, deaths = _buffers(1)
+    with pytest.raises(ValueError, match=r"int64 \(B7\); got int32"):
+        DiagramBatch(
+            dims, births, deaths, np.array([0, 1], dtype=np.int32), [DiagramMeta()]
+        )
+
+
+def test_offsets_must_start_at_zero() -> None:
+    """B2: a non-zero first offset orphans the leading rows."""
+    dims, births, deaths = _buffers(1)
+    with pytest.raises(ValueError, match=r"offsets\[0\] must be 0 \(B2\); got 1"):
+        DiagramBatch(
+            dims, births, deaths, np.array([1, 1], dtype=np.int64), [DiagramMeta()]
+        )
+
+
+def test_offsets_must_end_at_total_bars() -> None:
+    """B3: a short final offset drops trailing bars from every view."""
+    dims, births, deaths = _buffers(1)
+    with pytest.raises(ValueError, match=r"offsets\[-1\] must equal total_bars \(B3\)"):
+        DiagramBatch(
+            dims, births, deaths, np.array([0, 0], dtype=np.int64), [DiagramMeta()]
+        )
+
+
+def test_offsets_must_be_non_decreasing() -> None:
+    """B4: a descending pair gives a negative-length slice, which numpy
+    returns as empty rather than raising -- the diagram would simply lose
+    its bars with no error anywhere."""
+    dims, births, deaths = _buffers(3)
+    with pytest.raises(ValueError, match=r"non-decreasing \(B4\)"):
+        DiagramBatch(
+            dims,
+            births,
+            deaths,
+            np.array([0, 2, 1, 3], dtype=np.int64),
+            [DiagramMeta(), DiagramMeta(), DiagramMeta()],
+        )
+
+
+def test_offsets_must_share_the_batch_namespace() -> None:
+    """B5: §3.3 gives a batch one namespace; offsets are not exempt."""
+    dims, births, deaths = _buffers(1)
+    with pytest.raises(ValueError, match=r"namespace \(B5\)"):
+        DiagramBatch(
+            dims, births, deaths, xps.asarray([0, 1], dtype=xps.int64), [DiagramMeta()]
+        )
+
+
+# -- §4.2 from_diagrams' namespace agreement and the empty case ----------
+
+
+def test_from_diagrams_rejects_a_mixed_namespace_sequence() -> None:
+    """I7/B5: one batch, one namespace -- caught before `concat` would."""
+    numpy_diagram = bars([0], [0.0], [1.0])
+    strict_diagram = PersistenceDiagram(
+        dims=xps.asarray([0], dtype=xps.int32),
+        births=xps.asarray([0.0], dtype=xps.float64),
+        deaths=xps.asarray([1.0], dtype=xps.float64),
+    )
+    with pytest.raises(ValueError, match=r"diagrams\[1\].*namespace"):
+        DiagramBatch.from_diagrams([numpy_diagram, strict_diagram])
+
+
+def test_from_diagrams_rejects_an_xp_that_contradicts_the_diagrams() -> None:
+    """`xp=` names the empty case's namespace; it must not silently lose to
+    a non-empty sequence that disagrees with it."""
+    with pytest.raises(ValueError, match="xp does not match"):
+        DiagramBatch.from_diagrams([bars([0], [0.0], [1.0])], xp=xps)
+
+
+def test_from_diagrams_needs_xp_to_build_an_empty_batch() -> None:
+    """An empty sequence carries no array to derive a namespace from."""
+    with pytest.raises(ValueError, match=r"from_diagrams\(\[\]\).*pass xp="):
+        DiagramBatch.from_diagrams([])
+
+
+def test_an_empty_batch_is_canonical_and_measurable() -> None:
+    """The zero-diagram batch is a real batch, not a special case to guard
+    against at every call site."""
+    empty = DiagramBatch.from_diagrams([], xp=np)
+
+    assert len(empty) == 0
+    assert empty.canonical() is empty
+    assert list(empty) == []
+    assert empty == DiagramBatch.from_diagrams([], xp=np)
+
+
+# -- §5 comparison against a foreign type defers, never raises ------------
+
+
+@pytest.mark.parametrize("other", [42, "diagram", None, object()])
+def test_diagram_equality_defers_to_the_other_operand(other: Any) -> None:
+    """`NotImplemented`, so Python can try the reflected operand and then
+    fall back to identity. Raising here would make `d in [1, 2]` an error."""
+    d = bars([0], [0.0], [1.0])
+
+    assert d.__eq__(other) is NotImplemented
+    assert d != other
+    assert d not in [other]
+
+
+@pytest.mark.parametrize("other", [42, "batch", None, object()])
+def test_batch_equality_defers_to_the_other_operand(other: Any) -> None:
+    """The same, one container up."""
+    batch = DiagramBatch.from_diagrams([bars([0], [0.0], [1.0])])
+
+    assert batch.__eq__(other) is NotImplemented
+    assert batch != other
+
+
+def test_batch_persistence_spans_the_whole_buffer() -> None:
+    """§5: `persistence` is `deaths - births` over the shared buffer, so it
+    stays aligned with the batch's rows rather than a single diagram's."""
+    batch = DiagramBatch.from_diagrams(
+        [bars([0], [0.0], [2.0]), bars([1, 1], [0.5, 1.0], [3.0, np.inf])]
+    )
+
+    lifetimes = np.asarray(batch.persistence)
+
+    assert lifetimes.tolist()[:3] == [2.0, 2.5, math.inf]
+    assert lifetimes.shape[0] == batch.dims.shape[0]
+
+
+# -- §3.1 the I-invariants the suite reached only through `births` --------
+#
+# `test_invariant_errors_name_the_value_that_broke_them` covers I2 on
+# `births` only. Each column is a separate check, and a check nothing has
+# ever run is indistinguishable from one that was deleted.
+
+
+def test_deaths_must_be_float64() -> None:
+    """I2, on the column the births test does not reach."""
+    with pytest.raises(ValueError, match=r"deaths must be float64 \(I2\); got float32"):
+        PersistenceDiagram(
+            dims=np.asarray([0], dtype=np.int32),
+            births=np.asarray([0.0], dtype=np.float64),
+            deaths=np.asarray([1.0], dtype=np.float32),
+        )
+
+
+def test_dims_must_be_int32() -> None:
+    """I2: a degree column of another width is a different on-disk layout
+    (§10.2), not a detail the constructor can normalise away."""
+    with pytest.raises(ValueError, match=r"dims must be int32 \(I2\); got int64"):
+        PersistenceDiagram(
+            dims=np.asarray([0], dtype=np.int64),
+            births=np.asarray([0.0], dtype=np.float64),
+            deaths=np.asarray([1.0], dtype=np.float64),
+        )
+
+
+def test_the_three_columns_must_share_one_namespace() -> None:
+    """I7: §3.3 gives a diagram one namespace, checked before anything is
+    read -- a mixed trio otherwise fails much later, inside an operation."""
+    with pytest.raises(ValueError, match=r"one array namespace \(I7\)"):
+        PersistenceDiagram(
+            dims=np.asarray([0], dtype=np.int32),
+            births=xps.asarray([0.0], dtype=xps.float64),
+            deaths=xps.asarray([1.0], dtype=xps.float64),
+        )
+
+
+def test_the_three_columns_must_be_rank_1() -> None:
+    """I9: a column-vector `(n, 1)` is the shape a caller most often has,
+    and it would otherwise broadcast into nonsense rather than raise."""
+    with pytest.raises(ValueError, match=r"rank-1 \(I9\)"):
+        PersistenceDiagram(
+            dims=np.asarray([[0]], dtype=np.int32),
+            births=np.asarray([[0.0]], dtype=np.float64),
+            deaths=np.asarray([[1.0]], dtype=np.float64),
+        )
+
+
+def test_batch_offsets_length_must_match_the_metas() -> None:
+    """B1: one offset boundary per diagram, plus the closing one."""
+    dims, births, deaths = _buffers(1)
+    with pytest.raises(ValueError, match=r"len\(offsets\).*\(B1\)"):
+        DiagramBatch(
+            dims, births, deaths, np.array([0, 1, 1], dtype=np.int64), [DiagramMeta()]
+        )
+
+
+# -- §5 equality short-circuits on size before comparing coordinates ------
+
+
+def test_diagrams_of_different_sizes_are_unequal_without_comparing_bars() -> None:
+    """Different cardinality is decisive, and reaching `canonical()` on a
+    length mismatch would compare arrays that cannot broadcast."""
+    one = bars([0], [0.0], [1.0])
+    two = bars([0, 0], [0.0, 0.0], [1.0, 1.0])
+
+    assert one != two
+    assert two != one
+    assert not one.allclose(two)
+
+
+def test_batches_of_different_lengths_are_unequal_and_so_is_provenance() -> None:
+    """The same guard on the batch's `==` and on `same_provenance`."""
+    short = DiagramBatch.from_diagrams([bars([0], [0.0], [1.0])])
+    long = DiagramBatch.from_diagrams(
+        [bars([0], [0.0], [1.0]), bars([0], [0.0], [1.0])]
+    )
+
+    assert short != long
+    assert long != short
+    assert not short.same_provenance(long)
+
+
+# -- §4.2 a batch is iterable by protocol, not by accident ----------------
+
+
+def test_a_batch_is_an_iterable_by_protocol_not_by_accident() -> None:
+    """The mirror of `test_diagram_meta_is_unhashable_by_protocol_not_by_accident`.
+
+    There, a generated `__hash__` made `isinstance(m, Hashable)` answer `True`
+    for an object that raises when hashed. Here the reverse: `__len__` plus
+    `__getitem__` make iteration *work* through the legacy protocol while
+    `isinstance(b, Iterable)` answers `False`, so any guard branching on it
+    takes the wrong path -- and no type checker can see the iteration at all.
+
+    RFC-0001:794 is what makes this more than cosmetic. Arguing against a
+    batch-level `dimensions` accessor, it says the per-diagram list is
+    "already expressible as `[d.dimensions for d in b]` without any new
+    accessor". A published interface whose own specification reasons from an
+    expression that does not type-check has a hole in it.
+    """
+    batch = DiagramBatch.from_diagrams(
+        [bars([0], [0.0], [1.0]), bars([1, 1], [0.0, 0.5], [1.0, 2.0])]
+    )
+
+    assert isinstance(batch, cabc.Iterable)
+    assert [d.n_bars for d in batch] == [1, 2]
+    assert list(batch) == [batch[0], batch[1]]
+
+
+def test_iterating_a_batch_twice_starts_over_each_time() -> None:
+    """`__iter__` must hand back a fresh iterator, as the legacy protocol did.
+
+    A batch that returned `self`, or a single cached generator, would be
+    exhausted by its first consumer -- and every consumer here is a `for` loop
+    over diagrams somebody expects to see in full.
+    """
+    batch = DiagramBatch.from_diagrams(
+        [bars([0], [0.0], [1.0]), bars([1], [0.5], [2.0])]
+    )
+
+    assert list(batch) == list(batch)
+    assert iter(batch) is not iter(batch)
+
+    # Nested loops over one batch must not interfere.
+    pairs = [(a.n_bars, b.n_bars) for a in batch for b in batch]
+    assert len(pairs) == 4
+
+
+def test_an_empty_batch_iterates_to_nothing() -> None:
+    """The zero-diagram batch is iterable too, and yields no diagrams."""
+    empty = DiagramBatch.from_diagrams([], xp=np)
+
+    assert isinstance(empty, cabc.Iterable)
+    assert list(empty) == []

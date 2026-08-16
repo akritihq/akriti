@@ -117,3 +117,112 @@ backend paths independently in CI.
   sdist build and pass Twine; the clean PyArrow 25.0.0 closure is
   permissive-only. Final independent verdict: Ready, with no remaining
   Critical or Important findings.
+
+## Extension — RFC §10 / §11.2 `.akd` serialization
+
+### Goal
+
+Complete the serialization dependency that RFC §11.2 makes part of adapter
+acceptance: deterministic `.akd` save/load for diagrams and ragged batches,
+including exact metadata round-trips and strict format validation.
+
+### Scope and decisions
+
+- The reconciled working-tree RFC is normative. The divergent remote RFC
+  branches are not merged into this dirty worktree.
+- Add no dependency. NumPy remains lazy and function-scoped behind the already
+  approved `akriti[io]` extra at its declared `numpy>=2.0` floor.
+- Spell the lazy import as `importlib.import_module("numpy")`, matching the
+  existing optional-boundary policy in `core.py`/`adapters.py` so mypy never
+  resolves NumPy stubs into the default dependency-free check.
+- Put serialization in `src/akriti/diagrams/io.py`; adapters remain focused on
+  interchange imports and exports.
+- Write and observe failing tests before production code. Serialization is not
+  numerical code, so the separate numerical-author rule does not apply.
+- Keep the guarded bottleneck wrapper, metadata-validation defect, `allclose`
+  tolerance domain, and `finitize` identity tension out of this change; they
+  are recorded in `tasks/questions.md`.
+
+### Serialization design
+
+- `save(obj, path)` accepts a `PersistenceDiagram` or `DiagramBatch` from any
+  supported array namespace; `load(path)` returns a NumPy-backed object of the
+  explicit saved `kind`.
+- The outer ZIP contains exactly `meta.json`, then `bars.npz`. Both that ZIP
+  and the nested NPZ use `ZIP_STORED` entries with timestamp
+  `(1980, 1, 1, 0, 0, 0)`, Unix creator `3`, permissions `0o600 << 16`, zero
+  flags, and empty entry/archive extras and comments. Their member order is
+  fixed too, so determinism is deliberate rather than an incidental NumPy/ZIP
+  default.
+- Diagrams are canonicalized before writing. Batch diagram order and metadata
+  order stay fixed while each ragged segment is canonicalized independently.
+- Required NPY arrays use fixed little-endian on-disk dtypes (`<f8`, `<i4`,
+  `<i8`) so deterministic bytes do not depend on the writer's CPU. Loading
+  accepts either endian for the required widths and converts to native NumPy
+  dtypes before public construction.
+- Serialized coordinate buffers normalize negative zero to positive zero,
+  because exact diagram equality treats their signs as equal and therefore
+  identical diagrams must not produce different bytes. Inputs are never
+  mutated.
+- `meta.json` uses the RFC-pinned compact, sorted UTF-8 JSON encoding and
+  carries all seven `DiagramMeta` fields. `bars.npz` carries births, deaths,
+  dims, and batch offsets where applicable.
+- The outer two-member archive is closed. Within a supported format version,
+  unknown JSON envelope fields and unknown NPZ arrays are ignored as advisory
+  additions; all required fields/arrays and every `kind` consistency rule are
+  still validated. A `meta`/`metas` member itself remains the closed
+  `DiagramMeta` dataclass schema: every item must be an object and unknown
+  nested field names are malformed rather than advisory envelope keys.
+- Loading routes through public constructors, never `_unchecked`, so I1–I9
+  and B1–B8 are revalidated at the untrusted-file boundary.
+- Before NumPy allocates a required array, loading validates unique logical
+  NPZ member names and checks that each NPY header's declared shape/dtype has
+  exactly the enclosing member's uncompressed byte length. Ambiguous JSON
+  duplicate keys and malformed ZIP/NPY failures are normalized to
+  `ValueError`.
+- Missing or pre-2.0 NumPy raises actionable `ImportError` naming
+  `akriti[io]`; malformed or unsupported archives raise `ValueError`.
+
+### Work plan
+
+8. **Record scope boundary**
+   - Add the four non-adapter findings to `tasks/questions.md`.
+   - Correct the stale `from_giotto` fixture description.
+9. **Serialization contract tests — red first**
+   - Add exact diagram and batch round-trips, metadata preservation,
+     deterministic bytes, canonical bar order, and signed-zero/multiplicity
+     cases.
+   - Add archive/schema validation, `kind` dispatch, malformed-file cases,
+     empty/ragged batch coverage, lazy-import/version diagnostics, and the
+     required Hypothesis round-trip property.
+10. **Minimal implementation**
+    - Implement deterministic `meta.json` and nested `bars.npz` payloads.
+    - Implement strict `load` validation and NumPy-backed reconstruction.
+11. **Public surface and documentation**
+    - Export `save` and `load` from `akriti.diagrams`.
+    - Reconcile package/dependency documentation that still calls `.akd`
+      planned, without changing the dependency closure.
+12. **Proof and review**
+    - Run focused red/green tests, the full suite, Ruff, mypy, build checks,
+      and `git diff --check`.
+    - Obtain independent specification and code-quality reviews; close every
+      Important finding before completion.
+
+### Extension status
+
+- [x] User approved completing full RFC §11.2 adapter acceptance.
+- [x] Non-adapter concerns recorded separately; stale Giotto documentation
+  corrected and verified.
+- [x] Exact archive, determinism, validation, namespace-boundary, and test
+  contracts derived from RFC §§10.1, 10.2, and 11.2.
+- [x] Serialization tests written, independently reviewed, and observed failing
+  for the missing API without collection or setup errors.
+- [x] `.akd` implementation and public exports complete.
+- [x] Full verification and independent review complete.
+
+### Errors encountered
+
+| Error | Attempt | Resolution |
+|---|---:|---|
+| A focused Giotto pytest selector matched no tests (exit 5) | 1 | Located the assertion in `test_rfc0001_adapters.py`; the corrected exact test passed |
+| `.venv/bin/python -m build` lacked the optional `build` frontend | 1 | Used the installed `uv build --offline` with a writable temporary cache; sdist and wheel both built |

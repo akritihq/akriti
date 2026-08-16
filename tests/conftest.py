@@ -88,10 +88,40 @@ def ripser_dgms(backend_output: dict[str, Any]) -> Any:
 
 @pytest.fixture
 def giotto_array(giotto_output: dict[str, Any]) -> Any:
-    """`VietorisRipsPersistence.fit_transform` output: `(n_samples, n_bars, 3)`."""
+    """`VietorisRipsPersistence.fit_transform` output: `(n_samples, n_bars, 3)`.
+
+    Captured with `infinity_values=inf`, the one setting `from_giotto`
+    accepts, so essential classes arrive as `inf` rather than as a death at
+    `max_edge_length`. This is the capture `essential_bars="faithful"` may be
+    asserted over; the sentinel-carrying one is `giotto_default_array`.
+    """
 
     def get(*, reduced: bool, sample: str = "single") -> np.ndarray:
         key = f"reduced_{str(reduced).lower()}"
         return _array(giotto_output["samples"][key][sample])
+
+    return get
+
+
+@pytest.fixture
+def giotto_default_array(giotto_output: dict[str, Any]) -> Any:
+    """The same calls with giotto's own `infinity_values=None`. §11.2.
+
+    This array is the one the finite sentinel is actually in: every class
+    still alive at `max_edge_length` comes back with a death of exactly that
+    cutoff, indistinguishable from a bar that genuinely died there (§5).
+
+    §11.2 requires `from_giotto`'s `infinity_values` refusals to run against
+    it rather than against `giotto_array`, "since that array is the one the
+    sentinel is actually in; a suite that exercises them only on a
+    hand-written array proves the check fires but not that it fires on the
+    input it exists for". Nothing may assert `essential_bars="faithful"` over
+    this capture -- that label is false of it, which is the whole reason the
+    adapter refuses the setting that produced it.
+    """
+
+    def get(*, reduced: bool, sample: str = "single") -> np.ndarray:
+        key = f"reduced_{str(reduced).lower()}"
+        return _array(giotto_output["samples_default_infinity"][key][sample])
 
     return get

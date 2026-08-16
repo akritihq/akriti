@@ -28,6 +28,13 @@ MAX_EDGE = 4.0
 # by float32 epsilon, not float64. RFC-0001 §6.2.
 CROSS_BACKEND_RTOL = 1e-6
 
+# §9.3: GUDHI defaults to Z/11 and Ripser to Z/2, so an unpinned comparison
+# sets two *homology theories* against each other rather than running one
+# computation twice. It passes anyway on torsion-free data -- which the circle
+# below is -- so the agreement it reports is not the agreement it claims.
+# Pinned to Ripser's default, the only field both backends accept.
+COEFF_FIELD = 2
+
 
 @pytest.fixture
 def circle() -> np.ndarray:
@@ -92,9 +99,13 @@ def test_gudhi_and_ripser_agree_within_float32_precision(circle: np.ndarray) -> 
     st = gudhi.RipsComplex(points=circle, max_edge_length=MAX_EDGE).create_simplex_tree(
         max_dimension=2
     )
-    st.persistence()
+    # Both sides pinned to COEFF_FIELD -- see the constant. The single-backend
+    # claims elsewhere in this file stay at their defaults deliberately, since
+    # what they assert *is* the default behaviour; this one compares two
+    # backends and so has to hold the field fixed.
+    st.persistence(homology_coeff_field=COEFF_FIELD)
     g1 = _sorted_bars(st.persistence_intervals_in_dimension(1))
-    r1 = _sorted_bars(ripser_mod.ripser(circle, maxdim=1)["dgms"][1])
+    r1 = _sorted_bars(ripser_mod.ripser(circle, maxdim=1, coeff=COEFF_FIELD)["dgms"][1])
 
     assert g1.shape == r1.shape, "backends disagree on the number of H1 bars"
 

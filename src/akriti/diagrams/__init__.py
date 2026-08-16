@@ -13,6 +13,7 @@ from akriti.diagrams.adapters import (
     to_parquet,
 )
 from akriti.diagrams.core import Array, DiagramBatch, DiagramMeta, PersistenceDiagram
+from akriti.diagrams.io import load, save
 
 __all__ = [
     "Array",
@@ -24,6 +25,8 @@ __all__ = [
     "from_gudhi",
     "from_persim",
     "from_ripser",
+    "load",
+    "save",
     "to_arrays",
     "to_csv",
     "to_parquet",

@@ -54,7 +54,15 @@ MAX_DIM = 2
 
 
 def circle(n: int = 40, noise: float = 0.05, seed: int = 0) -> np.ndarray:
-    """The 40-point noisy circle Appendix A.1 and the backend-claims suite use."""
+    """The 40-point noisy circle every fixture and the live suite use.
+
+    **Not Appendix A.1's cloud, nor the backend-claims suite's**, which this
+    docstring used to claim it was: both of those draw their angles with
+    `rng.uniform` (`rfcs/evidence/probe_backends.py`,
+    `tests/test_rfc0001_backend_claims.py`) where this uses `linspace`, so the
+    same `n`, `noise` and `seed` give a different point set. See
+    `tools/capture_giotto_fixture.py` for what the difference is worth.
+    """
     rng = np.random.default_rng(seed)
     theta = np.linspace(0, 2 * np.pi, n, endpoint=False)
     pts = np.column_stack([np.cos(theta), np.sin(theta)])

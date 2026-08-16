@@ -23,8 +23,11 @@ conformance extra is installed.
 
 from __future__ import annotations
 
+import array
 import hashlib
 import struct
+import sys
+from typing import Any
 
 import numpy as np
 import pytest
@@ -311,3 +314,64 @@ def test_hash_is_identical_across_array_namespaces() -> None:
         deaths=np.asarray(deaths[:3], dtype=np.float64),
     )
     assert deduplicated.content_hash != build(np).content_hash
+
+
+# -- §8.1 on a big-endian host -------------------------------------------
+#
+# `_big_endian_block`'s fast path byte-swaps *iff* the host is little-endian,
+# and every machine this suite has ever run on is little-endian, so the
+# `sys.byteorder == "big"` arm has never executed. It is the one line standing
+# between §8.1 and a digest that depends on the architecture that computed it.
+#
+# The host cannot be changed, but the branch can still be exercised honestly.
+# `array.frombytes(...)` followed by `.tobytes()` with no swap in between is
+# an identity on bytes, so on a genuine big-endian machine the fast path
+# returns its input buffer unchanged -- and that buffer is big-endian, because
+# native order is. Feeding a *pre-swapped* buffer while `sys.byteorder` reads
+# `"big"` reproduces exactly that situation: same bytes in, same bytes out,
+# and the result must equal the same endian-independent reference the rest of
+# this file checks against.
+
+
+@pytest.mark.parametrize(
+    ("values", "typecode"),
+    [
+        ([0.5, -0.0, 1.25, float("inf")], "d"),
+        ([0, 1, -1, 2**31 - 1], "i"),
+    ],
+)
+def test_the_big_endian_host_branch_emits_unswapped_bytes(
+    values: list[Any], typecode: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§8.1: the digest is a property of the bars, not of the machine."""
+    native = array.array(typecode, values)
+    native.byteswap()  # now holds §8.1's big-endian bytes, as a big host would
+
+    monkeypatch.setattr(sys, "byteorder", "big")
+    emitted = _big_endian_block(native, typecode)
+
+    assert emitted == _reference_block(values, typecode)
+
+
+def test_the_big_endian_simulation_is_not_vacuous(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The control the test above needs to mean anything.
+
+    If `_big_endian_block` ignored `sys.byteorder` entirely, the assertion
+    above would still pass on some inputs by coincidence. These two calls
+    differ *only* in what `sys.byteorder` reports, so a differing result is
+    proof the branch is live and that the test reaches it.
+    """
+    values = [0.5, -0.0, 1.25]
+    pre_swapped = array.array("d", values)
+    pre_swapped.byteswap()
+
+    monkeypatch.setattr(sys, "byteorder", "big")
+    as_big_endian_host = _big_endian_block(pre_swapped, "d")
+
+    monkeypatch.setattr(sys, "byteorder", "little")
+    as_little_endian_host = _big_endian_block(pre_swapped, "d")
+
+    assert as_big_endian_host != as_little_endian_host
+    assert as_big_endian_host == _reference_block(values, "d")

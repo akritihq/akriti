@@ -7,7 +7,7 @@
 | **Author** | Sushovan Majhi |
 | **Edited By** | A. D. Silberman |
 | **Created** | 2026-07-29 |
-| **Last Edited** | 2026-08-11 |
+| **Last Edited** | 2026-08-16 |
 | **Target** | M0 (2026-08-01) drafted — met, initial draft 2026-07-29 · published for comment 2026-08-23, ahead of M1 |
 | **Implements** | `akriti.diagrams` |
 
@@ -2066,8 +2066,34 @@ directions, from a file the reader cannot see is malformed.
 - check B1 for a batch (`len(metas) == offsets.shape[0] - 1`) before
   constructing one, since §4.2's invariants are enforced at construction and a
   file is exactly the untrusted input they exist for;
-- ignore unrecognised keys within a `format_version` it does implement, which
-  is what lets a later revision add an advisory field without a version bump.
+- ignore unrecognised keys **in the envelope and in `bars.npz`** within a
+  `format_version` it does implement, which is what lets a later revision add
+  an advisory field without a version bump; but **reject an unrecognised key
+  inside a `meta` or `metas[i]` object**, naming it.
+
+**That last split is deliberate, and the two halves are not the same
+question.** The envelope and the payload are this document's own containers,
+and a later revision adding an advisory field to either is exactly the
+forward-compatible change the ignore rule exists to permit: an older `load`
+that skips it still reconstructs the diagram the file describes, whole.
+
+A `meta` object is not a container this document may extend cheaply. Its keys
+are the field names of §8's dataclass (§10.2's table), so an unrecognised one
+is a `DiagramMeta` field the reader does not have — and ignoring it means
+returning a diagram whose metadata is silently *less* than the file's, which
+§10.1 requirement 1 makes a round-trip failure rather than a graceful
+degradation. Requirement 1 binds `same_provenance`, and a dropped `params` or
+`provenance` key is precisely what that clause exists to catch. Raising names
+the field; ignoring it produces a diagram that is wrong in a way no accessor
+reports.
+
+**Nothing is lost by the strictness, because §8 already provides the open
+extension points**: `params` and `provenance` are `Mapping[str, Any]` and take
+arbitrary keys, so a writer with a new fact to record has somewhere to put it
+that every conforming `load` already round-trips. What is closed is the fixed
+field list a reader trusts positionally. A revision that genuinely needs a new
+`DiagramMeta` *field* is changing what `load` must reconstruct, which §10.2
+already defines as a `format_version` bump.
 
 **Serialization of `meta.json` is pinned, not left to a JSON library's
 defaults**, because requirement 4 makes the bytes load-bearing: UTF-8, keys
@@ -2902,3 +2928,4 @@ Full narrative: history document.
 - **2026-08-10 (53)** — Four residuals of entries 50-52. A.8 records that it re-runs over the network and does not reproduce offline; §8 defers to §5 for the `essential_bars_source` argument instead of restating it; A.5's closing pointer names the two columns it means; D19 cites §9's delegation rule rather than project working practice. No requirement changed.
 - **2026-08-10 (54)** — Condensation pass on §12.2 and this changelog, which takes ~4,500 words out of the RFC. §12.2's cells become outcome, normative pointer and reopen condition, and every entry here is at most 108 words. **One requirement is relocated rather than cut:** D18's cell held the only uppercase statement that namespace resolution goes through one function and answers to the input rather than the environment, and §3.3 now carries it. §10.1's credit to A.6 for D12's surviving CSV argument and reopen condition moves to D12; A.6's pointer back to D12 becomes the reason itself. Measurements, keyword accounting and what was checked before cutting: history document.
 - **2026-08-11 (55)** — Reconciled this document against branch `adapter2`, which had diverged: entries 48-54 landed here while six corrections landed against the pre-48 text. **No requirement changes and no decision reopens** — each row states something this document had wrong about the code, the backends, or the repository, so they go to a new **§12.3**, separate from §12.1 and §12.2 because they are defects rather than choices. R1 corrects GUDHI's extended-persistence container; R2 resolves §3.3 against §11's namespace-less row inputs, adding `akriti[numpy]`; R3 corrects §10.3's `to_arrays()` claim; R4 restores `strip_padding`. **R5 is the one addition, flagged to strike**: it ratifies `infinity_values`, promoting C1. R6 retires D8's stale note.
+- **2026-08-16 (56)** — §10.2's unknown-key rule splits in two, which **is** a requirement change. A conforming `load` still ignores unrecognised keys in the envelope and in `bars.npz` — this document's own containers, where an advisory field added later is the forward-compatible change the rule exists to permit — but MUST now reject an unrecognised key inside a `meta` or `metas[i]` object, naming it. A `meta` key is a §8 dataclass field name, so ignoring one returns a diagram whose metadata is silently less than the file's, which §10.1 requirement 1 makes a round-trip failure rather than graceful degradation. Nothing is lost: §8's `params` and `provenance` are open mappings and already round-trip arbitrary keys, so a writer with a new fact has somewhere to put it; a genuinely new `DiagramMeta` field changes what `load` must reconstruct and is a `format_version` bump. Enforced in `io.py`, both halves tested.

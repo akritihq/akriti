@@ -137,16 +137,16 @@ loss tracking `reduced_homology` and does not re-establish that
 at `True`, and nothing in §5.1 turns on the cross, which is why this is a
 note rather than a second blocked entry.
 
-## `io.py` does not exist
+## `.akd` I/O (implemented)
 
 *RFC-0001 §10 — `save`/`load`, `.akd`, and the byte-determinism test.*
 
 §10.2 specifies the format and §11.2 requires a byte-determinism test
 (dumping twice gives identical bytes), which §10.1 requirement 4 notes is not
 satisfied for free by any candidate: zip entry metadata has to be pinned
-explicitly. Nothing is implemented yet.
+explicitly. `src/akriti/diagrams/io.py` now implements this contract.
 
-Two constraints to carry in when it is.
+Two implementation constraints are now enforced.
 
 **The lazy import checks the version, not just presence, and both failure
 paths name the extra.** `numpy` is imported lazily and function-scoped inside

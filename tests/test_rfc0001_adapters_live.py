@@ -47,7 +47,15 @@ MAX_EDGE = 4.0
 
 @pytest.fixture(scope="module")
 def circle() -> np.ndarray:
-    """The 40-point noisy circle Appendix A.1 and the fixtures both use."""
+    """The 40-point noisy circle the committed fixtures were captured on.
+
+    Must stay identical to `tools/capture_backend_fixtures.py`'s `circle()`,
+    since the round-trip tests below compare live output against those
+    fixtures bar for bar. **It is not Appendix A.1's cloud**, which this
+    docstring used to say it was: A.1 came from
+    `rfcs/evidence/probe_backends.py`, which draws its angles with
+    `rng.uniform` rather than `linspace`.
+    """
     rng = np.random.default_rng(0)
     theta = np.linspace(0, 2 * np.pi, 40, endpoint=False)
     pts = np.column_stack([np.cos(theta), np.sin(theta)])
@@ -131,8 +139,17 @@ def test_live_gudhi_output_matches_the_frozen_fixture(
     st = gudhi.RipsComplex(points=circle, max_edge_length=MAX_EDGE).create_simplex_tree(
         max_dimension=2
     )
-    live = from_gudhi(st.persistence(homology_coeff_field=PINNED_COEFF_FIELD))
-    frozen = from_gudhi(gudhi_pairs("circle"))
+    # `coeff_field=` on both sides: the fixture was captured at
+    # `homology_coeff_field=2` (`tools/capture_backend_fixtures.py`) and this
+    # call pins the same, so leaving it off would record GUDHI's assumed
+    # default of 11 over a computation done in Z/2 -- provenance contradicting
+    # the call that produced the data. `==` compares bars only (§8), so
+    # nothing here would fail on the mismatch; it has to be stated.
+    live = from_gudhi(
+        st.persistence(homology_coeff_field=PINNED_COEFF_FIELD),
+        coeff_field=PINNED_COEFF_FIELD,
+    )
+    frozen = from_gudhi(gudhi_pairs("circle"), coeff_field=PINNED_COEFF_FIELD)
 
     assert live == frozen, (
         "live GUDHI output no longer matches tests/fixtures/backend_output.json; "
@@ -148,8 +165,14 @@ def test_live_ripser_output_matches_the_frozen_fixture(
     """Same, for Ripser's dict form."""
     ripser = pytest.importorskip("ripser")
 
-    live = from_ripser(ripser.ripser(circle, maxdim=1, coeff=PINNED_COEFF_FIELD))
-    frozen = from_ripser(ripser_dgms("circle"))
+    # Stated on both sides for the same reason as the GUDHI pair above. Ripser's
+    # own default happens to equal PINNED_COEFF_FIELD, so omitting it records
+    # the right number by luck; the luck runs out if either constant moves.
+    live = from_ripser(
+        ripser.ripser(circle, maxdim=1, coeff=PINNED_COEFF_FIELD),
+        coeff_field=PINNED_COEFF_FIELD,
+    )
+    frozen = from_ripser(ripser_dgms("circle"), coeff_field=PINNED_COEFF_FIELD)
 
     assert live == frozen, (
         "live Ripser output no longer matches tests/fixtures/backend_output.json; "
@@ -201,8 +224,14 @@ def test_live_essential_bars_survive_the_adapter(circle: np.ndarray) -> None:
     st = gudhi.RipsComplex(points=circle, max_edge_length=MAX_EDGE).create_simplex_tree(
         max_dimension=2
     )
-    g = from_gudhi(st.persistence(homology_coeff_field=PINNED_COEFF_FIELD))
-    r = from_ripser(ripser.ripser(circle, maxdim=1, coeff=PINNED_COEFF_FIELD))
+    g = from_gudhi(
+        st.persistence(homology_coeff_field=PINNED_COEFF_FIELD),
+        coeff_field=PINNED_COEFF_FIELD,
+    )
+    r = from_ripser(
+        ripser.ripser(circle, maxdim=1, coeff=PINNED_COEFF_FIELD),
+        coeff_field=PINNED_COEFF_FIELD,
+    )
 
     assert int(np.sum(np.asarray(g.essential))) == 1
     assert int(np.sum(np.asarray(r.essential))) == 1

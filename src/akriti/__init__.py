@@ -18,7 +18,7 @@ boundary you need::
     pip install akriti[alpha]       # GUDHI  (GPLv3 -- see DEPENDENCIES.md)
     pip install akriti[distances]   # persim
     pip install akriti[numpy]       # NumPy array namespace and row fallback
-    pip install akriti[io]          # planned .akd save/load (includes NumPy)
+    pip install akriti[io]          # .akd save/load (includes NumPy)
     pip install akriti[parquet]     # to_parquet() (PyArrow, Apache-2.0)
     pip install akriti[torch]       # tensor backend + array-api-compat
     pip install akriti[bio]         # anndata interop

@@ -584,9 +584,28 @@ def test_the_degree_list_adapters_keep_repeated_bars(
 
 
 def test_from_ripser_rejects_a_dict_without_dgms(ripser_dgms: Any) -> None:
-    """A dict from somewhere else is not a Ripser result; say so at the call."""
-    with pytest.raises((TypeError, ValueError), match="dgms"):
+    """A dict from somewhere else is not a Ripser result; say so at the call.
+
+    Pinned to `ValueError` rather than `(TypeError, ValueError)`: the pair
+    accepted either, which hid that this path and the one below raise
+    *different* types. **The split is not RFC-ratified** -- §11 mandates
+    `TypeError` for bad arguments (`dim=`, `infinity_values=`) and says
+    nothing about a mapping's shape -- so these two tests record the
+    behaviour rather than bless it. If the taxonomy is ever settled, both
+    move together."""
+    with pytest.raises(ValueError, match="dgms"):
         from_ripser({"cocycles": []})
+
+    # Same missing-diagrams complaint, empty rather than misfilled.
+    with pytest.raises(ValueError, match="dgms"):
+        from_ripser({})
+
+
+def test_from_ripser_rejects_a_dgms_value_that_is_not_a_list_of_blocks() -> None:
+    """The key is present and the value is wrong -- the other half of the
+    split above, and a `TypeError` where the missing key is a `ValueError`."""
+    with pytest.raises(TypeError, match="dgms"):
+        from_ripser({"dgms": "nope"})
 
 
 # ---------------------------------------------------------------------------
@@ -834,8 +853,12 @@ def test_from_array_rejects_two_columns_without_a_degree() -> None:
 
 
 def test_from_array_rejects_three_columns_with_a_degree() -> None:
-    """Two sources for one fact; the adapter must not pick a winner."""
-    with pytest.raises((TypeError, ValueError), match="dim"):
+    """Two sources for one fact; the adapter must not pick a winner.
+
+    `TypeError` specifically (§11), matching the neighbouring `dim=` refusals:
+    the complaint is about the argument combination, not about a value the
+    array holds. Accepting either exception would bless a regression."""
+    with pytest.raises(TypeError, match="dim"):
         from_array(np.array([[0.0, 1.0, 0.0]]), dim=1)
 
 
@@ -1467,6 +1490,83 @@ def test_caller_provenance_is_merged_and_a_measured_fact_is_refused(
     assert d.meta.provenance["essential_bars"] == "faithful"
 
 
+def test_caller_params_are_merged_and_a_measured_one_is_refused(
+    giotto_array: Any,
+) -> None:
+    """§8, §5.1: `params` is open, except for a key the adapter measured.
+
+    The mirror of the provenance rule above, and it was the half that was
+    missing: `params={"reduced_homology": False}` beside
+    `reduced_homology=True` used to be accepted and silently overwritten, so a
+    caller who contradicted themselves got a diagram recording one of their
+    two answers with nothing saying the other had been dropped.
+
+    Refused on the **key**, not on disagreement: agreeing values are still two
+    writers for a field §5.1 gives one, and a rule that fired only on a
+    mismatch would make the refusal depend on what the caller happened to
+    type."""
+    unreduced = giotto_array(reduced=False)
+
+    for stated in (True, False):
+        with pytest.raises(TypeError, match="reduced_homology"):
+            from_giotto(
+                unreduced,
+                reduced_homology=False,
+                infinity_values=math.inf,
+                strip_padding=False,
+                params={"reduced_homology": stated},
+            )
+
+    b = from_giotto(
+        unreduced,
+        reduced_homology=False,
+        infinity_values=math.inf,
+        strip_padding=False,
+        params={"max_edge_length": 4.0},
+    )
+
+    assert b[0].meta.params["max_edge_length"] == 4.0
+    assert b[0].meta.params["reduced_homology"] is False
+
+
+def test_a_zero_sample_batch_refuses_a_measured_param_identically() -> None:
+    """The preflight's whole purpose (§4): whether a caller's contradiction is
+    caught must not depend on how many samples their batch carried."""
+    with pytest.raises(TypeError, match="reduced_homology"):
+        from_giotto(
+            np.zeros((0, 2, 3)),
+            reduced_homology=True,
+            infinity_values=math.inf,
+            params={"reduced_homology": True},
+        )
+
+
+@pytest.mark.parametrize("adapter", ["from_gudhi", "from_ripser", "from_persim"])
+def test_the_adapters_that_measure_no_params_still_accept_the_key(
+    adapter: str, gudhi_pairs: Any, ripser_dgms: Any
+) -> None:
+    """The refusal above is a collision rule, not a reserved name (§8).
+
+    `params` is backend-specific where `provenance` is backend-agnostic, so
+    `reduced_homology` is a measured fact at `from_giotto` and ordinary caller
+    data anywhere else -- a note about what produced the array being adapted.
+    Reserving the name outright would refuse that, which is what `params` is
+    for."""
+    calls = {
+        "from_gudhi": lambda: from_gudhi(
+            gudhi_pairs("circle"), params={"reduced_homology": True}
+        ),
+        "from_ripser": lambda: from_ripser(
+            ripser_dgms("circle"), params={"reduced_homology": True}
+        ),
+        "from_persim": lambda: from_persim(
+            ripser_dgms("circle"), params={"reduced_homology": True}
+        ),
+    }
+
+    assert calls[adapter]().meta.params["reduced_homology"] is True
+
+
 def test_adapter_refuses_to_have_its_backend_identity_dictated(
     gudhi_pairs: Any,
 ) -> None:
@@ -1503,59 +1603,82 @@ def test_adapter_output_composes_into_a_batch(
 # ---------------------------------------------------------------------------
 
 
-def test_from_giotto_requires_reduced_homology(giotto_array: Any) -> None:
+# §11.2: "The refusal cases MUST run against real giotto output captured with
+# that default, since that array is the one the sentinel is actually in; a
+# suite that exercises them only on a hand-written array proves the check fires
+# but not that it fires on the input it exists for." So every refusal below
+# takes `giotto_default_array` -- the `infinity_values=None` capture, whose
+# essential H0 class comes back as a death at `max_edge_length` -- rather than
+# `giotto_array`, which carries a genuine `inf` and is the input the adapter
+# accepts. Passing the accepted array here would leave the refusals proven
+# only over data that has nothing to refuse.
+
+
+def test_from_giotto_requires_reduced_homology(giotto_default_array: Any) -> None:
     """§5.1, §11: "Omitting it MUST raise, not fall back to giotto's own
     default", and §11 fixes that as a `TypeError` at the call site."""
     with pytest.raises(TypeError, match="reduced_homology"):
         from_giotto(  # type: ignore[call-arg]
-            giotto_array(reduced=True), infinity_values=math.inf
+            giotto_default_array(reduced=True), infinity_values=math.inf
         )
 
 
-def test_from_giotto_requires_infinity_values(giotto_array: Any) -> None:
+def test_from_giotto_requires_infinity_values(giotto_default_array: Any) -> None:
     """§5, §11, §11.2. Required for `reduced_homology`'s reason -- no property of the
     returned array says which setting produced it -- and a `TypeError` at the
     call site rather than a default, because the wrong assumption here is the
     one that writes `essential_bars="faithful"` over a finitized diagram."""
     with pytest.raises(TypeError, match="infinity_values"):
         from_giotto(  # type: ignore[call-arg]
-            giotto_array(reduced=True), reduced_homology=True
+            giotto_default_array(reduced=True), reduced_homology=True
         )
 
 
 @pytest.mark.parametrize("value", [4.0, 0.0, 99.0, -1.5, -math.inf, math.nan])
 def test_from_giotto_refuses_any_infinity_values_but_inf(
-    giotto_array: Any, value: float
+    giotto_default_array: Any, value: float
 ) -> None:
     """§5: only `inf` records an essential bar. A finite value finitizes it,
     and `-inf` and `nan` are not deaths §5 recognises for a class that never
     dies -- all four are refused on the same ground rather than by a branch
-    each."""
+    each.
+
+    `4.0` leads the parametrisation because it is `max_edge_length`: on this
+    array it is both the argument being refused and the value actually sitting
+    in the death column, which is the coincidence §11.2 wants exercised."""
     with pytest.raises(ValueError, match="RFC-0001 §5"):
         from_giotto(
-            giotto_array(reduced=True), reduced_homology=True, infinity_values=value
+            giotto_default_array(reduced=True),
+            reduced_homology=True,
+            infinity_values=value,
         )
 
 
 @pytest.mark.parametrize("value", ["inf", object()])
 def test_from_giotto_refuses_a_non_real_infinity_values(
-    giotto_array: Any, value: Any
+    giotto_default_array: Any, value: Any
 ) -> None:
     """`_as_coordinate`'s argument, one argument over: `float("inf")` is `inf`,
     so a string would pass the equality test below and record a diagram whose
     caller never stated a filtration value at all."""
     with pytest.raises(TypeError, match="infinity_values"):
         from_giotto(
-            giotto_array(reduced=True), reduced_homology=True, infinity_values=value
+            giotto_default_array(reduced=True),
+            reduced_homology=True,
+            infinity_values=value,
         )
 
 
-def test_from_giotto_refuses_a_boolean_infinity_values(giotto_array: Any) -> None:
+def test_from_giotto_refuses_a_boolean_infinity_values(
+    giotto_default_array: Any,
+) -> None:
     """`bool` registers as `numbers.Real`, so it needs excluding by name.
     `True` would otherwise read as a finite sentinel of 1.0."""
     with pytest.raises(TypeError, match="infinity_values"):
         from_giotto(
-            giotto_array(reduced=True), reduced_homology=True, infinity_values=True
+            giotto_default_array(reduced=True),
+            reduced_homology=True,
+            infinity_values=True,
         )
 
 
@@ -1648,39 +1771,83 @@ def test_from_giotto_derives_lost_upstream_from_reduced_homology(
     assert b[0].meta.provenance["essential_bars_source"] == "lost_upstream"
 
 
-def test_the_giotto_fixture_still_carries_a_finite_sentinel(
+def test_the_giotto_fixture_carries_a_genuine_infinity(
     giotto_array: Any, giotto_output: dict[str, Any]
 ) -> None:
-    """C1's evidence, asserted so that it cannot be recaptured away silently.
+    """C1's close, asserted so the sentinel cannot come back silently.
 
-    `tools/capture_giotto_fixture.py` passed no `infinity_values`, so giotto's
-    default of `None` applied and the essential H0 class came back with a death
-    of `max_edge_length` rather than `inf`. This is the Appendix A.1 row the
-    RFC said was missing, and it falsifies §5.1's `"faithful"` derivation.
+    `tools/capture_giotto_fixture.py` captures both `infinity_values` settings
+    in one run, and this pins which is which. `samples` is the `inf` capture:
+    the essential class must arrive as `inf`, and nothing may sit at the cutoff
+    pretending to have died there. That is the capture §5.1's `"faithful"`
+    derivation is sound over.
 
-    A recapture with `infinity_values=numpy.inf` -- which the capture tool now
-    performs -- will fail this test. That is the intended signal, not a
-    regression: at that point the sentinel is gone and the two tests below
-    change with it."""
+    The companion below pins the other half -- the sentinel really is in the
+    default capture -- so the pair fails if a future run ever collapses the two
+    into one array, whichever direction it collapses in."""
     unreduced = giotto_array(reduced=False)
     call = giotto_output["samples"]["reduced_false"]["call"]
     assert f"max_edge_length={_GIOTTO_MAX_EDGE}" in call, "the cutoff moved"
+    assert "infinity_values=inf" in call, (
+        "the fixture was captured without infinity_values; re-run "
+        "tools/capture_giotto_fixture.py in the pinned environment"
+    )
 
     h0 = unreduced[0][unreduced[0][:, 2] == 0]
 
-    assert not np.any(np.isinf(h0[:, 1])), "the capture already carries inf"
-    assert int(np.sum(h0[:, 1] == _GIOTTO_MAX_EDGE)) == 1, (
-        "exactly one H0 class should survive to the cutoff and be finitized"
+    assert int(np.sum(np.isinf(h0[:, 1]))) == 1, "the essential H0 class is not inf"
+    assert not np.any(h0[:, 1] == _GIOTTO_MAX_EDGE), (
+        "a bar still dies exactly at the cutoff -- the sentinel is back"
     )
 
 
-def test_from_giotto_refuses_the_fixtures_own_default_infinity_values(
-    giotto_array: Any,
+def test_the_giotto_default_capture_really_carries_the_sentinel(
+    giotto_default_array: Any, giotto_output: dict[str, Any]
+) -> None:
+    """§11.2's other half: the array the refusals run against holds a sentinel.
+
+    Without this, `giotto_default_array` could quietly become a second copy of
+    the `inf` capture and every refusal test above would keep passing while
+    testing nothing §11.2 asked for -- the failure mode that made this
+    requirement worth writing down. So the properties are asserted rather than
+    assumed: the essential H0 class arrives finite, at exactly
+    `max_edge_length`, and no death is `inf`.
+
+    `"faithful"` is deliberately not asserted anywhere over this capture. §11.2
+    forbids it, and it would be false: the essential bar has been finitized."""
+    unreduced = giotto_default_array(reduced=False)
+    call = giotto_output["samples_default_infinity"]["reduced_false"]["call"]
+    assert f"max_edge_length={_GIOTTO_MAX_EDGE}" in call, "the cutoff moved"
+    assert "infinity_values=None" in call, (
+        "the default capture no longer records giotto's own default; re-run "
+        "tools/capture_giotto_fixture.py in the pinned environment"
+    )
+
+    h0 = unreduced[0][unreduced[0][:, 2] == 0]
+
+    assert not np.any(np.isinf(h0[:, 1])), "the default capture has no sentinel in it"
+    assert int(np.sum(h0[:, 1] == _GIOTTO_MAX_EDGE)) == 1, (
+        "the essential H0 class does not die at the cutoff -- this is not "
+        "giotto's default output"
+    )
+    # The H0 count matches the `inf` capture's: `infinity_values` changes one
+    # death coordinate and nothing else, which is what makes the two captures
+    # a controlled pair rather than two unrelated runs.
+    assert h0.shape[0] == 40
+
+
+def test_from_giotto_refuses_giottos_own_default_infinity_values(
+    giotto_default_array: Any,
 ) -> None:
     """§5: a finite sentinel is "unrecoverable", so the adapter refuses rather
-    than labels. Run against real backend output (§11.2) -- this is the exact
-    array that `essential_bars="faithful"` used to be written for."""
-    unreduced = giotto_array(reduced=False)
+    than labels.
+
+    Run against the default capture, which §11.2 requires: "that array is the
+    one the sentinel is actually in". The refusal is on the argument, so it
+    would also fire on the accepted array -- but a suite that only showed that
+    would prove the check fires, not that it fires on the input it exists
+    for."""
+    unreduced = giotto_default_array(reduced=False)
 
     with pytest.raises(ValueError, match="giotto's default"):
         from_giotto(unreduced, reduced_homology=False, infinity_values=None)  # type: ignore[arg-type]
@@ -1691,13 +1858,27 @@ def test_from_giotto_derives_faithful_when_homology_is_not_reduced(
 ) -> None:
     """§5.1: `"faithful"` when `reduced_homology` is `False`.
 
-    **Not run against the committed fixture, and the reason is C1.** That
-    capture predates the `infinity_values` requirement, so its unreduced sample
-    holds the essential bar as `4.0` rather than `inf` -- asserting
-    `"faithful"` over it would bless the defect. The label is exercised here
-    over a giotto-shaped array carrying a genuine `inf`, which is what a
-    recapture will produce; the fixture is still used for A.1's bar counts
-    below, which `infinity_values` does not affect."""
+    **Now run against the committed fixture, which is what C1 owed.** §11.2
+    requires this label to be exercised over real backend output, and until
+    the recapture the only array carrying a genuine `inf` was one written by
+    hand -- so the one path that mattered was the one path not tested against
+    giotto. The synthetic array it used is kept below as a unit-level
+    companion, not as the evidence."""
+    unreduced = giotto_array(reduced=False)
+
+    b = from_giotto(unreduced, reduced_homology=False, infinity_values=math.inf)
+
+    assert b[0].meta.provenance["essential_bars"] == "faithful"
+    assert b[0].meta.provenance["essential_bars_source"] == "faithful"
+    assert int(np.sum(np.asarray(b[0].essential))) == 1, "the inf did not survive"
+
+
+def test_from_giotto_derives_faithful_on_a_hand_built_array_too() -> None:
+    """The companion to the test above, over the smallest possible input.
+
+    Kept because the fixture is 40 points of real output and this is two bars:
+    when the label breaks, one of these says *what* broke and the other says
+    it broke on real data."""
     faithful = np.array([[[0.0, math.inf, 0.0], [0.0, 1.0, 1.0]]])
 
     b = from_giotto(faithful, reduced_homology=False, infinity_values=math.inf)
@@ -2261,6 +2442,73 @@ def test_extended_persistence_is_rejected_when_its_intervals_are_arrays() -> Non
 
     with pytest.raises(TypeError, match="extended persistence"):
         from_gudhi(extended)
+
+
+@pytest.mark.parametrize("outer", [list, tuple], ids=["outer-list", "outer-tuple"])
+@pytest.mark.parametrize("member", [list, tuple], ids=["member-list", "member-tuple"])
+@pytest.mark.parametrize(
+    ("row", "row_id"),
+    [
+        (lambda d, b, x: (d, (b, x)), "rows-tuple"),
+        (lambda d, b, x: [d, [b, x]], "rows-list"),
+        (lambda d, b, x: [d, np.array([b, x])], "rows-array"),
+    ],
+    ids=lambda p: p if isinstance(p, str) else "",
+)
+def test_extended_persistence_is_rejected_however_its_containers_are_spelled(
+    outer: Any, member: Any, row: Any, row_id: str
+) -> None:
+    """§11: the refusal "MUST name the scope exclusion rather than the shape",
+    for every spelling of the same form and not only for three of twelve.
+
+    The guard above widened what counts as a *row*. This is the same argument
+    one and two levels up, and the axis that was missed: the detector pinned
+    both the outer container and each member to `list` exactly, while
+    `_is_persistence_row` accepted any row sequence. So nine of these twelve
+    were refused on shape -- eight of them reporting a mis-shaped row 0, and
+    the four `outer=tuple` cases reporting "a flat tuple of persistence rows",
+    which is a different input form entirely and sends a caller holding real
+    extended output looking for a typo.
+
+    GUDHI 3.13 returns a list of lists (§12.3 R1), so nothing here changes what
+    live output does -- `test_live_gudhi_extended_persistence_is_rejected` pins
+    that end. What it changes is output that has been through a serializer,
+    which §11.2 admits as real: JSON spells every container a `list` and
+    already worked, while a round trip that preserves tuples, or a caller who
+    writes `tuple(st.extended_persistence())`, did not."""
+    extended = outer(member([row(0, 0.0, 1.0), row(1, 3.0, 2.0)]) for _ in range(4))
+
+    with pytest.raises(TypeError, match="extended persistence"):
+        from_gudhi(extended)
+
+
+@pytest.mark.parametrize("n_bars", [3, 4, 5])
+@pytest.mark.parametrize("outer", [list, tuple], ids=["list", "tuple"])
+def test_widening_the_containers_does_not_capture_ordinary_output(
+    n_bars: int, outer: Any
+) -> None:
+    """The guard on the test above, and the reason the widening is safe.
+
+    What discriminates the two forms is a property of the *members*, never of
+    a container: a `persistence()` result's members are rows, an extended
+    result's members are lists of rows. So reading both containers as row
+    sequences cannot pull ordinary output into the exclusion, at four bars or
+    at any other count -- which is the cardinality-independence the detector
+    was built for in the first place.
+
+    A `list` is accepted and a `tuple` reaches the flat-tuple refusal, which is
+    the pre-existing rule for that container and not this clause's business.
+    Both are asserted here so that widening the detector cannot silently move
+    a four-bar input from one to the other."""
+    rows = [(k % 2, (0.0, float(k) + 1.0)) for k in range(n_bars)]
+
+    if outer is list:
+        d = from_gudhi(list(rows))
+        assert d.n_bars == n_bars
+        assert [int(x) for x in d.dims] == [k % 2 for k in range(n_bars)]
+    else:
+        with pytest.raises(TypeError, match="flat tuple"):
+            from_gudhi(tuple(rows))
 
 
 def test_an_empty_extended_persistence_result_is_still_rejected() -> None:
@@ -3761,3 +4009,120 @@ def test_a_columns_argument_is_still_refused_on_its_own_terms_first() -> None:
 
     with pytest.raises(TypeError, match="string"):
         from_array(np.zeros((1, 7)), columns=["birth", "death", "dim", 4, 5, 6, 7])
+
+
+# ---------------------------------------------------------------------------
+# §3.1 across every entry point, not just `from_array`
+# ---------------------------------------------------------------------------
+#
+# `test_from_array_refuses_invalid_coordinates` opens "every adapter validates
+# against §3.1" and then exercises one. The backend-shaped entry points reach
+# the same validator by different routes -- GUDHI through a row list, Ripser
+# and persim through a per-degree block list, giotto through a padded 3-D
+# array -- and a route that skipped it would launder an invalid diagram past
+# a suite that looks fully covered.
+
+
+def _one_bar_calls(birth: float, death: float, degree: int = 0) -> dict[str, Any]:
+    """The same single bar, spelled the way each backend spells it."""
+    block = np.array([[birth, death]])
+    blocks = [np.empty((0, 2))] * degree + [block]
+    return {
+        "from_gudhi": lambda: from_gudhi([(degree, (birth, death))]),
+        "from_ripser": lambda: from_ripser(blocks),
+        "from_persim": lambda: from_persim(blocks),
+        "from_array": lambda: from_array(block, dim=degree),
+        "from_giotto": lambda: from_giotto(
+            np.array([[[birth, death, float(degree)]]]),
+            reduced_homology=False,
+            infinity_values=math.inf,
+        ),
+    }
+
+
+_ADAPTER_NAMES = list(_one_bar_calls(0.0, 1.0))
+
+
+@pytest.mark.parametrize("adapter", _ADAPTER_NAMES)
+@pytest.mark.parametrize(
+    ("birth", "death", "invariant"),
+    [
+        (0.0, math.nan, "I5"),
+        (math.nan, 1.0, "I4"),
+        (0.0, -math.inf, "I5"),
+        (math.inf, math.inf, "I4"),
+        # I4 is two claims -- finite *and* non-`NaN` -- and the rows above
+        # reach the finiteness half only through `inf`. `-inf` is the other
+        # spelling, and the one an underflowing filtration produces.
+        (-math.inf, 1.0, "I4"),
+    ],
+)
+def test_every_adapter_refuses_invalid_coordinates(
+    adapter: str, birth: float, death: float, invariant: str
+) -> None:
+    """§3.1/§11: an invalid diagram MUST NOT be constructible by any route."""
+    with pytest.raises(ValueError, match=invariant):
+        _one_bar_calls(birth, death)[adapter]()
+
+
+@pytest.mark.parametrize("adapter", _ADAPTER_NAMES)
+def test_every_adapter_refuses_a_real_ordering_violation(adapter: str) -> None:
+    """I6 at a magnitude no float64 computation explains -- half the birth,
+    not an ULP off it. §3.1 wants this surfaced, never absorbed."""
+    with pytest.raises(ValueError, match="I6"):
+        _one_bar_calls(1.0, 0.5)[adapter]()
+
+
+@pytest.mark.parametrize("adapter", _ADAPTER_NAMES)
+def test_every_adapter_clamps_representational_noise_and_warns(adapter: str) -> None:
+    """The other side of the same check: one ULP below `birth` is repaired,
+    counted in `clamped_rows` (D4), and warned about exactly once."""
+    birth = 1.0
+    death = math.nextafter(birth, 0.0)
+
+    with pytest.warns(UserWarning, match="I6"):
+        result = _one_bar_calls(birth, death)[adapter]()
+
+    # `from_giotto` alone returns a batch (§11); the rest return one diagram.
+    diagram = result[0] if isinstance(result, DiagramBatch) else result
+
+    assert diagram.meta.provenance["clamped_rows"] == 1
+    assert float(np.asarray(diagram.deaths)[0]) == birth
+
+
+@pytest.mark.parametrize("adapter", _ADAPTER_NAMES)
+def test_every_adapter_preserves_an_essential_bar(adapter: str) -> None:
+    """§5, §11: essential bars are stored as `inf`, and no adapter finitizes.
+
+    The sweep above covers what every adapter must *refuse*; this is the one
+    thing every adapter must *keep*, and it was reaching only three of the five
+    routes. `from_gudhi`, `from_ripser` and `from_giotto` each had a dedicated
+    inf-preservation test; `from_array` and `from_persim` had none, and the
+    two cross-adapter helpers both carry a finite bar -- so §11's "never
+    finitize" was asserted nowhere on those two paths.
+
+    That is a gap worth closing on the sweep rather than one test at a time,
+    because the failure it guards against is a route-specific one: the
+    conversion to float64 (§6.1) runs per adapter, and a route that reached it
+    through a different column assembly is exactly where an `inf` would be lost
+    without any other test noticing."""
+    result = _one_bar_calls(0.0, math.inf)[adapter]()
+    diagram = result[0] if isinstance(result, DiagramBatch) else result
+
+    assert diagram.n_bars == 1, "the essential bar was dropped"
+    assert math.isinf(float(np.asarray(diagram.deaths)[0])), "the inf was finitized"
+    assert bool(np.any(np.asarray(diagram.essential)))
+
+
+@pytest.mark.parametrize("adapter", ["from_gudhi", "from_array", "from_giotto"])
+def test_every_adapter_that_can_express_a_degree_refuses_a_negative_one(
+    adapter: str,
+) -> None:
+    """I3, on the three entry points where a degree is *data*.
+
+    `from_ripser` and `from_persim` are absent deliberately, not overlooked:
+    both take the degree from the list index (§11), so a negative one has no
+    spelling to refuse. That is a stronger guarantee than a check, and it is
+    the reason this parametrization is shorter than the others."""
+    with pytest.raises(ValueError, match="I3"):
+        _one_bar_calls(0.0, 1.0, degree=-1)[adapter]()

@@ -52,7 +52,7 @@ import operator
 import re
 import struct
 import sys
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from importlib import import_module, metadata
 from typing import Any, NoReturn, SupportsIndex, TypeAlias
@@ -145,8 +145,6 @@ def namespace_of(x: Array) -> Any:
             "array namespace resolution for this backend requires "
             "array-api-compat; install akriti[torch]"
         ) from exc
-    except ImportError:
-        raise
     try:
         installed_version = metadata.version("array-api-compat")
     except metadata.PackageNotFoundError as exc:
@@ -155,7 +153,14 @@ def namespace_of(x: Array) -> Any:
         ) from exc
     try:
         epoch, release, unstable = _parse_optional_version(installed_version)
-    except ValueError as exc:
+    except (TypeError, ValueError) as exc:
+        # `TypeError` as well as `ValueError`: `_parse_optional_version` reaches
+        # `fullmatch` on whatever the metadata held, which raises `TypeError`
+        # rather than `ValueError` when that is not a `str`. Catching one of the
+        # two let a malformed distribution escape as a bare `TypeError` naming
+        # `re`, while `adapters.py`'s identical numpy check turned the same
+        # input into the actionable `ImportError` below. Whichever way the
+        # metadata is broken, both resolvers must name the extra that fixes it.
         raise ImportError(
             "could not parse the installed array-api-compat version; install "
             "akriti[torch]"
@@ -1614,6 +1619,30 @@ class DiagramBatch:
         available under `jax.jit`.
         """
         return int(self.offsets.shape[0]) - 1
+
+    def __iter__(self) -> Iterator[PersistenceDiagram]:
+        """Each diagram in turn, in batch order. §4.2.
+
+        **Stated rather than inherited from `__getitem__`.** Python's legacy
+        iteration protocol already made `for d in batch` work, so this adds no
+        runtime capability -- but a protocol satisfied by accident is not part
+        of an interface. Without `__iter__`, `isinstance(batch, Iterable)` is
+        `False` on an object that iterates, which is the same shape of bug as
+        a `Hashable` that raises when hashed: a guard branching on the check
+        takes the path the object cannot follow. No type checker sees the
+        legacy protocol either, so `[d.dimensions for d in b]` -- the
+        expression §4.3 argues *from* when it declines to add a batch-level
+        `dimensions` accessor -- does not type-check without this method.
+
+        A generator, so each call starts over. Returning `self` would let the
+        first consumer exhaust the batch for every later one, and nested loops
+        over one batch are ordinary here.
+
+        Yields the same zero-copy views `__getitem__` returns, on the same
+        terms (§4.2).
+        """
+        for i in range(len(self)):
+            yield self[i]
 
     def __getitem__(self, i: int) -> PersistenceDiagram:
         """The `i`-th diagram, as a zero-copy view into the shared buffer. §4.2.
