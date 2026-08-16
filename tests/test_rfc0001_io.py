@@ -1940,3 +1940,214 @@ def test_hypothesis_json_safe_metadata_and_ragged_empty_batches_roundtrip(
     loaded = call_load(path)
     assert loaded == batch
     assert loaded.same_provenance(batch)
+
+
+# ---------------------------------------------------------------------------
+# The reader's own defences (§10.2)
+# ---------------------------------------------------------------------------
+#
+# `load` reads a file it did not write, so every branch below is a refusal on
+# input a conforming writer never produces. They were the least-covered part of
+# this module, which is the wrong thing to leave untested in a parser: a guard
+# that has never run is a guard nobody has seen work.
+#
+# Two kinds are separated deliberately. The refusals reachable from *bytes* are
+# driven by bytes, because that is how a real malformed file arrives. The
+# re-raise guards can only be reached by an exception the reader does not
+# expect, so those are injected -- and what they assert is that the unexpected
+# exception is *propagated* rather than relabelled as a malformed archive,
+# which is the failure that would send someone debugging their file instead of
+# the bug they actually hit.
+
+
+def test_non_finite_json_constant_is_rejected(tmp_path: Path) -> None:
+    """§10.2 pins the JSON dialect: `NaN` and `Infinity` are Python's
+    extensions, not JSON, and §8 already requires every metadata value to be
+    JSON-representable. A reader that accepted them would admit a `params`
+    value no conforming writer can produce and no other reader can parse."""
+    metadata = valid_meta_json().replace('"coeff_field":2', '"coeff_field":NaN', 1)
+    assert "NaN" in metadata, "the fixture no longer carries coeff_field"
+    path = write_bytes(
+        tmp_path / "nan-constant.akd",
+        archive_bytes(metadata, arrays=valid_npz()),
+    )
+
+    with pytest.raises(ValueError, match="non-finite"):
+        call_load(path)
+
+
+def test_meta_missing_a_required_field_is_rejected(tmp_path: Path) -> None:
+    """The other half of the unknown-field rule (Appendix B entry 56). §10.2's
+    table fixes the field list, so a `meta` short of one is as unreadable as
+    one carrying a name the reader does not have -- and silently defaulting it
+    would return a diagram whose metadata is less than the file's, which
+    §10.1 requirement 1 makes a round-trip failure."""
+    metadata = json.loads(valid_meta_json())
+    del metadata["meta"]["provenance"]
+    path = write_bytes(
+        tmp_path / "missing-meta-field.akd",
+        archive_bytes(json.dumps(metadata), arrays=valid_npz()),
+    )
+
+    with pytest.raises(ValueError, match="missing required field"):
+        call_load(path)
+
+
+@pytest.mark.parametrize("field", ["params", "provenance"])
+@pytest.mark.parametrize("value", [[], "text", 3], ids=["list", "str", "int"])
+def test_meta_mapping_field_that_is_not_an_object_is_rejected(
+    tmp_path: Path, field: str, value: Any
+) -> None:
+    """§8 types both as `Mapping[str, Any]`. They are also the two open
+    extension points entry 56 leans on when it argues nothing is lost by
+    rejecting unknown *fields* -- so a file in which either is not an object
+    has to be refused here, or the argument that a writer always has somewhere
+    to put a new fact stops holding on read."""
+    metadata = json.loads(valid_meta_json())
+    metadata["meta"][field] = value
+    path = write_bytes(
+        tmp_path / f"{field}-not-object.akd",
+        archive_bytes(json.dumps(metadata), arrays=valid_npz()),
+    )
+
+    with pytest.raises(ValueError, match=f"{field} must be an object"):
+        call_load(path)
+
+
+def test_unsupported_npy_version_inside_the_payload_is_rejected(
+    tmp_path: Path,
+) -> None:
+    """§10.2 fixes the payload as `.npz`, whose members this reader parses
+    itself before handing anything to NumPy. NPY 1.0, 2.0 and 3.0 are the
+    versions that exist; a fourth is either a corrupt header or a format from
+    the future, and the preflight names it rather than letting `np.load` fail
+    somewhere less legible."""
+    payload = io.BytesIO()
+    with zipfile.ZipFile(payload, "w", compression=zipfile.ZIP_STORED) as nested:
+        for name in ("births", "deaths", "dims"):
+            npy = io.BytesIO()
+            np.save(npy, np.asarray(valid_npz()[name]), allow_pickle=False)
+            raw = bytearray(npy.getvalue())
+            raw[6:8] = b"\x04\x00"  # major 4, minor 0 -- no such NPY version
+            nested.writestr(f"{name}.npy", bytes(raw))
+    path = write_bytes(
+        tmp_path / "npy-v4.akd",
+        archive_from_entries(
+            [
+                ("meta.json", valid_meta_json().encode()),
+                ("bars.npz", payload.getvalue()),
+            ]
+        ),
+    )
+
+    with pytest.raises(ValueError, match="NPY"):
+        call_load(path)
+
+
+def test_an_unexpected_error_from_numpy_is_propagated_not_relabelled(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The re-raise guard in `_payload_arrays`, and the reason it is written as
+    a type check rather than a bare `except Exception`.
+
+    The reader translates the errors a malformed payload actually raises --
+    `EOFError`, `ValueError`, and zip read errors -- into one message about the
+    file. Anything else is a bug in this library or in NumPy, and relabelling
+    it "bars.npz payload could not be read" would send someone hunting a
+    corrupt file they do not have. So the guard re-raises, and this is the test
+    that it does."""
+    io_module = _io_module()
+    path = tmp_path / "propagate.akd"
+    call_save(rich_diagram(), path)
+
+    class UnexpectedError(Exception):
+        pass
+
+    real_load = io_module._numpy().load
+
+    def exploding_load(*args: Any, **kwargs: Any) -> Any:
+        raise UnexpectedError("not a file problem")
+
+    monkeypatch.setattr(io_module._numpy(), "load", exploding_load)
+    try:
+        with pytest.raises(UnexpectedError):
+            call_load(path)
+    finally:
+        monkeypatch.setattr(io_module._numpy(), "load", real_load)
+
+
+def test_an_unexpected_error_from_the_archive_is_propagated(
+    tmp_path: Path, monkeypatch: Any
+) -> None:
+    """The same guard one layer out, on the container rather than the payload.
+
+    `load` turns a `BadZipFile` into "archive is malformed". A `MemoryError` or
+    an `AttributeError` from the same call is not a statement about the
+    archive, and reporting it as one loses the only information the caller
+    had."""
+    path = tmp_path / "propagate-outer.akd"
+    call_save(rich_diagram(), path)
+
+    class UnexpectedError(Exception):
+        pass
+
+    def exploding_read(self: Any, name: Any, *args: Any, **kwargs: Any) -> bytes:
+        raise UnexpectedError("not an archive problem")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", exploding_read)
+
+    with pytest.raises(UnexpectedError):
+        call_load(path)
+
+
+def test_a_tensor_like_value_is_converted_through_detach_and_cpu() -> None:
+    """§3.3's namespace rule reaches the I/O boundary: `save` converts with
+    `np.asarray`, and a torch tensor that requires grad refuses that call.
+
+    The fallback tries `detach()` and then `cpu()` -- torch's own spelling for
+    "give me something NumPy can see" -- rather than special-casing torch by
+    name, so it works for any backend using the same protocol and imports
+    nothing. Exercised with a stub because torch is not in the default test
+    environment by design; `test_rfc0001_torch_live.py` runs the real thing."""
+    io_module = _io_module()
+
+    class NeedsDetach:
+        """Refuses `np.asarray` until detached, the way a grad tensor does."""
+
+        def __init__(self, values: Any, *, detached: bool = False) -> None:
+            self._values = values
+            self._detached = detached
+
+        def __array__(self, *args: Any, **kwargs: Any) -> Any:
+            if not self._detached:
+                raise RuntimeError("call detach() first")
+            return np.asarray(self._values, *args, **kwargs)
+
+        def detach(self) -> NeedsDetach:
+            return NeedsDetach(self._values, detached=True)
+
+        def cpu(self) -> NeedsDetach:
+            return self
+
+    converted = io_module._to_numpy(np, NeedsDetach([1.0, 2.0, 3.0]))
+
+    assert isinstance(converted, np.ndarray)
+    assert converted.tolist() == [1.0, 2.0, 3.0]
+
+
+def test_a_value_that_cannot_convert_reports_the_original_failure() -> None:
+    """The other end of the same fallback. When `detach()` exists but the
+    result still will not convert, the error a caller sees must be the *first*
+    one -- what `np.asarray` said about their actual value -- and not whatever
+    the second attempt produced on an object they never passed."""
+    io_module = _io_module()
+
+    class NeverConverts:
+        def __array__(self, *args: Any, **kwargs: Any) -> Any:
+            raise RuntimeError("original failure")
+
+        def detach(self) -> NeverConverts:
+            return self
+
+    with pytest.raises(RuntimeError, match="original failure"):
+        io_module._to_numpy(np, NeverConverts())
