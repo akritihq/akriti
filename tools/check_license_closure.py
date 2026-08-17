@@ -246,8 +246,31 @@ def main() -> int:
         violations.append(f)
 
     print()
+
+    # The default closure is not merely permissive, it is empty: RFC-0001
+    # §3.3 and §10.1 requirement 2 require the interchange layer to import
+    # nothing beyond the standard library, and numpy left the closure for that
+    # reason after the backends left it for licensing ones. A permissive but
+    # non-empty default would satisfy every check above and still be the thing
+    # the policy forbids, so emptiness is checked separately rather than
+    # inferred from an absence of violations. See DEPENDENCIES.md.
+    if args.profile == "default" and findings:
+        print(f"FAIL — the default closure must be empty, found {len(findings)}:")
+        for f in findings:
+            print(f"  - {f.name} {f.version}")
+        print()
+        print("`pip install akriti` installs no third-party distribution at")
+        print("all, numpy included. Move it behind an extra, or if it is")
+        print("genuinely needed at runtime, make it a lazy, function-scoped")
+        print("import at the one boundary that needs it (RFC-0001 §3.3).")
+        return 1
+
     if not violations:
-        print("PASS — closure is permissive-only.")
+        print(
+            "PASS — closure is empty."
+            if args.profile == "default"
+            else "PASS — closure is permissive-only."
+        )
         return 0
 
     print(f"{len(violations)} package(s) outside the permissive closure:")

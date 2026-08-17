@@ -95,7 +95,7 @@ Three findings you may want regardless of Akriti:
 ## Install
 
 ```bash
-pip install akriti              # interchange layer — numpy only, permissive
+pip install akriti              # interchange layer — zero dependencies
 pip install akriti[rips]        # + Ripser    (MIT, GPLv3 transitively)
 pip install akriti[alpha]       # + GUDHI     (GPLv3)
 pip install akriti[distances]   # + persim    (MIT, GPLv3 transitively)
@@ -105,8 +105,10 @@ pip install akriti[bio]         # + anndata   (BSD-3)
 
 > Currently a placeholder release; real functionality is coming.
 
-**No persistence backend is a required dependency.** `akriti.diagrams` needs
-only numpy, and "bring your own diagrams" is the primary path by design. The
+**Nothing is a required dependency** — no persistence backend, and no numpy
+either. `akriti.diagrams` runs against whatever array library you already
+have, through the Python array API standard, so it has nothing to install on
+your behalf; "bring your own diagrams" is the primary path by design. The
 licence consequences above are stated here rather than in a footnote because
 they are real: `persim` depends on `hopcroftkarp`, which is GPLv3 and has had no
 release since 2019, and the `gudhi` wheel bundles CGAL-dependent modules and

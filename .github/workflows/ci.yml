@@ -22,8 +22,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -44,8 +44,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
         python: ["3.10", "3.11", "3.12", "3.13", "3.14"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python }}
           cache: pip
@@ -53,11 +53,20 @@ jobs:
       # The default install must work everywhere with no compiler and no
       # backend. This is the install-quality commitment, tested rather than
       # asserted.
+      #
+      # Genuinely bare first, before anything test-only lands: the default
+      # closure is empty, numpy included (DEPENDENCIES.md), so `import akriti`
+      # has to work with nothing else installed at all. Doing this after
+      # `.[test]` would prove nothing -- that extra carries numpy, and the
+      # step would pass on an install that is not the one users get.
       - name: Install (default closure only)
-        run: pip install -e ".[test]"
+        run: pip install -e .
 
       - name: Import on a bare install
-        run: python -c "import akriti; print(akriti.__version__)"
+        run: python -c "import akriti, akriti.diagrams; print(akriti.__version__)"
+
+      - name: Install test dependencies
+        run: pip install -e ".[test]"
 
       - name: Test (no backend)
         run: pytest -m "not backend"
@@ -77,8 +86,8 @@ jobs:
   closure:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -93,6 +102,17 @@ jobs:
       - name: Enforce permissive-only default closure
         run: .venv-closure/bin/python tools/check_license_closure.py
 
+      # akriti[io] is the one user-facing extra that is expected to stay
+      # permissive: it resolves to akriti[numpy], and numpy is BSD-3-Clause.
+      # Enforced strictly rather than audited, so that a future change adding
+      # a copyleft dependency to serialization fails here instead of being
+      # reported into a log nobody reads. Runs before the copyleft extras go
+      # into this venv, since afterwards it could not pass.
+      - name: Enforce permissive-only akriti[io] closure
+        run: |
+          .venv-closure/bin/pip install --quiet ".[io]"
+          .venv-closure/bin/python tools/check_license_closure.py --profile io
+
       # Extras are expected to contain copyleft; report so a change is visible
       # in the log, but do not fail on it.
       - name: Audit extras (report only)
@@ -105,8 +125,8 @@ jobs:
     name: RFC-0001 evidence still reproduces
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
           cache: pip
@@ -123,14 +143,14 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - run: pip install build twine
       - run: python -m build
       - run: twine check dist/*
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: dist
           path: dist/
