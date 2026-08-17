@@ -546,7 +546,7 @@ The split adds no duplicated logic in the sense that matters: no
 `PersistenceDiagram`'s, the two exceptions being `canonical()` and equality,
 each kept in the one place it lives (§7, §6.3). §4.3 works through which is
 which. A batch of one is still a length-one `DiagramBatch` wrapping the same
-`PersistenceDiagram` type (§4.2). Full deliberation: history document.
+`PersistenceDiagram` type (§4.2).
 
 ### 4.2 `DiagramBatch` storage representation
 
@@ -665,8 +665,8 @@ touching §8.1. `DiagramBatch` and `PersistenceDiagram` are related
 by composition, not inheritance, deliberately: a subclass that fails to
 override even one accessor would silently compute it across batch
 boundaries instead of raising, the same "clean, plausible, wrong answer"
-category §9 exists to rule out. Precedent (PyTorch Geometric) and full
-deliberation may be found in the history document.
+category §9 exists to rule out. PyTorch Geometric solves the identical problem
+with a similar two-type split; Appendix B.1 carries the precedent.
 
 **Construction from ordinary adapter output.** §11's adapters return one
 `PersistenceDiagram` per call, except `from_giotto`, which is only pre-batched
@@ -963,8 +963,8 @@ previously recorded `essential_bars_finitized_at` and the new one.** It is
 unreachable under the return-unchanged rule above, and what it was reaching
 for — preserving an earlier verdict rather than letting a later call erase it
 — is what `essential_bars_source` above already does, as a second key with a
-single writer rather than an ordering imposed on the first. Full reasoning:
-history document.
+single writer rather than an ordering imposed on the first. Two further
+arguments against it: Appendix B.2.
 
 ### 5.1 What backends actually do
 
@@ -1161,8 +1161,8 @@ for diagrams that do have a bar-for-bar partner within `rtol`. Appendix A.3
 measures GUDHI/Ripser disagreement at `2.7e-8`, the magnitude that flips such
 a tie, so this is reachable on exactly the cross-backend comparison
 `allclose` exists to serve. No choice of sort key repairs it, and no total
-order is stable under perturbation; the history document carries that
-argument in full. Accepting the false negative was weighed and rejected — it
+order is stable under perturbation; Appendix B.3 carries that argument in
+full. Accepting the false negative was weighed and rejected — it
 is conservative, never a spurious `True`, but the caller's remedy for a
 spurious failure is to widen `rtol` until the comparison passes, which
 reintroduces into user code, where nobody reviews it, the silent loosening
@@ -1468,7 +1468,7 @@ $\mathbb{Z}/2$, and a value recorded without its source is a number a reader can
 was chosen or assumed. Recording both costs no signature change and no
 friction in the common case, and it leaves the diagram never *silently*
 ambiguous, which is the whole of what a required argument would have bought.
-D17 carries the outcome and the three options it rejected; the history document
+D17 carries the outcome and the three options it rejected; Appendix B.4
 carries the argument in full.
 
 **`meta` MUST NOT participate in `==` or `allclose`.** Two diagrams with the
@@ -1673,6 +1673,11 @@ evidence script. Net effect: a user comparing a connected sample against a
 disconnected one still gets a small distance and still concludes they are
 similar, with one line on stderr first, if anything upstream hasn't already
 turned warnings off.
+
+That suppression is fixed and cannot silently return:
+`rfcs/evidence/probe_backends.py` sets `warnings.simplefilter("always")`
+rather than filtering, and `tests/test_rfc0001_backend_claims.py` asserts the
+warning is raised.
 
 **Requirement on `core/distances.py`.** Before delegating, it MUST partition
 both diagrams **by dimension, and within each dimension by `essential`**. If the
@@ -2439,7 +2444,7 @@ its member; and the same bars hash identically under two namespaces.
 Sixteen decisions are on record: D1-D8 and D12-D19. **All sixteen are
 settled** (§12.2), each stating the outcome and pointing at the section that
 carries the normative requirement; §12.1 is empty. Superseded recommendations
-are logged in the history document rather than repeated here.
+are not repeated here.
 
 **D9, D10 and D11 were removed from this RFC** as dependency-and-licensing
 policy questions rather than interchange ones, and this document does not set
@@ -2448,8 +2453,8 @@ carrying both its original resolution and the one that replaced it. Nothing
 normative went with any of them — §3.3 and §10.1 state the
 zero-dependency-by-default requirement and `numpy`'s lazy-import behaviour
 directly, in MUST language, and never depended on a table row to carry it.
-Prior text and reasoning: history document. D-numbers are not renumbered to
-close the gap; they are stable identifiers, not a dense sequence.
+D-numbers are not renumbered to close the gap; they are stable identifiers,
+not a dense sequence.
 
 ### 12.1 Open
 
@@ -2463,7 +2468,7 @@ finds the state of the log stated rather than inferred from an absence.
 
 | # | Question | Recommendation / status |
 |---|---|---|
-| D1 | File extension `.akd`, or plain `.npz` with our layout inside? | **Resolved by §10.** §10.1/§10.2 normatively specify `.akd`; Parquet is excluded as the *default* format. This row originally recommended Parquet, contradicting both; the correction is logged in the history document. |
+| D1 | File extension `.akd`, or plain `.npz` with our layout inside? | **Resolved by §10.** §10.1/§10.2 normatively specify `.akd`; Parquet is excluded as the *default* format. This row originally recommended Parquet, contradicting both. |
 | D2 | Is `DiagramBatch` in scope for M1, or does M1 ship the single-diagram type only? | **In scope.** §4 requires every numerical function in `core/` and `castle/` to take a leading batch dimension rather than expecting a Python loop over diagrams, so the container those signatures consume has to exist before they are written — and retrofitting one after `core/` is written against scalars is the expensive order. That commitment is not made for this layer's convenience: a looping API is very hard to withdraw once published. |
 | D3 | Do we accept `float32` storage behind a flag for large-scale work? | No, not in v0. Revisit when a real memory complaint exists. |
 | D4 | Should `from_giotto` default to `strip_padding=True`? | No. Defaulting to a lossy repair contradicts §5's whole argument. Warn and let the caller choose. |
@@ -2838,9 +2843,203 @@ passes against an implementation with no pinning at all.
 
 ---
 
-## Appendix B — Changelog
+## Appendix B — Rationale and rejected alternatives
 
-Full narrative: history document.
+Non-normative. The body carries every requirement and states each conclusion
+where it applies; this appendix carries the prior art behind one of those
+conclusions and the three arguments too long to sit inside the section they
+serve. Each subsection names that section and carries its argument rather than
+restating its reasoning; where a measured figure appears in both, Appendix A is
+the single source they cite. The two uppercase keywords below both appear in
+B.4, and both are quotations of clauses discussed there rather than
+requirements of this appendix.
+
+### B.1 Prior art — the two-type split (§4.2)
+
+PyTorch Geometric solves the identical problem: ragged, per-item structure
+needing efficient batched storage. It uses two types — `Data` for one graph,
+`Batch` for many — with concatenated storage plus an index vector, rather than
+one self-batching type. It diverges from this document in one respect:
+`Batch` subclasses `Data`, where §4.2 relates the two types by composition and
+gives the reason.
+
+### B.2 Why a substitution does not keep the smaller recorded value (§5)
+
+§5 rejects the alternative as unreachable, and records that what it was
+reaching for is what `essential_bars_source` already does. Two further
+arguments stand against it, and both hold independently of reachability.
+
+- **It would misdescribe the bars if it were reachable.**
+  `provenance["essential_bars"]` is one slot and §8 requires it to describe
+  the diagram's current state. A minimum keeps `"finitized_at"`, with
+  `essential_bars_finitized_at` at `3.0`, on a diagram whose essential bars
+  now all die at `7.0` — a record naming a value no bar carries, the same
+  clean-plausible-wrong signal §5 already rules out for `"finitized_dropped"`
+  with a count of zero and for the `at=+inf` case.
+- **It has no ordering to apply.** The slot's other legal values are
+  `"faithful"`, `"lost_upstream"` and `"finitized_dropped"`. None of them is
+  greater or less than a float, so the rule would fall back to plain overwrite
+  for three of the four cases and buy a special case for the fourth.
+
+### B.3 Why no sort key rescues the pairwise form (§6.3, D14)
+
+§6.3 rejects the sorted-pairwise implementation of `allclose` and requires a
+matching. The reason it is rejected outright, rather than repaired,
+is that the defect is in the *shape* of the approach and not in the particular
+sort key §7 happens to specify. This section carries that argument; §6.3 states
+the conclusion and points here.
+
+The composition failure is between an exact operation and an approximate one.
+Canonical order (§7) sorts on `(dim, birth, death)` with exact comparisons.
+`allclose` compares within a tolerance. When two bars' births lie within the
+tolerance *of each other*, their relative order under the exact sort is decided
+by a difference smaller than the tolerance the comparison is willing to ignore,
+so two backends computing the same diagram can canonicalise them into opposite
+orders. The pairwise comparison then walks two sequences that are each
+correctly sorted and pairs bar `i` against the wrong partner. Appendix A.3
+measures GUDHI/Ripser disagreement at `2.7e-8`, which is the magnitude that
+flips such a tie, so this is not a constructed case — it is reachable on
+exactly the cross-backend comparison `allclose` exists to serve.
+
+**Reordering the key does not fix it; it relocates the case.** Sorting on
+`(dim, death, birth)` makes the near-tied-births case robust, because the ties
+that used to decide the order are now broken by a `death` coordinate the two
+sides agree on to well within tolerance. It simultaneously makes the mirror
+case reachable: two bars whose *deaths* are tied to within the tolerance and
+whose births are far apart now sort ambiguously where they previously did not.
+Every key ordering has this property. The primary coordinate is whichever one
+the tie can hide in, and there is always a diagram whose tie is in that
+coordinate.
+
+**Quantizing does not fix it either; it relocates the case a second time.**
+Rounding coordinates to an `rtol`-sized grid before sorting removes ties within
+a bucket, which is the failure above, and creates a new one at the bucket
+boundary: two values within tolerance of each other that fall on opposite sides
+of a grid line quantize to different buckets and sort deterministically apart.
+The tie has moved from "values too close to order reliably" to "values too
+close to bucket reliably", and the second is not an improvement — it is the
+same predicate evaluated against a grid offset nobody chose on purpose.
+
+**The general statement is that no total order on bars is stable under
+perturbation.** A total order is a function of exact coordinate values; a
+tolerance is a declaration that differences below some threshold carry no
+information. Any sort key reads a difference the comparison has agreed to
+ignore, and so admits an input where an ignorable difference decides a
+non-ignorable outcome. Choosing a better key changes which input, never whether
+one exists.
+
+This is why the question was never "which sort key" and why the resolution is
+structural. A matching asks the question the tolerance actually poses — does a
+bijection within tolerance exist — rather than asking an exact question first
+and hoping its answer survives the approximate one. It also explains why the
+false negative was tempting: the failure is conservative, never a spurious
+`True`, so a suite that never exercises a tie passes identically against both
+implementations. §11.2 now requires the case that separates them.
+
+### B.4 The coefficient-field argument (§8, D17)
+
+§8 records the coefficient field and does not require it, and §12.2
+carries the outcome and the three options it rejected. This section carries the
+argument; §8 points here.
+
+**The question.** §8's `DiagramMeta` block annotated `coeff_field` with
+"affects the diagram, must be recorded" — an obligation with no uppercase
+counterpart anywhere in the document. Three facts made it a decision rather
+than a typo. The field occurred exactly once in the 1,731-line draft as it
+then stood, in that comment: no section, no MUST clause and no test
+requirement mentioned it. The prose seven lines below said the opposite,
+"All fields are optional", and the MUST-populate list named three fields that
+deliberately excluded it. And `content_hash` covers bars and never metadata,
+so nothing downstream depended on the value being present. **The comment was
+therefore a requirement no clause stated, no test could check, and the
+implementation did not honour — but its claim was correct**, homology over
+$\mathbb{Z}/2$ and $\mathbb{Z}/3$ genuinely differing where there is torsion,
+which is the same criterion §8's opening sentence uses to justify recording
+`filtration` at all.
+
+**Why it could not be resolved where it was found.** The three fields §8 does
+require are all derivable from the adapter itself, and this one is not: §11's
+adapters take a computed result plus `**meta`, never the call that produced it,
+so whether an adapter can record a coefficient field depends on whether the
+backend's returned object carries it. Two adapters are out of reach regardless
+— `from_array` has no backend, and `from_persim` consumes diagrams rather than
+computing them.
+
+**What A.5 measured.** No backend returns the field it computed with. GUDHI's
+`persistence(homology_coeff_field=...)` returns `list[(dim, (b, d))]` and
+`SimplexTree` exposes no attribute naming the field; Ripser's returned dict
+carries no such key; giotto's value sits on the estimator while `from_giotto`
+receives the array. **The value exists only in the caller's own call.** That
+kills the option of requiring it only where the returned object exposes it,
+which applies to nothing. It does not choose between the other two, since what
+remains is whether the obligation should exist at the cost of a signature
+change on up to three adapters — a judgment rather than a further fact. One
+measurement sharpens it: the defaults disagree, GUDHI over $\mathbb{Z}/11$ and
+Ripser over $\mathbb{Z}/2$, so an unrecorded field is not conventionally
+$\mathbb{Z}/2$ but genuinely unknown.
+
+**Against option 1, the required keyword-only argument.** The
+`reduced_homology` precedent (§5.1) is exact in *shape* and not in *severity*,
+and the difference decides it. `reduced_homology` guards a demonstrated failure
+— giotto returning 39 H0 bars where GUDHI and Ripser return 40 (A.1). A
+coefficient field guards a failure that bites only where the data carries
+torsion, and for the domains this library targets that is close to never:
+torsion in low degrees needs projective planes, Klein bottles or lens spaces,
+and $\mathbb{Z}/2$ and $\mathbb{Z}/11$ return identical diagrams for
+essentially everything else. Option 1 therefore breaks three adapter signatures
+and puts a mandatory argument on every `from_gudhi` and `from_ripser` call to
+guard something most users cannot reach — **friction charged to everyone,
+repaid to almost nobody.**
+
+**Against option 3, dropping the clause.** A.5 made the comment's underlying
+claim *stronger* than it looked, not weaker. An unrecorded field is not
+conventionally $\mathbb{Z}/2$, because the two backends this project leans on
+hardest disagree by default and nothing in the artifact says which produced it.
+That is a diagram uninterpretable in the way §8's opening sentence describes.
+
+**The fourth option is §8's own pattern.** `essential_bars` /
+`essential_bars_source` exists for exactly this then-versus-now problem, and
+the coefficient field has the same shape: record it, do not require it. The
+adapter records the caller's value if one arrived and the backend's documented
+default if none did, and a second key says which. No signature changes, no
+friction in the common case, and the diagram is never *silently* ambiguous — a
+reader can always tell whether the value was stated or assumed, which is the
+only thing option 3 gave up and the only thing option 1 bought.
+
+**Why this fits where D15's `order` did not**, the two having been tested
+against the same criterion. `order` had no adapter-time verdict worth a second
+key: §7 fixes every adapter's answer at `"backend"`, and there was nothing else
+it could have said. Here there is a real verdict — the backend's default is a
+fact the adapter knows, the caller may not, and A.5 measures that nothing
+recovers it from the returned object afterwards. That is the condition the
+`essential_bars_source` split exists for, and `order` failing it is what made
+D15 a removal rather than a second key.
+
+**Two residual limits, both stated in §11 rather than hidden.** `from_giotto`
+is excluded from the recording requirement, giotto's default being documented
+as 2 but unmeasurable here (§9.2), and a document that will not assert an
+unmeasured backend fact anywhere else should not start there; the exclusion is
+written as evidence-conditional rather than permanent. And a recorded default
+is a marked assumption rather than a measurement: no backend returns the field
+it computed with, so an adapter cannot verify the caller left the default
+alone, and a caller who passes `homology_coeff_field=3` to GUDHI without
+passing it on gets a diagram recording 11. **That is a real limit — but it
+replaces a *silent* assumption with a marked one**, the status quo having been
+a diagram carrying nothing and a reader defaulting to $\mathbb{Z}/2$ on a
+backend that uses $\mathbb{Z}/11$.
+
+**Where the argument is least confident**, recorded as the condition to reopen
+against: it turns on torsion being rare in this library's target data, which is
+a judgment about users this project does not have yet rather than a
+measurement. If §1's general-purpose framing means the projective-plane user
+should be assumed to exist, option 1 becomes much stronger — three signatures
+once, against a wrong default forever.
+
+---
+
+## Appendix C — Changelog
+
+*Author's note: this is a draft change log, kept for the comment window. Remove this appendix before publication, replacing it with a Post-History pointer to PR #10 and the commit range it covers. Entries 13, 14, 16, 18, 34, 51 and 52 refer to a separate history document; it was retired at entry 56 and is readable at `cff895e`.*
 
 - **2026-07-29** — Initial draft.
 - **2026-07-30** — Added §4.1 (two-type design vs. dense padded batch).
@@ -2896,5 +3095,6 @@ Full narrative: history document.
 - **2026-08-10 (51)** — Three false statements in the history document's summary and changelog, one of them restated in entry 44 above: "every figure in A.6 now re-runs" was false when written, `bar_counts.py` needing the `classify` repository for its point clouds. Corrected in place and marked, here and at its source in entry 42. Nothing else here changed, and the five BCP 14 keyword counts are identical to entry 50's.
 - **2026-08-10 (52)** — Added A.8, measuring §9.2's "most-installed" claim with `rfcs/evidence/pypi_downloads.py`. Out: positioning at §9.2 and D2, project practice at D19, a superseded return type at §11, and this appendix's references to project correspondence. Relocated history document citation. No normative content changed.
 - **2026-08-10 (53)** — Four residuals of entries 50-52. A.8 records that it re-runs over the network and does not reproduce offline; §8 defers to §5 for the `essential_bars_source` argument instead of restating it; A.5's closing pointer names the two columns it means; D19 cites §9's delegation rule rather than project working practice. No requirement changed.
-- **2026-08-10 (54)** — Condensation pass on §12.2 and this changelog, which takes ~4,500 words out of the RFC. §12.2's cells become outcome, normative pointer and reopen condition, and every entry here is at most 108 words. **One requirement is relocated rather than cut:** D18's cell held the only uppercase statement that namespace resolution goes through one function and answers to the input rather than the environment, and §3.3 now carries it. §10.1's credit to A.6 for D12's surviving CSV argument and reopen condition moves to D12; A.6's pointer back to D12 becomes the reason itself. Measurements, keyword accounting and what was checked before cutting: history document.
+- **2026-08-10 (54)** — Condensation pass on §12.2 and this changelog, which takes ~4,500 words out of the RFC. §12.2's cells become outcome, normative pointer and reopen condition, and every entry here is at most 108 words. **One requirement is relocated rather than cut:** D18's cell held the only uppercase statement that namespace resolution goes through one function and answers to the input rather than the environment, and §3.3 now carries it. §10.1's credit to A.6 for D12's surviving CSV argument and reopen condition moves to D12; A.6's pointer back to D12 becomes the reason itself.
 - **2026-08-13 (55)** — Review pass. **Normative in four places, +4 uppercase obligations, nothing else moved.** §9.1's delegation is scoped per degree — one backend call per dimension, a `max` across them, an absent degree delegated against the other side's empty diagram — closing the reading where persim matches an H0 bar against an H1 bar. `spec_version` gains a bump condition, minor for any BCP 14 clause altered, and the document becomes **0.2.0**; `0.1.0` had spanned entries 47-49. §10.1 requirement 4 names its mechanism at both archive layers rather than standing open, on new **A.9** and `rfcs/evidence/npz_determinism.py`; §11.2's determinism case gains A.9's two-second floor. `format_version`'s self-dating gloss removed.
+- **2026-08-17 (56)** — The history document is retired and removed; git holds it at `cff895e`, and PR #10 is the deliberation record. Its rationale and prior art become **Appendix B**: D14's and D17's arguments, §4.2's PyTorch Geometric precedent, and two of §5's three against keeping the smaller recorded value, restated in §8's current enum spelling. This changelog becomes Appendix C, marked for removal at publication. Nine pointers into it are dropped or retargeted; §9.1 records how its own suppression incident closed. No requirement changed. The bare MUST count rises from 166 to 169: two mentions in B.4, one in this sentence. The other four are unchanged.
