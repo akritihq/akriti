@@ -3,11 +3,11 @@
 | Field | Value |
 |---|---|
 | **Status** | Draft — not yet open for public comment |
-| **Version** | 0.2.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
+| **Version** | 0.2.1 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
 | **Author** | Sushovan Majhi |
 | **Edited By** | A. D. Silberman |
 | **Created** | 2026-07-29 |
-| **Last Edited** | 2026-08-13 |
+| **Last Edited** | 2026-08-18 |
 | **Target** | M0 (2026-08-01) drafted — met, initial draft 2026-07-29 · published for comment 2026-08-23, ahead of M1 |
 | **Implements** | `akriti.diagrams` |
 
@@ -1767,9 +1767,13 @@ Consequences:
 
 **Status of this adapter: best-effort compatibility shim, not a peer of
 `from_gudhi`/`from_ripser`, and its spec stays exactly this large regardless.**
-giotto-tda has had zero commits in 52 weeks (see the repository's commit
-history), so `from_giotto`'s contract is not held to giotto staying maintained
-and MUST NOT block on anything getting fixed upstream. But that is a statement
+giotto-tda's last commit is 2024-05-30 and its last release, `v0.6.2`, is the
+same day — 115 weeks before this revision, and `0.6.2` is the version §9.2
+measures. The figure is stated as a date rather than an interval because the
+interval only grows: an earlier draft of this sentence said 52 weeks and was
+wrong by more than a year within a fortnight of being written. So
+`from_giotto`'s contract is not held to giotto staying maintained and MUST NOT
+block on anything getting fixed upstream. But that is a statement
 about *priority relative to the other four adapters*, not about *scope*: the
 essential-bar handling (§5.1), padding disambiguation (§4, Appendix A.2), and
 this section's frozen-fixture testing requirement all stay as specified.
@@ -2035,7 +2039,7 @@ message byte for byte:
   "format": "akriti.diagrams.akd",
   "format_version": 0,
   "spec": "RFC-0001",
-  "spec_version": "0.2.0",
+  "spec_version": "0.2.1",
   "kind": "diagram",
   "meta": { "filtration": "rips", "backend": "ripser", "...": "..." }
 }
@@ -2046,7 +2050,7 @@ message byte for byte:
 | `format` | `str` | Exactly `"akriti.diagrams.akd"`. This is requirement 3's self-identification, and it MUST be a fixed string rather than anything derived, so a reader can recognise the file without parsing the rest |
 | `format_version` | `int` | The version of *this layout*, currently `0`. Incremented whenever a change would make an older `load` misread a newer file. The one version key `load` is allowed to branch on |
 | `spec` | `str` | Which specification defines the file: `"RFC-0001"`. Separate from `format` so that a format defined by some later RFC is distinguishable from a later revision of this one |
-| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"0.2.0"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. **A revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor; a revision that alters none MUST increment the patch.** The major is `0` while the Status row reads Draft and becomes `1` at the revision published for comment. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
+| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"0.2.1"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. **A revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor; a revision that alters none MUST increment the patch.** The major is `0` while the Status row reads Draft and becomes `1` at the revision published for comment. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
 | `kind` | `str` | `"diagram"` or `"batch"`. Nothing else is valid |
 | `meta` | object | Present iff `kind == "diagram"`: one `DiagramMeta` as a JSON object, its own keys being the field names of §8's dataclass |
 | `metas` | array | Present iff `kind == "batch"`: the per-diagram `DiagramMeta` objects, in batch order |
@@ -3098,3 +3102,4 @@ once, against a wrong default forever.
 - **2026-08-10 (54)** — Condensation pass on §12.2 and this changelog, which takes ~4,500 words out of the RFC. §12.2's cells become outcome, normative pointer and reopen condition, and every entry here is at most 108 words. **One requirement is relocated rather than cut:** D18's cell held the only uppercase statement that namespace resolution goes through one function and answers to the input rather than the environment, and §3.3 now carries it. §10.1's credit to A.6 for D12's surviving CSV argument and reopen condition moves to D12; A.6's pointer back to D12 becomes the reason itself.
 - **2026-08-13 (55)** — Review pass. **Normative in four places, +4 uppercase obligations, nothing else moved.** §9.1's delegation is scoped per degree — one backend call per dimension, a `max` across them, an absent degree delegated against the other side's empty diagram — closing the reading where persim matches an H0 bar against an H1 bar. `spec_version` gains a bump condition, minor for any BCP 14 clause altered, and the document becomes **0.2.0**; `0.1.0` had spanned entries 47-49. §10.1 requirement 4 names its mechanism at both archive layers rather than standing open, on new **A.9** and `rfcs/evidence/npz_determinism.py`; §11.2's determinism case gains A.9's two-second floor. `format_version`'s self-dating gloss removed.
 - **2026-08-17 (56)** — The history document is retired and removed; git holds it at `cff895e`, and PR #10 is the deliberation record. Its rationale and prior art become **Appendix B**: D14's and D17's arguments, §4.2's PyTorch Geometric precedent, and two of §5's three against keeping the smaller recorded value, restated in §8's current enum spelling. This changelog becomes Appendix C, marked for removal at publication. Nine pointers into it are dropped or retargeted; §9.1 records how its own suppression incident closed. No requirement changed. The bare MUST count rises from 166 to 169: two mentions in B.4, one in this sentence. The other four are unchanged.
+- **2026-08-18 (57)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 0.2.1**. §9.2's dormancy figure for giotto-tda was "zero commits in 52 weeks" and is 115: its last commit and its last release `v0.6.2` are both 2024-05-30, and `0.6.2` is the version §9.2 measures. Now stated as a date, the interval being the half that decays — this one was wrong by more than a year within a fortnight of being written, in a document whose §9 is about claims that go stale without telling anyone. **This revision also carries the patch entry 56 owed and did not take:** that pass altered no BCP 14 clause and left `spec_version` at 0.2.0, so 0.2.1 is the first increment since the rule was written. Nothing on disk is stranded, `save` being unimplemented on every branch.
