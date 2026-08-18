@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "akriti"
-version = "0.0.1.dev0"
+dynamic = ["version"]
 description = "The statistically grounded entry point to topological data analysis in Python"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -117,6 +117,7 @@ test = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "hypothesis>=6.165.2",   # MPL-2.0, weak copyleft. Test-only, never shipped.
+    "packaging>=22",
     # Conformance reference for RFC-0001 §3.3. Rejects NumPy-only calls that
     # numpy's own __array_namespace__ silently permits (it returns numpy
     # itself, so hasattr checks pass spuriously). BSD. Test-only.
@@ -141,6 +142,9 @@ Homepage = "https://akriti.io"
 Source = "https://github.com/akritihq/akriti"
 Issues = "https://github.com/akritihq/akriti/issues"
 RFCs = "https://github.com/akritihq/akriti/tree/main/rfcs"
+
+[tool.hatch.version]
+path = "src/akriti/__init__.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/akriti"]

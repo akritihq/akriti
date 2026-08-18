@@ -173,12 +173,17 @@ table. When `io.py` lands, `save`/`load` will import it lazily at call time
 | `io` | → `akriti[numpy]` | BSD-3-Clause; `.akd` `save`/`load` only (RFC-0001 §10) |
 | `torch` | `torch` | BSD-3-Clause; multi-gigabyte, never a hard dependency |
 | `bio` | `anndata` | BSD-3-Clause |
-| `test` | `pytest`, `pytest-cov`, `hypothesis`, `array_api_strict`, → `akriti[numpy]` | `hypothesis` is **MPL-2.0** — weak, file-level, test-only, never shipped |
+| `test` | `pytest`, `pytest-cov`, `hypothesis`, `packaging>=22`, `array_api_strict`, → `akriti[numpy]` | `hypothesis` is **MPL-2.0** — weak, file-level, test-only, never shipped |
 | `lint` | `ruff`, `mypy` | MIT |
 
 `hypothesis` is the one reviewed exception in the checker. MPL-2.0 obligations
 attach per-file to MPL-licensed files; we neither modify nor redistribute them,
 and test dependencies do not reach a user's runtime environment.
+
+`packaging>=22` is declared directly for PEP 440 release/version validation. Its
+verified licence is **Apache-2.0 OR BSD-2-Clause**. Pytest already pulls it
+transitively, so the direct declaration makes the test requirement explicit
+without changing the resolved test closure or the empty default closure.
 
 ---
 

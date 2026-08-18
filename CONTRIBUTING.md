@@ -33,7 +33,24 @@ default `pip install akriti` deliberately installs **no backend at all** — see
 pytest                     # tests
 ruff check . && ruff format --check .
 mypy                       # strict
-python tools/check_license_closure.py
+python tools/check_license_closure.py --profile dev --allow-copyleft
+```
+
+The licence command above audits the development environment for visibility.
+It is report-only because `[dev]` deliberately contains reviewed test and
+backend dependencies whose licences are outside the user-facing policy.
+
+### Strict licence-closure checks
+
+Enforce the release policy in a separate clean environment. Check the empty
+default closure before installing the permissive-only `io` extra:
+
+```bash
+python -m venv .venv-closure
+.venv-closure/bin/pip install .
+.venv-closure/bin/python tools/check_license_closure.py
+.venv-closure/bin/pip install ".[io]"
+.venv-closure/bin/python tools/check_license_closure.py --profile io
 ```
 
 ## Ground rules

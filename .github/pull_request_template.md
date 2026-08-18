@@ -32,7 +32,8 @@
 
 - [ ] The package exists and is the one intended — verified on PyPI, not recalled
 - [ ] The whole transitive closure was checked, not just the direct dependency
-- [ ] `python tools/check_license_closure.py` passes in a clean default-install venv
+- [ ] The [strict licence-closure checks](../blob/main/CONTRIBUTING.md#strict-licence-closure-checks)
+      pass for clean default and `io` installs
 - [ ] [DEPENDENCIES.md](../DEPENDENCIES.md) updated
 
 ### If this touches `compat/giotto`
