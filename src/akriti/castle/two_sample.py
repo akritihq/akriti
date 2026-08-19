@@ -22,8 +22,7 @@ from __future__ import annotations
 
 import warnings
 from dataclasses import dataclass
-
-import numpy as np
+from typing import Any
 
 from akriti.diagrams import DiagramBatch
 
@@ -182,7 +181,7 @@ def two_sample(
     )
 
 
-def _weighted_linear_gram(x: np.ndarray, sigma: float) -> np.ndarray:
+def _weighted_linear_gram(x: Any, sigma: float) -> Any:
     """Weighted linear kernel Gram matrix over embedded diagrams.
 
     Port of ``exp_orbit5k_two_sample_demo.wlk_gram``. Cite the kernel's
@@ -202,7 +201,7 @@ def _weighted_linear_gram(x: np.ndarray, sigma: float) -> np.ndarray:
     raise NotImplementedError
 
 
-def _mmd2_from_gram(gram: np.ndarray, idx_a: np.ndarray, idx_b: np.ndarray) -> float:
+def _mmd2_from_gram(gram: Any, idx_a: Any, idx_b: Any) -> float:
     """Biased MMD-squared between two index sets of a shared Gram matrix.
 
     Port of ``exp_orbit5k_two_sample_demo.mmd_stat_from_gram``. State in this
