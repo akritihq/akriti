@@ -7,7 +7,7 @@ The test embeds each diagram with PALACE, compares the two groups by
 embedding-space MMD, calibrates against a permutation null, and — the part no
 other Python library offers — converts a rejection in embedding space into a
 **certified lower bound on the bottleneck distance** between the underlying
-diagram distributions, via the bidirectional bound of Papers I–II.
+diagram distributions, via the bidirectional bound of Papers I-II.
 
 Ported from ``PESOSE-27/stat-papers/experiments/exp_orbit5k_two_sample_demo.py``.
 That script remains the reference for the numerical content; this module is its
@@ -27,14 +27,14 @@ import numpy as np
 
 from akriti.diagrams import DiagramBatch
 
-__all__ = ["TwoSampleResult", "two_sample", "StructuralAxisWarning"]
+__all__ = ["StructuralAxisWarning", "TwoSampleResult", "two_sample"]
 
 
 # Defaults from the standard PALACE configuration used throughout Papers I-IV.
 # These are NOT tuned-for-you values -- see the guardrail note in `two_sample`.
-DEFAULT_K = 200          # landmarks per filtration
-DEFAULT_SIGMA = 1e-3     # kernel bandwidth
-DEFAULT_SHRINK = 1.75    # alpha, the non-uniform shrink exponent
+DEFAULT_K = 200  # landmarks per filtration
+DEFAULT_SIGMA = 1e-3  # kernel bandwidth
+DEFAULT_SHRINK = 1.75  # alpha, the non-uniform shrink exponent
 DEFAULT_N_PERMUTATIONS = 1000
 
 
