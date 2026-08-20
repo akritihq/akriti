@@ -2675,24 +2675,32 @@ Input: 40 points sampled uniformly on the unit circle with Gaussian noise
 |---|---|---|---|
 | GUDHI (Rips) | 40 | 1 (`inf`) | 2 |
 | Ripser | 40 | 1 (`inf`) | 2 |
-| giotto (`infinity_values=None`) | 39 | 0 | 2 |
-| giotto (`infinity_values=inf`) | 39 | 0 | 2 |
-| giotto (`infinity_values=99.0`) | 39 | 0 | 2 |
+| giotto (`reduced_homology=True`, `infinity_values=None`) | 39 | 0 | 2 |
+| giotto (`reduced_homology=True`, `infinity_values=inf`) | 39 | 0 | 2 |
+| giotto (`reduced_homology=True`, `infinity_values=99.0`) | 39 | 0 | 2 |
+| giotto (`reduced_homology=False`, `infinity_values=None`) | **40** | **1** | 2 |
+| giotto (`reduced_homology=False`, `infinity_values=inf`) | **40** | **1** | 2 |
+| giotto (`reduced_homology=False`, `infinity_values=99.0`) | **40** | 0 | 2 |
 
-All three giotto rows were run with `reduced_homology=True` (giotto's
-default); that parameter, not `infinity_values`, accounts for 39 rather than
-40 H0 bars (§5.1).
+**The last three rows are what make this a measurement rather than an
+inference.** Holding `infinity_values` fixed and flipping `reduced_homology`
+restores the fortieth H0 bar and its essential class, so the cause is
+`reduced_homology` and not `infinity_values` (§5.1) — shown directly rather
+than by elimination. The two mechanisms separate across the two halves of the
+table: **`reduced_homology` decides whether the class exists at all;
+`infinity_values` decides how its death is represented.** The last row shows
+both at once — the class is present, and `99.0` then substitutes a finite
+death for its infinite one, which is `infinity_values` doing what it
+documents.
 
-**This table does not measure the claim §5.1 rests on.** It varies
-`infinity_values` across three settings and holds `reduced_homology` fixed at
-`True`, so it establishes that `infinity_values` is *not* the cause and
-leaves `reduced_homology` as the inference. A `reduced_homology=False` row
-would show the effect directly, and `probe_backends.py` MUST gain one before
-M1. It has not been run because giotto-tda 0.6.2 does not execute on the
-scikit-learn in this environment (§9.2), which is the same reason §9.2
-requires `from_giotto` to be tested against frozen fixtures — so the row will
-have to come from a pinned-environment capture, committed the way §11.2
-accepts a fixture as real backend output.
+The `reduced_homology=False` rows were measured on 2026-08-20 in a pinned
+environment, giotto-tda 0.6.2 not running on current scikit-learn (§9.2):
+giotto-tda 0.6.2, scikit-learn 1.3.2, numpy 1.26.4, CPython 3.11. The three
+`reduced_homology=True` rows reproduce the figures recorded on 2026-07-29
+exactly, which is what makes the three below them comparable rather than
+merely adjacent. These are bar **counts**, so unlike the coordinate-level
+captures in `tests/fixtures/` they do not move with the floating-point
+sensitivity that a change of CPython patch level introduces.
 
 GUDHI `persistence()` returns `list[tuple[int, tuple[float, float]]]`, e.g.
 `(0, (0.0, inf))`. `persistence_intervals_in_dimension(k)` returns a C-contiguous
@@ -3273,3 +3281,5 @@ Full narrative: history document.
 - **2026-08-17 (56)** — The history document is retired and removed; git holds it at `cff895e`, and PR #10 is the deliberation record. Its rationale and prior art become **Appendix B**: D14's and D17's arguments, §4.2's PyTorch Geometric precedent, and two of §5's three against keeping the smaller recorded value, restated in §8's current enum spelling. This changelog becomes Appendix C, marked for removal at publication. Nine pointers into it are dropped or retargeted; §9.1 records how its own suppression incident closed. No requirement changed. The bare MUST count rises from 166 to 169: two mentions in B.4, one in this sentence. The other four are unchanged.
 - **2026-08-20 (57)** — Reconciled this document against branch `adapter2`, which had diverged: entries 48-54 landed here while six corrections landed against the pre-48 text. **No requirement changes and no decision reopens** — each row states something this document had wrong about the code, the backends, or the repository, so they go to a new **§12.3**, separate from §12.1 and §12.2 because they are defects rather than choices. R1 corrects GUDHI's extended-persistence container; R2 resolves §3.3 against §11's namespace-less row inputs, adding `akriti[numpy]`; R3 corrects §10.3's `to_arrays()` claim; R4 restores `strip_padding`. **R5 is the one addition, flagged to strike**: it ratifies `infinity_values`, promoting C1. R6 retires D8's stale note.
 - **2026-08-20 (58)** — §10.2's unknown-key rule splits in two, which **is** a requirement change. A conforming `load` still ignores unrecognised keys in the envelope and in `bars.npz` — this document's own containers, where an advisory field added later is the forward-compatible change the rule exists to permit — but MUST now reject an unrecognised key inside a `meta` or `metas[i]` object, naming it. A `meta` key is a §8 dataclass field name, so ignoring one returns a diagram whose metadata is silently less than the file's, which §10.1 requirement 1 makes a round-trip failure rather than graceful degradation. Nothing is lost: §8's `params` and `provenance` are open mappings and already round-trip arbitrary keys, so a writer with a new fact has somewhere to put it; a genuinely new `DiagramMeta` field changes what `load` must reconstruct and is a `format_version` bump. Enforced in `io.py`, both halves tested.
+- **2026-08-20 (59)** — Four corrections, no decision resolved. **D5's citations, three sections**: D5 resolved to raise upstream first and publish citing our own reports, and all four reports were filed while none was cited. §9.1 now cites persim#105 and #106 with #108, §9.2 cites giotto-tda#726, §9.3 cites gudhi-devel#1368 — the last being the strongest, since they answered. **§11's `infinity_values` mechanism was false in a checkable way**, in two places: `None` does not name a value but a rule, use the transformer's cutoff, and under giotto's own `max_edge_length=inf` that rule yields `inf`, so a caller who configures nothing is safe. The hazard needs a finite cutoff with the default left in place. Requirements are unchanged; the `ValueError` now names the pair rather than the default alone, here and in §11.2. **§11's coefficient-field default moves from the backend to the entry point that produced the input**, GUDHI's maintainers describing 11 as arbitrary and historical and planning a second entry point defaulting to $\mathbb{Z}/2$; the returned formats differ, which is what makes the rule decidable. **Appendix A.5 is scoped to the Python surface**, GUDHI's C++ bars carrying the field their binding withholds. One new obligation rides along, flagged rather than buried: an adapter handed a form whose default this document has not measured MUST leave `coeff_field` unset.
+- **2026-08-20 (60)** — **Appendix A.1 gains the `reduced_homology=False` rows it has required since 2026-07-30**, and `rfcs/evidence/probe_backends.py` gains the code that produces and asserts them. The table now runs all three `infinity_values` settings at both `reduced_homology` values, so §5.1's cause is shown directly rather than inferred by elimination, and the two mechanisms separate: `reduced_homology` decides whether the class exists, `infinity_values` decides how its death is represented. The retired paragraph said the row "MUST" be added before M1 and could not be produced here; pinning scikit-learn below 1.6 is the whole of what was needed. The rows are stated as measurements with their environment, as A.5 and A.7 already are, rather than as a committed fixture — deliberately: `tests/fixtures/giotto_output.json` is not byte-reproducible across CPython patch levels, its coordinates moving in the last one or two decimal places when regenerated under 3.11.4 rather than the 3.11.15 it records, with every version the capture script names held equal. Bar counts do not move; coordinates do.

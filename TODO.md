@@ -84,6 +84,29 @@ against §10.3 in the same pass. Code and specification agree, and
 three adapters that depart from the common signature, not a divergence
 between the two documents.
 
+**`probe_backends.py` has no `reduced_homology=False` row.** Closed on both
+counts the entry left open. `probe_backends.py` now runs all three
+`infinity_values` settings at `reduced_homology=False` and asserts each, so the
+sweep is repeated on the other branch rather than varying one flag; and A.1's
+table carries the three rows, with the two mechanisms separated in the prose —
+`reduced_homology` decides whether the class exists, `infinity_values` decides
+how its death is represented.
+
+Measured 2026-08-20 on giotto-tda 0.6.2, scikit-learn 1.3.2, numpy 1.26.4,
+CPython 3.11; the three `reduced_homology=True` rows reproduce the 2026-07-29
+figures exactly, which is what makes the new ones comparable. The appendix
+rows are bar **counts** and are stated as measurements with their environment,
+the way A.5 and A.7 already are, rather than as a committed fixture — which
+matters, because `tests/fixtures/giotto_output.json` turns out **not** to be
+byte-reproducible across CPython patch levels. Re-running
+`tools/capture_giotto_fixture.py` under 3.11.4 rather than the 3.11.15 the
+fixture records rewrites its coordinates in the last one or two decimal
+places, with every version the script names held equal. Counts do not move;
+coordinates do. Anyone regenerating that fixture needs the exact interpreter,
+and the script's own instruction to use "the pinned environment" under-specifies
+it.
+
+
 ## The conformance module still skips as one unit
 
 *`tests/test_array_api_conformance.py` — needs a CI guarantee, not a test.*
@@ -101,41 +124,6 @@ conformance module skips — a `--strict-markers`-style guard, an explicit
 `-p no:cacheprovider` run that asserts a nonzero collected count, or simply
 importing `array_api_strict` unconditionally in a CI-only conftest so its
 absence is an error rather than a skip.
-
-## `probe_backends.py` has no `reduced_homology=False` row
-
-*`rfcs/evidence/` — RFC-0001 Appendix A.1.*
-
-Appendix A.1 varies `infinity_values` across three settings and holds
-`reduced_homology` fixed at `True`, so it establishes that `infinity_values`
-is not the cause of giotto's H0 loss and leaves `reduced_homology` as an
-inference. §5.1's adapter requirement rests on that inference.
-
-Blocked rather than merely unwritten: giotto-tda 0.6.2 does not run on current
-scikit-learn (§9.2), so the row cannot be produced by a live call in this
-environment. To close: capture it in a pinned environment and commit it as a
-frozen fixture, which §11.2 accepts as real backend output, then add the row
-to the appendix table.
-
-**The measurement now exists; the appendix row does not.** The adapter branch
-needed real giotto output and hit the same wall, so
-`tools/capture_giotto_fixture.py` builds the pinned environment the paragraph
-above describes — giotto-tda 0.6.2 on scikit-learn 1.3.2, numpy 1.26.4,
-CPython 3.11 — and `tests/fixtures/giotto_output.json` is what it captured.
-That file carries the same 40-point circle at `reduced_homology=True` **and**
-`False`: 39 H0 rows against 40, zero non-finite entries either way. The
-inference §5.1 rests on is therefore measured rather than inferred, on this
-project's own machine, with the environment recorded in the fixture.
-
-Two things remain, and neither is an adapter's to do. **A.1's table has no
-row for it** — adding one is an edit to a document under public comment, so
-it goes through whoever owns the RFC, not through a branch that happened to
-need the number. And **the `infinity_values` sweep is not repeated at
-`reduced_homology=False`**: the capture varies one flag, so it shows the H0
-loss tracking `reduced_homology` and does not re-establish that
-`infinity_values` is inert on the other branch. A.1 already shows the latter
-at `True`, and nothing in §5.1 turns on the cross, which is why this is a
-note rather than a second blocked entry.
 
 ## `.akd` I/O (implemented)
 
