@@ -1754,6 +1754,22 @@ This is a guardrail: a negative result about a dependency, converted into a
 safety feature. It is a named exception to this document's delegation position
 rather than a drift away from it, which is why it carries a decision row.
 
+**Reported upstream before publication**, on D5's terms:
+[scikit-tda/persim#105](https://github.com/scikit-tda/persim/issues/105), filed
+2026-08-08 with the reproduction above. The maintainer agrees that the
+convention persim follows is under-documented and that it is not being followed
+in the case measured here, and is weighing how the API should change before
+implementing anything. Nothing in this section waits on that: the guardrail
+above is ours to build regardless. What the record establishes is that this is
+a defect its maintainers know about and are considering, not one we are
+announcing.
+
+The same pass filed
+[#106](https://github.com/scikit-tda/persim/issues/106), persim's dependency on
+the abandoned GPLv3 `hopcroftkarp`, which `DEPENDENCIES.md` traces into every
+install carrying a backend. The maintainer invited a fix, open as
+[#108](https://github.com/scikit-tda/persim/pull/108).
+
 ### 9.2 giotto-tda 0.6.2 does not run on current scikit-learn
 
 `VietorisRipsPersistence.fit_transform` raises
@@ -1790,6 +1806,17 @@ migrating user rediscovering the same three hazards independently.
 *Clean-room note: giotto-tda is AGPLv3. The above was determined by calling
 public API and reading a traceback. No giotto source has been read, and MUST
 NOT be read while implementing `compat/`.*
+
+**Reported upstream before publication**, on D5's terms:
+[giotto-ai/giotto-tda#726](https://github.com/giotto-ai/giotto-tda/issues/726),
+filed 2026-08-17 with the traceback and the versions above, and with no fix
+requested. No reply at the time of writing.
+
+The report exists for the reason D5 gives, and one more. A maintainer who
+learns from a published specification that their library is described as
+unusable has been ambushed; one who was told first has been consulted. The
+sentence above is strongly worded and sourced, and it stays as it is — but it
+is a sentence we put to them before we put it here.
 
 ### 9.3 GUDHI and Ripser compute over different coefficient fields by default
 
@@ -1855,6 +1882,26 @@ itself controls, not a claim about what the returned object carries or an
 obligation on a caller of ours. §11's recording requirement and this one
 meet nowhere — one governs what an adapter writes down about a diagram it
 is handed, the other what our own test asks the backends for.
+
+**Raised with GUDHI before publication** as
+[GUDHI/gudhi-devel#1368](https://github.com/GUDHI/gudhi-devel/issues/1368) —
+two questions rather than a report, neither backend being wrong. Their
+maintainers answered within the hour, and three of the answers bear on what
+this document may assert.
+
+`homology_coeff_field=11` is, in their words, arbitrary and historical rather
+than a guarantee, though safe to rely on for `persistence()`. A general
+`compute_persistence()` is planned that will probably default to
+$\mathbb{Z}/2$ instead, with `persistence()` deprecated and hidden from the
+documentation but not removed — so a second entry point with a second default
+is coming, and §11's recording rule is written against the entry point rather
+than the backend for that reason. And the C++ interface *does* carry the
+coefficient field on each bar; the Python binding deliberately does not surface
+it, which is why Appendix A.5's finding is scoped to the Python surface an
+adapter actually receives.
+
+Where their answers and our measurements speak to the same fact, this document
+records theirs.
 
 ---
 
@@ -2281,16 +2328,24 @@ the call site, not a value that can slip past as an optional key in `**meta`.
 §5.1 requires omission to raise; this clause fixes what it raises and where.
 
 **`infinity_values` is required on the same ground, and only `inf` is
-accepted.** giotto's own default is `None`, which gives every class still
-alive at the transformer's cutoff a *finite* death equal to that cutoff — a
+accepted.** giotto's own default is `None`, which does not name a value but a
+rule: use the transformer's cutoff. Under giotto's other default,
+`max_edge_length=inf`, that rule yields `inf` and is exactly what §5 requires,
+so a caller who configures nothing is safe. Under a **finite** cutoff — the
+ordinary choice on real data, and the one Appendix A.1's own GUDHI call makes —
+it gives every class still alive at that cutoff a finite death equal to it: a
 sentinel indistinguishable from a bar that genuinely died there, which §5
-refuses outright as unrecoverable. The adapter cannot detect this from the
-output array, for exactly the reason `reduced_homology` cannot be detected:
-a truncated filtration produces the same shape either way. So the caller MUST
+refuses as unrecoverable.
+
+The adapter can detect neither half. `max_edge_length` never reaches it, so it
+cannot know whether the rule was dangerous, and the substituted death is an
+ordinary float, so it cannot see that the rule fired. So the caller MUST
 state it, and MUST have constructed the transformer with
 `infinity_values=numpy.inf`; passing anything finite MUST raise `ValueError`
 naming §5, and passing `None` MUST raise `ValueError` naming giotto's default
-specifically, since that is the value a caller reaches by doing nothing. The
+and the cutoff together rather than the default alone — the hazard is the
+pair, and an error blaming `None` sends a caller who never set a cutoff
+looking for a problem they do not have. The
 argument is deliberately *not* recorded in `params` — it constrains which
 inputs are admissible rather than describing the computation, and a diagram
 that passed it has its essential bars visible as `inf` where §5 requires.
@@ -2342,8 +2397,22 @@ adapters are the only writers that can.
 **`from_gudhi` and `from_ripser` MUST record the coefficient field** (D17).
 Each MUST set `meta.coeff_field` and `provenance["coeff_field_source"]` in the
 same construction: to the caller's value with `"caller"` if one arrived in
-`**meta`, and otherwise to that backend's documented default —
-GUDHI 11, Ripser 2 (§9.3, A.5) — with `"backend_default"`. `coeff_field`
+`**meta`, and otherwise to the documented default of **the entry point that
+produced the input** — GUDHI's `persistence()` forms 11, Ripser's 2 (§9.3,
+A.5) — with `"backend_default"`. An adapter handed a form whose default this
+document has not measured MUST leave `coeff_field` unset rather than assume
+one, on the terms the `from_giotto` exclusion below already sets.
+
+**The default belongs to the entry point, and GUDHI is about to have two.**
+Its maintainers describe `homology_coeff_field=11` as arbitrary and historical
+rather than a guarantee, and plan a general `compute_persistence()` defaulting
+to $\mathbb{Z}/2$, with `persistence()` deprecated and hidden but not removed.
+Two entry points with two defaults make "the backend's documented default"
+ambiguous in a way no wording resolves. What resolves it is that the two return
+**different formats**, which this section's table already distinguishes: an
+adapter reads the default off the form it was handed rather than off the
+backend name it was called under. §9.3's CI assertion is therefore per entry
+point, not per backend. `coeff_field`
 remains optional on the type and no adapter signature changes; what is
 forbidden is an adapter leaving the field silent when it knows what the
 backend would have done.
@@ -2430,8 +2499,9 @@ suite MUST include, at minimum:
 - **`from_giotto`'s two required arguments, refused on the argument rather
   than on the data** (§11): omitting `reduced_homology` or `infinity_values`
   MUST raise `TypeError`, and `infinity_values=None` — giotto's own default,
-  so the value a caller reaches by doing nothing — MUST raise `ValueError`
-  naming that default specifically, as MUST any finite value. The refusal
+  which resolves to the transformer's cutoff and so writes a finite sentinel
+  whenever that cutoff is finite — MUST raise `ValueError` naming the default
+  and the cutoff together, as MUST any finite value. The refusal
   cases MUST run against real giotto output captured with that default, since
   that array is the one the sentinel is actually in; a suite that exercises
   them only on a hand-written array proves the check fires but not that it
@@ -2687,16 +2757,18 @@ but whether the object it hands back carries the value it was computed with.
 
 | Backend | Parameter | Default | Carried on the returned object? |
 |---|---|---|---|
-| GUDHI | `SimplexTree.persistence(homology_coeff_field=...)` | **11** | **No.** Returns `list[(dim, (b, d))]`; `SimplexTree` exposes no attribute naming a coefficient field. |
+| GUDHI | `SimplexTree.persistence(homology_coeff_field=...)` | **11** | **Not in Python.** Returns `list[(dim, (b, d))]`; `SimplexTree` exposes no attribute naming a coefficient field. The C++ interface does carry it — a bar there holds its field — and the binding withholds it as a deliberate choice rather than an oversight. |
 | Ripser | `ripser(..., coeff=...)` | **2** | **No.** Returned `dict` keys are `cocycles`, `dgms`, `dperm2all`, `idx_perm`, `num_edges`, `r_cover`. |
 | giotto | `VietorisRipsPersistence(coeff=...)` | 2 | Not measured. The value sits on the estimator; `from_giotto` (§11) receives the `(n_samples, n_bars, 3)` array, which has no slot for it. |
 | persim | — | — | Consumes diagrams, computes no homology. |
 | array | — | — | No backend. |
 
-**No backend returns the coefficient field it computed with.** On every one it
-is a call parameter and is absent from the returned object, so an adapter
-cannot recover it from its input — the value exists only in the caller's own
-call.
+**No backend's Python interface returns the coefficient field it computed
+with.** The scope is deliberate: GUDHI's C++ bars carry theirs, and the
+distinction matters because an adapter reads the Python surface and nothing
+else. On every Python entry point measured here the field is a call parameter
+and is absent from the returned object, so an adapter cannot recover it from
+its input — the value exists only in the caller's own call.
 
 **The defaults also disagree: GUDHI computes over $\mathbb{Z}/11$, Ripser over $\mathbb{Z}/2$.** An
 unrecorded `coeff_field` is therefore not conventionally $\mathbb{Z}/2$; it is genuinely
