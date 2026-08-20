@@ -183,10 +183,8 @@ jobs:
       # release changes one of them, we want to find out from CI rather than
       # from a reviewer.
       - run: pip install -e ".[rips,alpha,distances]" scikit-learn giotto-tda
-        continue-on-error: true
       - name: Reproduce appendix measurements
-        continue-on-error: true
-        run: python rfcs/evidence/probe_backends.py
+        run: python rfcs/evidence/probe_backends.py --require-giotto
 
   build:
     runs-on: ubuntu-latest

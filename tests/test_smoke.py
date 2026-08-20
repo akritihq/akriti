@@ -7,11 +7,14 @@ default closure must not quietly acquire one.
 
 from __future__ import annotations
 
+import importlib.metadata
 import importlib.util
 import subprocess
 import sys
+from pathlib import Path
 
 import pytest
+from packaging.version import InvalidVersion, Version
 
 
 def test_imports() -> None:
@@ -21,11 +24,89 @@ def test_imports() -> None:
 
 
 def test_version_is_pep440() -> None:
-    import re
-
     import akriti
 
-    assert re.fullmatch(r"\d+\.\d+\.\d+(\.\w+\d*)?", akriti.__version__)
+    Version(akriti.__version__)
+
+
+@pytest.mark.parametrize("version", ["0.1.0rc1", "1.0.0a1"])
+def test_pep440_prereleases_are_accepted(version: str) -> None:
+    assert Version(version).public == version
+
+
+def test_invalid_pep440_version_is_rejected() -> None:
+    with pytest.raises(InvalidVersion):
+        Version("1.2.3.foo")
+
+
+def test_runtime_and_distribution_versions_agree() -> None:
+    import akriti
+
+    assert importlib.metadata.version("akriti") == akriti.__version__
+
+
+def test_version_source_configuration() -> None:
+    """The package and Hatch must have one version source without TOML parsing."""
+
+    pyproject = Path(__file__).parents[1] / "pyproject.toml"
+    lines = pyproject.read_text(encoding="utf-8").splitlines()
+
+    def section(name: str) -> list[str]:
+        start = next(i for i, line in enumerate(lines) if line == f"[{name}]")
+        end = next(
+            (i for i in range(start + 1, len(lines)) if lines[i].startswith("[")),
+            len(lines),
+        )
+        return lines[start + 1 : end]
+
+    project = section("project")
+    hatch_version = section("tool.hatch.version")
+    optional_dependencies = section("project.optional-dependencies")
+    build_system = section("build-system")
+
+    dynamic = next(line for line in project if line.strip().startswith("dynamic ="))
+    assert dynamic.strip() == 'dynamic = ["version"]'
+    assert not any(line.strip().startswith("version =") for line in project)
+    assert 'path = "src/akriti/__init__.py"' in {line.strip() for line in hatch_version}
+
+    def assignments(section_lines: list[str]) -> dict[str, list[str]]:
+        parsed: dict[str, list[str]] = {}
+        active_key: str | None = None
+        for raw_line in section_lines:
+            line = raw_line.split("#", 1)[0].strip()
+            if not line:
+                continue
+            if active_key is None:
+                key, separator, value = line.partition("=")
+                if not separator:
+                    continue
+                active_key = key.strip()
+                parsed[active_key] = [value.strip()]
+                if not value.strip().startswith("[") or value.strip().endswith("]"):
+                    active_key = None
+            else:
+                parsed[active_key].append(line)
+                if line.endswith("]"):
+                    active_key = None
+        return parsed
+
+    optional_requirements = assignments(optional_dependencies)
+    packaging_keys = {
+        key
+        for key, values in optional_requirements.items()
+        if any('"packaging>=22"' in value for value in values)
+    }
+    assert packaging_keys == {"test"}
+    assert not any(
+        '"packaging>=22"' in value
+        for values in assignments(project).values()
+        for value in values
+    )
+    assert not any(
+        '"packaging>=22"' in value
+        for values in assignments(build_system).values()
+        for value in values
+    )
 
 
 def test_package_is_typed() -> None:

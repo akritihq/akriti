@@ -205,12 +205,17 @@ relevant extra on failure.
 | `torch` | `torch`, `array-api-compat>=1.15.0` | Torch is BSD-3-Clause and multi-gigabyte; array-api-compat is MIT; both are optional and never hard dependencies |
 | `parquet` | `pyarrow>=25.0.0` | Apache-2.0; Apache Arrow Developers; strict permissive-only closure audited separately |
 | `bio` | `anndata` | BSD-3-Clause |
-| `test` | `pytest`, `pytest-cov`, `hypothesis`, `array_api_strict`, → `akriti[numpy]` | `hypothesis` is **MPL-2.0** — weak, file-level, test-only, never shipped |
+| `test` | `pytest`, `pytest-cov`, `hypothesis`, `packaging>=22`, `array_api_strict`, → `akriti[numpy]` | `hypothesis` is **MPL-2.0** — weak, file-level, test-only, never shipped |
 | `lint` | `ruff`, `mypy` | MIT |
 
 `hypothesis` is the one reviewed exception in the checker. MPL-2.0 obligations
 attach per-file to MPL-licensed files; we neither modify nor redistribute them,
 and test dependencies do not reach a user's runtime environment.
+
+`packaging>=22` is declared directly for PEP 440 release/version validation. Its
+verified licence is **Apache-2.0 OR BSD-2-Clause**. Pytest already pulls it
+transitively, so the direct declaration makes the test requirement explicit
+without changing the resolved test closure or the empty default closure.
 
 The torch row is **report-only** in CI because the binary wheel is a large,
 platform-specific closure and its transitive metadata is not a supported strict

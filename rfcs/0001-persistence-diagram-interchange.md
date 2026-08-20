@@ -3,11 +3,11 @@
 | Field | Value |
 |---|---|
 | **Status** | Draft — not yet open for public comment |
-| **Version** | 0.1.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file |
+| **Version** | 0.2.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
 | **Author** | Sushovan Majhi |
 | **Edited By** | A. D. Silberman |
 | **Created** | 2026-07-29 |
-| **Last Edited** | 2026-08-16 |
+| **Last Edited** | 2026-08-20 |
 | **Target** | M0 (2026-08-01) drafted — met, initial draft 2026-07-29 · published for comment 2026-08-23, ahead of M1 |
 | **Implements** | `akriti.diagrams` |
 
@@ -556,7 +556,7 @@ The split adds no duplicated logic in the sense that matters: no
 `PersistenceDiagram`'s, the two exceptions being `canonical()` and equality,
 each kept in the one place it lives (§7, §6.3). §4.3 works through which is
 which. A batch of one is still a length-one `DiagramBatch` wrapping the same
-`PersistenceDiagram` type (§4.2). Full deliberation: history document.
+`PersistenceDiagram` type (§4.2).
 
 ### 4.2 `DiagramBatch` storage representation
 
@@ -675,8 +675,8 @@ touching §8.1. `DiagramBatch` and `PersistenceDiagram` are related
 by composition, not inheritance, deliberately: a subclass that fails to
 override even one accessor would silently compute it across batch
 boundaries instead of raising, the same "clean, plausible, wrong answer"
-category §9 exists to rule out. Precedent (PyTorch Geometric) and full
-deliberation may be found in the history document.
+category §9 exists to rule out. PyTorch Geometric solves the identical problem
+with a similar two-type split; Appendix B.1 carries the precedent.
 
 **Construction from ordinary adapter output.** §11's adapters return one
 `PersistenceDiagram` per call, except `from_giotto`, which is only pre-batched
@@ -973,8 +973,8 @@ previously recorded `essential_bars_finitized_at` and the new one.** It is
 unreachable under the return-unchanged rule above, and what it was reaching
 for — preserving an earlier verdict rather than letting a later call erase it
 — is what `essential_bars_source` above already does, as a second key with a
-single writer rather than an ordering imposed on the first. Full reasoning:
-history document.
+single writer rather than an ordering imposed on the first. Two further
+arguments against it: Appendix B.2.
 
 ### 5.1 What backends actually do
 
@@ -1172,8 +1172,8 @@ for diagrams that do have a bar-for-bar partner within `rtol`. Appendix A.3
 measures GUDHI/Ripser disagreement at `2.7e-8`, the magnitude that flips such
 a tie, so this is reachable on exactly the cross-backend comparison
 `allclose` exists to serve. No choice of sort key repairs it, and no total
-order is stable under perturbation; the history document carries that
-argument in full. Accepting the false negative was weighed and rejected — it
+order is stable under perturbation; Appendix B.3 carries that argument in
+full. Accepting the false negative was weighed and rejected — it
 is conservative, never a spurious `True`, but the caller's remedy for a
 spurious failure is to widen `rtol` until the comparison passes, which
 reintroduces into user code, where nobody reviews it, the silent loosening
@@ -1479,7 +1479,7 @@ $\mathbb{Z}/2$, and a value recorded without its source is a number a reader can
 was chosen or assumed. Recording both costs no signature change and no
 friction in the common case, and it leaves the diagram never *silently*
 ambiguous, which is the whole of what a required argument would have bought.
-D17 carries the outcome and the three options it rejected; the history document
+D17 carries the outcome and the three options it rejected; Appendix B.4
 carries the argument in full.
 
 **`meta` MUST NOT participate in `==` or `allclose`.** Two diagrams with the
@@ -1685,55 +1685,70 @@ disconnected one still gets a small distance and still concludes they are
 similar, with one line on stderr first, if anything upstream hasn't already
 turned warnings off.
 
+That suppression is fixed and cannot silently return:
+`rfcs/evidence/probe_backends.py` sets `warnings.simplefilter("always")`
+rather than filtering, and `tests/test_rfc0001_backend_claims.py` asserts the
+warning is raised.
+
 **Requirement on `core/distances.py`.** Before delegating, it MUST partition
-both diagrams by `essential`. If the essential-bar counts differ **per
-dimension**, the distance is `+inf` and MUST be returned as such without calling
-the backend. If they agree, it MUST delegate the finite parts, and it MUST NOT
-pass a diagram containing `inf` to persim under any circumstances.
+both diagrams **by dimension, and within each dimension by `essential`**. If the
+essential-bar counts differ in any dimension, the distance is `+inf` and MUST be
+returned as such without calling the backend. If they agree in every dimension,
+it MUST delegate the finite parts **one dimension at a time** — one backend call
+per dimension present in either diagram — and it MUST NOT pass a diagram
+containing `inf` to persim under any circumstances. A dimension present in one
+diagram and absent from the other MUST be delegated against the other side's
+empty diagram rather than skipped, that being the case where one diagram has
+bars to send to the diagonal and the comparison is not free.
+
+**Pooling the degrees is the failure this clause exists to prevent.** persim
+receives an array of birth-death pairs and no degree column, so a single call on
+two pooled diagrams matches an H0 bar against an H1 bar wherever that is cheaper.
 
 **The essential part is then computed here rather than delegated — the one
 place this document requires a consumer to implement part of a distance rather
 than call one (D19).** The bottleneck distance is
 
 $$
-d_{B}(D_{1}, D_{2}) = \inf_{\gamma} \sup_{p \in D_{1}} \lVert p - \gamma(p) \rVert _{\infty}
+d_{B}(D_{1}, D_{2}) = \inf_{\gamma} \sup_{p \in D_{1} \cup \Delta} \lVert p - \gamma(p) \rVert _{\infty}
 $$
 
 over bijections $\gamma : D_{1} \cup \Delta \to D_{2} \cup \Delta$, where the
 cost of sending a bar $p = (b, d)$ to the diagonal is
 
 $$
-\lVert p - \bar{p} \rVert _{\infty} = \frac{d - b}{2}
+\lVert p - \gamma(p) \rVert _{\infty} = \frac{d - b}{2}
 $$
 
 That cost is $+\infty$ for an essential bar, and so is
-$\lVert p - q \rVert _{\infty}$ for $p$ essential and $q$ finite. An essential
-bar can therefore be matched only to another essential bar, at cost
-$\lvert b_{1} - b_{2} \rvert$. Within each dimension:
+$\lVert p - \gamma(p) \rVert _{\infty}$ for $p$ essential and $\gamma(p)$ finite. An essential
+bar can therefore be matched only to another essential bar in the same
+dimension, at cost $\lvert b(p) - b(\gamma(p)) \rvert$.
+
+Below, $D^{(k)}$ denotes the degree-$k$ part of $D$, with $m$ that degree's
+essential-bar count, equal on both sides or the `+inf` above already returned:
 
 - **Essential bars pair by sorted birth.** Sort each side's essential births
-  ascending, $\beta^{1}_{1} \le \cdots \le \beta^{1}_{m}$ and
-  $\beta^{2}_{1} \le \cdots \le \beta^{2}_{m}$ — equal in count, or the
-  `+inf` above already returned — and pair them by index. Sorted pairing
-  minimises the largest $\lvert \beta^{1}_{i} - \beta^{2}_{i} \rvert$ over
-  one-dimensional data, so no search is needed:
+  ascending, $b^{1}_{1} \le \cdots \le b^{1}_{m}$ and
+  $b^{2}_{1} \le \cdots \le b^{2}_{m}$, and pair them by index.
+  Sorted pairing minimises the largest $\lvert b^{1}_{i} - b^{2}_{i} \rvert$
+  over one-dimensional data, so no search is needed:
 
 $$
-d_{\mathrm{ess}} = \max_{1 \le i \le m} \lvert \beta^{1}_{i} - \beta^{2}_{i} \rvert
+d_{B} \left( D^{(k), \mathrm{ess}}_1, D^{(k), \mathrm{ess}}_2 \right) = \max_{1 \le i \le m} \lvert b^{1}_{i} - b^{2}_{i} \rvert
 $$
 
-  with $d_{\mathrm{ess}} = 0$ when $m = 0$.
+  with $d_{B} \left( D^{(k), \mathrm{ess}}_1, D^{(k), \mathrm{ess}}_2 \right) = 0$ when $m = 0$.
 
-- **Combine with $\max$, never a sum:**
+- **Combine with $\max$,** both within and between dimensions, allowable due to
+  the sub-problems being disjoint:
 
 $$
-d_{B}(D_{1}, D_{2}) = \max \left( d_{\mathrm{ess}}, \; d_{B}\left( D_{1}^{\mathrm{fin}}, D_{2}^{\mathrm{fin}} \right) \right)
+d_{B}(D_{1}, D_{2}) = \max_{k} \max \left\{ d_{B} \left( D^{(k), \mathrm{ess}}_1, D^{(k), \mathrm{ess}}_2 \right), \; d_{B}\left( D^{(k),\mathrm{fin}}_{1}, D^{(k),\mathrm{fin}}_{2} \right) \right\}
 $$
 
-  the second term being persim's answer on the two finite sub-diagrams.
-  Bottleneck is a supremum over a single matching, and the essential pairing
-  being forced makes the two sub-problems independent, so minimising each and
-  taking the larger is the same as minimising the whole.
+  the second term being persim's answer on that dimension's two finite
+  sub-diagrams.
 
 This is a guardrail: a negative result about a dependency, converted into a
 safety feature. It is a named exception to this document's delegation position
@@ -1939,17 +1954,19 @@ published, without invoking this library at all: the same
 audit-without-our-library spirit as requirement 5. §11.2 tests it directly,
 as its own case, separate from the round-trip and invariant tests.
 
-**Requirement 4 is not currently satisfied by any candidate, including the
-one chosen.** "Identical diagrams produce identical bytes" is stated as a
-requirement but no mechanism is specified. Zip archives carry per-entry
-metadata — timestamps, compression method flags — that `save()` MUST pin
-explicitly (fixed `ZipInfo.date_time`, a fixed compression setting) or two
-writes of the same diagram will differ in bytes. HDF5 has the same class of
-exposure through superblock and library version headers; Parquet through
-writer version strings and row-group layout. This is an open implementation
-obligation for `save()`, not a property `.npz` gets for free, and MUST be
-tracked as such rather than assumed solved by requirement 4's presence in
-this list.
+**Requirement 4 is an implementation obligation on `save()`, and the format
+choice does not discharge it.** An `.akd` is a zip holding a member that is
+itself a zip, and neither layer is deterministic on its own: the payload varies
+with the destination it is written to, the container with the wall clock and
+the umask. Both are closed by pinning, so `save()` MUST build `bars.npz` in a
+seekable buffer and write the completed bytes as one member, and MUST write
+both members from an explicit `ZipInfo` with `date_time` pinned to the zip
+epoch and `compress_type` pinned to `ZIP_STORED`, rather than staging either on
+disk and adding it with `ZipFile.write`. **A.9 measures each clause and what
+fails without it**; §11.2 tests both layers. HDF5 and Parquet carry the same
+class of exposure through superblock and library version headers for one and
+writer version strings and row-group layout for the other — unmeasured here,
+and not load-bearing, the format choice being settled on requirement 5 below.
 
 **Requirement 5 is the actual discriminator.** A zip container puts
 `meta.json` in the archive as literal UTF-8 text: any unzip tool or `cat`
@@ -2030,7 +2047,7 @@ message byte for byte:
   "format": "akriti.diagrams.akd",
   "format_version": 0,
   "spec": "RFC-0001",
-  "spec_version": "0.1.0",
+  "spec_version": "0.2.0",
   "kind": "diagram",
   "meta": { "filtration": "rips", "backend": "ripser", "...": "..." }
 }
@@ -2039,12 +2056,16 @@ message byte for byte:
 | Key | Type | Rule |
 |---|---|---|
 | `format` | `str` | Exactly `"akriti.diagrams.akd"`. This is requirement 3's self-identification, and it MUST be a fixed string rather than anything derived, so a reader can recognise the file without parsing the rest |
-| `format_version` | `int` | The version of *this layout*, currently `0` — pre-publication. Incremented whenever a change would make an older `load` misread a newer file. The one version key `load` is allowed to branch on |
+| `format_version` | `int` | The version of *this layout*, currently `0`. Incremented whenever a change would make an older `load` misread a newer file. The one version key `load` is allowed to branch on |
 | `spec` | `str` | Which specification defines the file: `"RFC-0001"`. Separate from `format` so that a format defined by some later RFC is distinguishable from a later revision of this one |
-| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"0.1.0"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
+| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"0.2.0"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. **A revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor; a revision that alters none MUST increment the patch.** The major is `0` while the Status row reads Draft and becomes `1` at the revision published for comment. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
 | `kind` | `str` | `"diagram"` or `"batch"`. Nothing else is valid |
 | `meta` | object | Present iff `kind == "diagram"`: one `DiagramMeta` as a JSON object, its own keys being the field names of §8's dataclass |
 | `metas` | array | Present iff `kind == "batch"`: the per-diagram `DiagramMeta` objects, in batch order |
+
+Note: `spec_version`'s bump condition began binding at `0.2.0`. Nothing on disk
+is stranded by starting there: §10.2's `save` was unimplemented prior to that
+revision, so no file carries anything less.
 
 **`load` MUST dispatch on `kind`, and MUST NOT infer the type from the
 payload.** Deciding by whether `bars.npz` happens to contain an `offsets`
@@ -2434,13 +2455,17 @@ suite MUST include, at minimum:
   its own — `|inf - inf|` is `NaN` and every comparison against `NaN` is
   `False` — so a suite without it passes against an implementation that has no
   `+inf` clause at all, on the diagrams I5 makes ordinary.
-- `save`/`load` byte-determinism: dumping twice gives identical bytes.
+- **`save`/`load` byte-determinism, at both archive layers** (§10.1 requirement
+  4): saving twice gives identical bytes for the `.akd` and for the `bars.npz`
+  it holds. The two writes MUST be more than two seconds apart, or the test
+  passes against an implementation that pins nothing — a zip entry's timestamp
+  has 2-second resolution, so a faster pair lands in one bucket (A.9).
 - **A `DiagramBatch` round-trip, as its own case** — both clauses of §10.1
   requirement 1, with `save(b, p)`, `load(p) == b` and
   `load(p).same_provenance(b)`. The suite MUST cover a batch whose diagrams
   have different bar counts, so `offsets` is exercised rather than degenerate;
   one containing an empty diagram, so a zero-length segment is; one of length
-  zero (§4.2's `xp= `constructor); and one whose diagrams are in an order that
+  zero (§4.2's `xp=` constructor); and one whose diagrams are in an order that
   no sort would produce, since both comparisons are order-sensitive across
   diagrams (§6.3, §8) and a `load` that recovered every diagram into the wrong
   slot passes a test built from identical members.
@@ -2493,7 +2518,7 @@ its member; and the same bars hash identically under two namespaces.
 Sixteen decisions are on record: D1-D8 and D12-D19. **All sixteen are
 settled** (§12.2), each stating the outcome and pointing at the section that
 carries the normative requirement; §12.1 is empty. Superseded recommendations
-are logged in the history document rather than repeated here.
+are not repeated here.
 
 **D9, D10 and D11 were removed from this RFC** as dependency-and-licensing
 policy questions rather than interchange ones, and this document does not set
@@ -2502,8 +2527,8 @@ carrying both its original resolution and the one that replaced it. Nothing
 normative went with any of them — §3.3 and §10.1 state the
 zero-dependency-by-default requirement and `numpy`'s lazy-import behaviour
 directly, in MUST language, and never depended on a table row to carry it.
-Prior text and reasoning: history document. D-numbers are not renumbered to
-close the gap; they are stable identifiers, not a dense sequence.
+D-numbers are not renumbered to close the gap; they are stable identifiers,
+not a dense sequence.
 
 ### 12.1 Open
 
@@ -2517,7 +2542,7 @@ finds the state of the log stated rather than inferred from an absence.
 
 | # | Question | Recommendation / status |
 |---|---|---|
-| D1 | File extension `.akd`, or plain `.npz` with our layout inside? | **Resolved by §10.** §10.1/§10.2 normatively specify `.akd`; Parquet is excluded as the *default* format. This row originally recommended Parquet, contradicting both; the correction is logged in the history document. |
+| D1 | File extension `.akd`, or plain `.npz` with our layout inside? | **Resolved by §10.** §10.1/§10.2 normatively specify `.akd`; Parquet is excluded as the *default* format. This row originally recommended Parquet, contradicting both. |
 | D2 | Is `DiagramBatch` in scope for M1, or does M1 ship the single-diagram type only? | **In scope.** §4 requires every numerical function in `core/` and `castle/` to take a leading batch dimension rather than expecting a Python loop over diagrams, so the container those signatures consume has to exist before they are written — and retrofitting one after `core/` is written against scalars is the expensive order. That commitment is not made for this layer's convenience: a looping API is very hard to withdraw once published. |
 | D3 | Do we accept `float32` storage behind a flag for large-scale work? | No, not in v0. Revisit when a real memory complaint exists. |
 | D4 | Should `from_giotto` default to `strip_padding=True`? | No. Defaulting to a lossy repair contradicts §5's whole argument. Warn and let the caller choose. |
@@ -2566,9 +2591,10 @@ running implementation or a live backend before the correction was written.
 A.1 through A.4 were measured on 2026-07-29 with
 `gudhi 3.11.0`, `ripser 0.6.14`, `persim 0.3.8`, `giotto-tda 0.6.2`,
 `numpy 2.4.4`, `scikit-learn 1.8.0`, Python 3.12.11. Reproduction script:
-`rfcs/evidence/probe_backends.py`. A.5, A.6 and A.7 were each measured later
-and separately: A.5 and A.7 state their own dates and environments, and A.6
-states that it was measured on neither.
+`rfcs/evidence/probe_backends.py`. A.5 through A.9 were each measured later and
+separately, and state their own dates: A.5, A.7 and A.9 their environments too,
+A.6 that it was measured in neither, and A.8 that it re-runs over the network
+rather than reproducing offline.
 
 Input: 40 points sampled uniformly on the unit circle with Gaussian noise
 `σ = 0.05`, `numpy` default_rng seed 0.
@@ -2866,9 +2892,253 @@ and not the table — the backends take 7-9x its volume — so the claim is fals
 of TDA packages generally and the boundary is load-bearing. Counts include
 mirror traffic and move monthly; the rank is what §9.2 uses.
 
+### A.9 Byte-determinism of the two `.akd` archive layers
+
+§10.1 requirement 4's evidence. Measured 2026-08-13 with `numpy 2.5.1`,
+CPython 3.14.4; 1,000 synthetic bars, seed 0. Reproduction:
+`rfcs/evidence/npz_determinism.py`, which is offline and needs no backend.
+
+An `.akd` is a zip whose `bars.npz` member is itself a zip, so "identical
+diagrams produce identical bytes" binds two layers. Each row writes the same
+diagram twice and compares digests:
+
+| Row | The two writes | Identical bytes |
+|---|---|---|
+| `npz-repeat` | `numpy.savez` twice, 2.5 s apart | **yes** |
+| `npz-sink` | `savez` to a seekable buffer vs. streamed into the `.akd` member | **no** |
+| `akd-writestr` | `writestr(str, data)` twice, 2.5 s apart | **no** |
+| `akd-pinned` | the same, through an explicit `ZipInfo` | **yes** |
+| `akd-write` | `ZipFile.write` on identical bytes at modes 644 and 600 | **no** |
+
+**The payload layer is not exposed to the clock.** `savez` writes each member
+through `ZipFile.open(name, "w")`, which keeps `ZipInfo`'s default `date_time`
+of `(1980, 1, 1, 0, 0, 0)` rather than stamping the wall clock, so `npz-repeat`
+holds without numpy promising anything.
+
+**It is exposed to the destination.** `savez` hands each member to
+`zipf.open(fname, "w", force_zip64=True)`, which cannot know the length in
+advance. A seekable destination gets its local header patched afterwards; an
+unseekable one — a pipe, or the `.akd` member handle a `save()` might stream
+into — records the sizes in a trailing data descriptor and sets the
+general-purpose bit that says so. The same arrays through the same function are
+then **20,750 bytes buffered against 20,822 streamed**, both valid `.npz`
+loading back to the same arrays. It is why requirement 4 pins the payload
+writer and not only the container — without that clause, two conforming
+implementations disagree on one diagram.
+
+**The container layer is exposed to both.** `writestr` given a plain string
+name calls `ZipInfo._for_archive`, which stamps the wall clock; `ZipFile.write`
+reads a staged file's own mtime and mode, so the archive inherits the writing
+process's umask. Pinning `date_time` and `compress_type` on an explicit
+`ZipInfo` closes both, which is `akd-pinned`.
+
+**Two seconds is the threshold that makes `akd-writestr` mean something**, and
+the reason the script sleeps 2.5 s rather than 1: a zip entry stores its
+timestamp in the DOS format, whose seconds field has 2-second resolution, so
+two wall-clock writes closer than that land in the same bucket and report
+identical bytes for a reason that does not survive the next run. Measured at
+1.1 s the row comes out `yes` about half the time — a test written that way
+passes against an implementation with no pinning at all.
+
 ---
 
-## Appendix B — Changelog
+## Appendix B — Rationale and rejected alternatives
+
+Non-normative. The body carries every requirement and states each conclusion
+where it applies; this appendix carries the prior art behind one of those
+conclusions and the three arguments too long to sit inside the section they
+serve. Each subsection names that section and carries its argument rather than
+restating its reasoning; where a measured figure appears in both, Appendix A is
+the single source they cite. The two uppercase keywords below both appear in
+B.4, and both are quotations of clauses discussed there rather than
+requirements of this appendix.
+
+### B.1 Prior art — the two-type split (§4.2)
+
+PyTorch Geometric solves the identical problem: ragged, per-item structure
+needing efficient batched storage. It uses two types — `Data` for one graph,
+`Batch` for many — with concatenated storage plus an index vector, rather than
+one self-batching type. It diverges from this document in one respect:
+`Batch` subclasses `Data`, where §4.2 relates the two types by composition and
+gives the reason.
+
+### B.2 Why a substitution does not keep the smaller recorded value (§5)
+
+§5 rejects the alternative as unreachable, and records that what it was
+reaching for is what `essential_bars_source` already does. Two further
+arguments stand against it, and both hold independently of reachability.
+
+- **It would misdescribe the bars if it were reachable.**
+  `provenance["essential_bars"]` is one slot and §8 requires it to describe
+  the diagram's current state. A minimum keeps `"finitized_at"`, with
+  `essential_bars_finitized_at` at `3.0`, on a diagram whose essential bars
+  now all die at `7.0` — a record naming a value no bar carries, the same
+  clean-plausible-wrong signal §5 already rules out for `"finitized_dropped"`
+  with a count of zero and for the `at=+inf` case.
+- **It has no ordering to apply.** The slot's other legal values are
+  `"faithful"`, `"lost_upstream"` and `"finitized_dropped"`. None of them is
+  greater or less than a float, so the rule would fall back to plain overwrite
+  for three of the four cases and buy a special case for the fourth.
+
+### B.3 Why no sort key rescues the pairwise form (§6.3, D14)
+
+§6.3 rejects the sorted-pairwise implementation of `allclose` and requires a
+matching. The reason it is rejected outright, rather than repaired,
+is that the defect is in the *shape* of the approach and not in the particular
+sort key §7 happens to specify. This section carries that argument; §6.3 states
+the conclusion and points here.
+
+The composition failure is between an exact operation and an approximate one.
+Canonical order (§7) sorts on `(dim, birth, death)` with exact comparisons.
+`allclose` compares within a tolerance. When two bars' births lie within the
+tolerance *of each other*, their relative order under the exact sort is decided
+by a difference smaller than the tolerance the comparison is willing to ignore,
+so two backends computing the same diagram can canonicalise them into opposite
+orders. The pairwise comparison then walks two sequences that are each
+correctly sorted and pairs bar `i` against the wrong partner. Appendix A.3
+measures GUDHI/Ripser disagreement at `2.7e-8`, which is the magnitude that
+flips such a tie, so this is not a constructed case — it is reachable on
+exactly the cross-backend comparison `allclose` exists to serve.
+
+**Reordering the key does not fix it; it relocates the case.** Sorting on
+`(dim, death, birth)` makes the near-tied-births case robust, because the ties
+that used to decide the order are now broken by a `death` coordinate the two
+sides agree on to well within tolerance. It simultaneously makes the mirror
+case reachable: two bars whose *deaths* are tied to within the tolerance and
+whose births are far apart now sort ambiguously where they previously did not.
+Every key ordering has this property. The primary coordinate is whichever one
+the tie can hide in, and there is always a diagram whose tie is in that
+coordinate.
+
+**Quantizing does not fix it either; it relocates the case a second time.**
+Rounding coordinates to an `rtol`-sized grid before sorting removes ties within
+a bucket, which is the failure above, and creates a new one at the bucket
+boundary: two values within tolerance of each other that fall on opposite sides
+of a grid line quantize to different buckets and sort deterministically apart.
+The tie has moved from "values too close to order reliably" to "values too
+close to bucket reliably", and the second is not an improvement — it is the
+same predicate evaluated against a grid offset nobody chose on purpose.
+
+**The general statement is that no total order on bars is stable under
+perturbation.** A total order is a function of exact coordinate values; a
+tolerance is a declaration that differences below some threshold carry no
+information. Any sort key reads a difference the comparison has agreed to
+ignore, and so admits an input where an ignorable difference decides a
+non-ignorable outcome. Choosing a better key changes which input, never whether
+one exists.
+
+This is why the question was never "which sort key" and why the resolution is
+structural. A matching asks the question the tolerance actually poses — does a
+bijection within tolerance exist — rather than asking an exact question first
+and hoping its answer survives the approximate one. It also explains why the
+false negative was tempting: the failure is conservative, never a spurious
+`True`, so a suite that never exercises a tie passes identically against both
+implementations. §11.2 now requires the case that separates them.
+
+### B.4 The coefficient-field argument (§8, D17)
+
+§8 records the coefficient field and does not require it, and §12.2
+carries the outcome and the three options it rejected. This section carries the
+argument; §8 points here.
+
+**The question.** §8's `DiagramMeta` block annotated `coeff_field` with
+"affects the diagram, must be recorded" — an obligation with no uppercase
+counterpart anywhere in the document. Three facts made it a decision rather
+than a typo. The field occurred exactly once in the 1,731-line draft as it
+then stood, in that comment: no section, no MUST clause and no test
+requirement mentioned it. The prose seven lines below said the opposite,
+"All fields are optional", and the MUST-populate list named three fields that
+deliberately excluded it. And `content_hash` covers bars and never metadata,
+so nothing downstream depended on the value being present. **The comment was
+therefore a requirement no clause stated, no test could check, and the
+implementation did not honour — but its claim was correct**, homology over
+$\mathbb{Z}/2$ and $\mathbb{Z}/3$ genuinely differing where there is torsion,
+which is the same criterion §8's opening sentence uses to justify recording
+`filtration` at all.
+
+**Why it could not be resolved where it was found.** The three fields §8 does
+require are all derivable from the adapter itself, and this one is not: §11's
+adapters take a computed result plus `**meta`, never the call that produced it,
+so whether an adapter can record a coefficient field depends on whether the
+backend's returned object carries it. Two adapters are out of reach regardless
+— `from_array` has no backend, and `from_persim` consumes diagrams rather than
+computing them.
+
+**What A.5 measured.** No backend returns the field it computed with. GUDHI's
+`persistence(homology_coeff_field=...)` returns `list[(dim, (b, d))]` and
+`SimplexTree` exposes no attribute naming the field; Ripser's returned dict
+carries no such key; giotto's value sits on the estimator while `from_giotto`
+receives the array. **The value exists only in the caller's own call.** That
+kills the option of requiring it only where the returned object exposes it,
+which applies to nothing. It does not choose between the other two, since what
+remains is whether the obligation should exist at the cost of a signature
+change on up to three adapters — a judgment rather than a further fact. One
+measurement sharpens it: the defaults disagree, GUDHI over $\mathbb{Z}/11$ and
+Ripser over $\mathbb{Z}/2$, so an unrecorded field is not conventionally
+$\mathbb{Z}/2$ but genuinely unknown.
+
+**Against option 1, the required keyword-only argument.** The
+`reduced_homology` precedent (§5.1) is exact in *shape* and not in *severity*,
+and the difference decides it. `reduced_homology` guards a demonstrated failure
+— giotto returning 39 H0 bars where GUDHI and Ripser return 40 (A.1). A
+coefficient field guards a failure that bites only where the data carries
+torsion, and for the domains this library targets that is close to never:
+torsion in low degrees needs projective planes, Klein bottles or lens spaces,
+and $\mathbb{Z}/2$ and $\mathbb{Z}/11$ return identical diagrams for
+essentially everything else. Option 1 therefore breaks three adapter signatures
+and puts a mandatory argument on every `from_gudhi` and `from_ripser` call to
+guard something most users cannot reach — **friction charged to everyone,
+repaid to almost nobody.**
+
+**Against option 3, dropping the clause.** A.5 made the comment's underlying
+claim *stronger* than it looked, not weaker. An unrecorded field is not
+conventionally $\mathbb{Z}/2$, because the two backends this project leans on
+hardest disagree by default and nothing in the artifact says which produced it.
+That is a diagram uninterpretable in the way §8's opening sentence describes.
+
+**The fourth option is §8's own pattern.** `essential_bars` /
+`essential_bars_source` exists for exactly this then-versus-now problem, and
+the coefficient field has the same shape: record it, do not require it. The
+adapter records the caller's value if one arrived and the backend's documented
+default if none did, and a second key says which. No signature changes, no
+friction in the common case, and the diagram is never *silently* ambiguous — a
+reader can always tell whether the value was stated or assumed, which is the
+only thing option 3 gave up and the only thing option 1 bought.
+
+**Why this fits where D15's `order` did not**, the two having been tested
+against the same criterion. `order` had no adapter-time verdict worth a second
+key: §7 fixes every adapter's answer at `"backend"`, and there was nothing else
+it could have said. Here there is a real verdict — the backend's default is a
+fact the adapter knows, the caller may not, and A.5 measures that nothing
+recovers it from the returned object afterwards. That is the condition the
+`essential_bars_source` split exists for, and `order` failing it is what made
+D15 a removal rather than a second key.
+
+**Two residual limits, both stated in §11 rather than hidden.** `from_giotto`
+is excluded from the recording requirement, giotto's default being documented
+as 2 but unmeasurable here (§9.2), and a document that will not assert an
+unmeasured backend fact anywhere else should not start there; the exclusion is
+written as evidence-conditional rather than permanent. And a recorded default
+is a marked assumption rather than a measurement: no backend returns the field
+it computed with, so an adapter cannot verify the caller left the default
+alone, and a caller who passes `homology_coeff_field=3` to GUDHI without
+passing it on gets a diagram recording 11. **That is a real limit — but it
+replaces a *silent* assumption with a marked one**, the status quo having been
+a diagram carrying nothing and a reader defaulting to $\mathbb{Z}/2$ on a
+backend that uses $\mathbb{Z}/11$.
+
+**Where the argument is least confident**, recorded as the condition to reopen
+against: it turns on torsion being rare in this library's target data, which is
+a judgment about users this project does not have yet rather than a
+measurement. If §1's general-purpose framing means the projective-plane user
+should be assumed to exist, option 1 becomes much stronger — three signatures
+once, against a wrong default forever.
+
+---
+
+## Appendix C — Changelog
+
+*Author's note: this is a draft change log, kept for the comment window. Remove this appendix before publication, replacing it with a Post-History pointer to PR #10 and the commit range it covers. Entries 13, 14, 16, 18, 34, 51 and 52 refer to a separate history document; it was retired at entry 56 and is readable at `cff895e`.*
 
 Full narrative: history document.
 
@@ -2926,6 +3196,8 @@ Full narrative: history document.
 - **2026-08-10 (51)** — Three false statements in the history document's summary and changelog, one of them restated in entry 44 above: "every figure in A.6 now re-runs" was false when written, `bar_counts.py` needing the `classify` repository for its point clouds. Corrected in place and marked, here and at its source in entry 42. Nothing else here changed, and the five BCP 14 keyword counts are identical to entry 50's.
 - **2026-08-10 (52)** — Added A.8, measuring §9.2's "most-installed" claim with `rfcs/evidence/pypi_downloads.py`. Out: positioning at §9.2 and D2, project practice at D19, a superseded return type at §11, and this appendix's references to project correspondence. Relocated history document citation. No normative content changed.
 - **2026-08-10 (53)** — Four residuals of entries 50-52. A.8 records that it re-runs over the network and does not reproduce offline; §8 defers to §5 for the `essential_bars_source` argument instead of restating it; A.5's closing pointer names the two columns it means; D19 cites §9's delegation rule rather than project working practice. No requirement changed.
-- **2026-08-10 (54)** — Condensation pass on §12.2 and this changelog, which takes ~4,500 words out of the RFC. §12.2's cells become outcome, normative pointer and reopen condition, and every entry here is at most 108 words. **One requirement is relocated rather than cut:** D18's cell held the only uppercase statement that namespace resolution goes through one function and answers to the input rather than the environment, and §3.3 now carries it. §10.1's credit to A.6 for D12's surviving CSV argument and reopen condition moves to D12; A.6's pointer back to D12 becomes the reason itself. Measurements, keyword accounting and what was checked before cutting: history document.
-- **2026-08-11 (55)** — Reconciled this document against branch `adapter2`, which had diverged: entries 48-54 landed here while six corrections landed against the pre-48 text. **No requirement changes and no decision reopens** — each row states something this document had wrong about the code, the backends, or the repository, so they go to a new **§12.3**, separate from §12.1 and §12.2 because they are defects rather than choices. R1 corrects GUDHI's extended-persistence container; R2 resolves §3.3 against §11's namespace-less row inputs, adding `akriti[numpy]`; R3 corrects §10.3's `to_arrays()` claim; R4 restores `strip_padding`. **R5 is the one addition, flagged to strike**: it ratifies `infinity_values`, promoting C1. R6 retires D8's stale note.
-- **2026-08-16 (56)** — §10.2's unknown-key rule splits in two, which **is** a requirement change. A conforming `load` still ignores unrecognised keys in the envelope and in `bars.npz` — this document's own containers, where an advisory field added later is the forward-compatible change the rule exists to permit — but MUST now reject an unrecognised key inside a `meta` or `metas[i]` object, naming it. A `meta` key is a §8 dataclass field name, so ignoring one returns a diagram whose metadata is silently less than the file's, which §10.1 requirement 1 makes a round-trip failure rather than graceful degradation. Nothing is lost: §8's `params` and `provenance` are open mappings and already round-trip arbitrary keys, so a writer with a new fact has somewhere to put it; a genuinely new `DiagramMeta` field changes what `load` must reconstruct and is a `format_version` bump. Enforced in `io.py`, both halves tested.
+- **2026-08-10 (54)** — Condensation pass on §12.2 and this changelog, which takes ~4,500 words out of the RFC. §12.2's cells become outcome, normative pointer and reopen condition, and every entry here is at most 108 words. **One requirement is relocated rather than cut:** D18's cell held the only uppercase statement that namespace resolution goes through one function and answers to the input rather than the environment, and §3.3 now carries it. §10.1's credit to A.6 for D12's surviving CSV argument and reopen condition moves to D12; A.6's pointer back to D12 becomes the reason itself.
+- **2026-08-13 (55)** — Review pass. **Normative in four places, +4 uppercase obligations, nothing else moved.** §9.1's delegation is scoped per degree — one backend call per dimension, a `max` across them, an absent degree delegated against the other side's empty diagram — closing the reading where persim matches an H0 bar against an H1 bar. `spec_version` gains a bump condition, minor for any BCP 14 clause altered, and the document becomes **0.2.0**; `0.1.0` had spanned entries 47-49. §10.1 requirement 4 names its mechanism at both archive layers rather than standing open, on new **A.9** and `rfcs/evidence/npz_determinism.py`; §11.2's determinism case gains A.9's two-second floor. `format_version`'s self-dating gloss removed.
+- **2026-08-17 (56)** — The history document is retired and removed; git holds it at `cff895e`, and PR #10 is the deliberation record. Its rationale and prior art become **Appendix B**: D14's and D17's arguments, §4.2's PyTorch Geometric precedent, and two of §5's three against keeping the smaller recorded value, restated in §8's current enum spelling. This changelog becomes Appendix C, marked for removal at publication. Nine pointers into it are dropped or retargeted; §9.1 records how its own suppression incident closed. No requirement changed. The bare MUST count rises from 166 to 169: two mentions in B.4, one in this sentence. The other four are unchanged.
+- **2026-08-20 (57)** — Reconciled this document against branch `adapter2`, which had diverged: entries 48-54 landed here while six corrections landed against the pre-48 text. **No requirement changes and no decision reopens** — each row states something this document had wrong about the code, the backends, or the repository, so they go to a new **§12.3**, separate from §12.1 and §12.2 because they are defects rather than choices. R1 corrects GUDHI's extended-persistence container; R2 resolves §3.3 against §11's namespace-less row inputs, adding `akriti[numpy]`; R3 corrects §10.3's `to_arrays()` claim; R4 restores `strip_padding`. **R5 is the one addition, flagged to strike**: it ratifies `infinity_values`, promoting C1. R6 retires D8's stale note.
+- **2026-08-20 (58)** — §10.2's unknown-key rule splits in two, which **is** a requirement change. A conforming `load` still ignores unrecognised keys in the envelope and in `bars.npz` — this document's own containers, where an advisory field added later is the forward-compatible change the rule exists to permit — but MUST now reject an unrecognised key inside a `meta` or `metas[i]` object, naming it. A `meta` key is a §8 dataclass field name, so ignoring one returns a diagram whose metadata is silently less than the file's, which §10.1 requirement 1 makes a round-trip failure rather than graceful degradation. Nothing is lost: §8's `params` and `provenance` are open mappings and already round-trip arbitrary keys, so a writer with a new fact has somewhere to put it; a genuinely new `DiagramMeta` field changes what `load` must reconstruct and is a `format_version` bump. Enforced in `io.py`, both halves tested.
