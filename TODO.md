@@ -107,6 +107,41 @@ and the script's own instruction to use "the pinned environment" under-specifies
 it.
 
 
+## `adapters.py` does not implement D20 or D21
+
+*`src/akriti/diagrams/adapters.py` — RFC-0001 §11, §11.2.*
+
+Both decisions landed in §11 on 2026-08-20 and neither has code behind it.
+`homology_dimensions` appears zero times in `adapters.py`, and nothing checks
+D21's condition. The specification is therefore ahead of the implementation in
+two places, deliberately and visibly rather than by drift — which is what this
+entry is for.
+
+**D20.** `from_gudhi` MUST accept GUDHI's sklearn-compatible form — per sample,
+a `list` of `(n,2)` blocks — with `homology_dimensions` required alongside it,
+because that form's index is a position in the caller's dimension list rather
+than the homological degree, and the returned value does not carry the list.
+Omitting it with a degree-indexed input MUST raise `TypeError`; a sequence
+whose length does not match the outer list MUST raise `ValueError`.
+
+**D21.** Where `reduced_homology=False`, `from_giotto` MUST refuse a non-empty
+diagram whose H0 deaths are all finite while `infinity_values=inf` is claimed:
+non-reduced H0 of a nonempty space carries a class that never dies, so the two
+declarations cannot both be true. It MUST name both arguments, the adapter
+being unable to tell which is wrong. The check does not extend to
+`reduced_homology=True`.
+
+To close: implement both, and add §11.2's refusal test for D21 — which needs no
+new fixture, `tests/fixtures/giotto_output.json`'s
+`samples_default_infinity.reduced_false` being exactly the array that must now
+be refused.
+
+**Neither has been reviewed by the adapters' author.** Both were written into
+§11 by the lead and pushed onto this branch on the same day; the note on #23
+asks for pushback and none has come yet. If D20's shape turns out to cut across
+something in `from_gudhi`'s dispatch, the row is a small edit and the
+requirement should move rather than the code being bent around it.
+
 ## The conformance module still skips as one unit
 
 *`tests/test_array_api_conformance.py` — needs a CI guarantee, not a test.*
