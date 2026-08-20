@@ -134,6 +134,22 @@ def namespace_of(x: Array) -> Any:
     native = getattr(x, "__array_namespace__", None)
     if native is not None:
         return native()
+
+    # A numpy 1.x array reaches here too, and its problem is not torch's.
+    # Main-namespace `__array_namespace__` landed in numpy 2.0 (D6), so an
+    # array from an older numpy answers `None` above exactly as a torch tensor
+    # does, and would fall through to the `array-api-compat` path below and be
+    # told to install `akriti[torch]` -- an extra with nothing to do with it.
+    # That is the failure §3.3 reasons about and `io.py`'s `_numpy()` gets
+    # right one module over. Detected on the type's module rather than by
+    # importing numpy, which this scope may not do.
+    if type(x).__module__.partition(".")[0] == "numpy":
+        raise ImportError(
+            "this array comes from a numpy older than 2.0, which has no "
+            "main-namespace `__array_namespace__` (D6); install `akriti[numpy]` "
+            "to resolve the >=2.0 floor at install time"
+        )
+
     if _COMPAT_ARRAY_NAMESPACE is not None:
         return _COMPAT_ARRAY_NAMESPACE(x)
     try:

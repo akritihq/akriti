@@ -22,7 +22,7 @@ from akriti.diagrams.core import (
 
 _FORMAT = "akriti.diagrams.akd"
 _SPEC = "RFC-0001"
-_SPEC_VERSION = "0.1.0"
+_SPEC_VERSION = "0.2.0"
 _FORMAT_VERSION = 0
 _META_FIELDS = (
     "filtration",
