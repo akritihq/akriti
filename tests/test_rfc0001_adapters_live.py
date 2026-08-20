@@ -151,10 +151,33 @@ def test_live_gudhi_output_matches_the_frozen_fixture(
     )
     frozen = from_gudhi(gudhi_pairs("circle"), coeff_field=PINNED_COEFF_FIELD)
 
-    assert live == frozen, (
-        "live GUDHI output no longer matches tests/fixtures/backend_output.json; "
-        "re-run tools/capture_backend_fixtures.py and read the diff before "
-        "committing it"
+    # Structure exactly, coordinates to a tolerance -- and the tolerance is
+    # measured rather than chosen. Same gudhi (3.13.0) and same numpy (2.5.2)
+    # as the capture, differing only in CPython patch level, reproduces 41 of
+    # 41 bars with identical dims and identical births, and three deaths
+    # differing by at most 2.8e-17. That is the last bit: float64 epsilon near
+    # 1.0 is 2.2e-16.
+    #
+    # `==` therefore made this gate fail on the interpreter rather than on the
+    # backend, which is the wrong thing to be red about -- and a check that
+    # cries wolf on a patch release is one people learn to re-capture past
+    # without reading, which is exactly what its own failure message warns
+    # against. `rtol=1e-12` sits four orders above the observed noise and four
+    # below Ripser's float32 divergence (A.3, 2.7e-8), so a real change in what
+    # GUDHI computes still fails here.
+    #
+    # `allclose` already requires equal bar counts and exact `dims` (§6.3), so
+    # structural drift is caught by it; `n_bars` is asserted first only so the
+    # failure names the count rather than the matching.
+    assert live.n_bars == frozen.n_bars, (
+        f"live GUDHI returned {live.n_bars} bars against the fixture's "
+        f"{frozen.n_bars}; re-run tools/capture_backend_fixtures.py and read "
+        "the diff before committing it"
+    )
+    assert live.allclose(frozen, rtol=1e-12), (
+        "live GUDHI output no longer matches tests/fixtures/backend_output.json "
+        "beyond floating-point noise; re-run tools/capture_backend_fixtures.py "
+        "and read the diff before committing it"
     )
 
 
