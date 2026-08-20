@@ -49,6 +49,11 @@ SUPPORTED_PROFILES = (
     "numpy",
     "io",
     "torch",
+    # D8's Parquet escape hatch (RFC-0001 §10.3). Added when the extra
+    # arrived: this tuple and pyproject's optional-dependency keys are
+    # asserted equal by tests/test_license_closure.py, so an extra
+    # declared without a profile here fails rather than going unaudited.
+    "parquet",
     "bio",
     "test",
     "lint",

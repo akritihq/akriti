@@ -46,15 +46,16 @@ classifiers = [
 #
 # So the backends move behind extras. numpy then went the same way, one step
 # later and for a different reason: RFC-0001 §3.3 and §10.1 requirement 2
-# require `diagrams/core.py` and `diagrams/adapters.py` to import nothing
-# beyond the standard library, operating entirely through
-# `__array_namespace__` on whatever array the caller already has. A package
-# that *declares* numpy contradicts that however carefully the modules
-# themselves are written: it installs numpy for a torch user who will never
-# touch it, and it makes "zero third-party dependencies" a claim about import
-# statements rather than about what `pip install akriti` actually fetches.
-# numpy is needed only inside io.py's save/load for `.npz`, where §3.3
-# requires it to be a lazy, function-scoped import.
+# require `diagrams/core.py` and `diagrams/adapters.py` to import no third-party
+# package at import time. They resolve the caller's namespace, with adapters'
+# row-sequence fallback and the torch compatibility resolver both kept lazy and
+# function-scoped. A package that *declares* numpy contradicts that however
+# carefully the modules themselves are written: it installs numpy for a torch
+# user who will never touch it, and it makes "zero third-party dependencies" a
+# claim about import statements rather than about what `pip install akriti`
+# actually fetches. numpy is needed only at two lazy boundaries: accepted
+# Python-row adapter inputs use `akriti[numpy]`, while io.py's save/load for
+# `.npz` use `akriti[io]`, as §3.3 requires both imports to be function-scoped.
 #
 # It does NOT follow that the version floor has nowhere to go. An earlier
 # revision of this note concluded that it did, and RFC-0001 D6 reverses it:
@@ -105,7 +106,12 @@ io = ["akriti[numpy]"]
 
 # Tensor backend for the neural-network path. Never a hard dependency: a
 # biologist who wants a p-value must not download a multi-gigabyte library.
-torch = ["torch>=2.0"]
+# array-api-compat supplies RFC-0001 §3.3's lazy fallback because torch.Tensor
+# does not yet expose __array_namespace__ (D18).
+torch = ["torch>=2.0", "array-api-compat>=1.15.0"]
+
+# Apache-2.0 Parquet escape hatch (RFC-0001 §10.3).
+parquet = ["pyarrow>=25.0.0"]
 
 # Domain integration.
 bio = ["anndata>=0.10"]
@@ -123,8 +129,9 @@ test = [
     # itself, so hasattr checks pass spuriously). BSD. Test-only.
     "array_api_strict>=2.6.1",
     # Still not a *runtime* dependency (see the default-closure note above):
-    # the default closure stays empty and numpy is reachable only through the
-    # `numpy` and `io` extras. The suite needs it because the eager backend
+    # the default closure stays empty; runtime code reaches numpy only through
+    # the `numpy` and `io` extras, while this test extra opts in deliberately.
+    # The suite needs it because the eager backend
     # every user actually has is the one worth testing against, and because
     # RFC-0001 §11.2 requires `content_hash` to be checked on the buffer path
     # that `array_api_strict` cannot reach. By reference, so the floor is
@@ -160,6 +167,12 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 markers = [
     "backend: requires an optional persistence backend to be installed",
+    "parquet: requires pyarrow>=25.0.0 to be installed",
+    "rips: requires the Ripser optional backend",
+    "alpha: requires the GUDHI optional backend",
+    "distances: requires the persim optional backend",
+    "cross_backend: requires two optional persistence backends",
+    "torch: requires torch and array-api-compat",
 ]
 filterwarnings = ["error"]
 

@@ -49,50 +49,98 @@ mutating `core.py` until each mutation was caught, and the measurements that
 drove that are recorded in the file, since the tuning is what makes those
 tests worth their runtime.
 
-## `core.py` predates D17 and D18
+**`core.py` predates D17 and D18.** All five parts landed. `namespace_of` is
+the single resolver and the only caller of `__array_namespace__`; the last
+direct call was `adapters._namespace_for_rows`, on its own NumPy probe, which
+now routes through the resolver like everything else — a second spelling
+agreeing with the resolver today is exactly what §3.3's "exactly one function"
+forbids, since `array_api_compat.numpy` and `numpy` are the two objects I7's
+`is` would then raise between (A.7.5). `array-api-compat>=1.15.0` is declared
+on `akriti[torch]`. `DiagramMeta`
+validates `coeff_field_source` against §8's two values and against a `None`
+`coeff_field`, and now type-checks the five scalar fields §8 declares, so
+`filtration=3.5` and `description=42` are refused at the type rather than at
+`save()`; `adapters._require_coeff_field` still widens to `numbers.Integral`
+at the adapter boundary and converts, which is where a caller's array scalar
+actually arrives. The three CI tests are in
+`tests/test_rfc0001_torch_live.py` and `tests/test_array_api_conformance.py`;
+D16's identity assertion now runs on **two separate arrays** per natively
+implementing backend, numpy and `array_api_strict`, since the constraint §3.3
+states is call-to-call consistency and a single array proves only that one
+call returns the module.
 
-*`src/akriti/diagrams/core.py`, `pyproject.toml` — RFC-0001 §3.3, §8, §12.2.*
+**`adapters.py` carries a lazy import §3.3 does not admit.** The RFC was the
+side that needed the edit and got it: §3.3 now sets the closure over what a
+caller can reach rather than over which files may import what, and names the
+row-sequence NumPy fallback as one of four cases that meet it, alongside the
+namespace resolution rule, `save`/`load`, and §10.3's `to_parquet`.
 
-Both decisions resolved in #10 after this implementation was written, so the
-spec moved underneath it. Nothing here is reachable today, which is why it is
-an entry rather than a blocker: D18's own premise is that no diagram can
-currently be torch-backed, and the adapters that would write a coefficient
-field do not exist yet. All of it becomes live the moment either changes.
+**§11's signature block omits two arguments it requires.** Closed by the RFC,
+which now reads `from_gudhi(obj, *, dim=None, **meta)`,
+`from_giotto(arr, *, reduced_homology, strip_padding=None, **meta)` and
+`from_array(arr, *, columns=None, dim=None, **meta)`, and specifies `columns=`
+against §10.3 in the same pass. Code and specification agree, and
+`adapters.py`'s remaining use of "deviation" is §11's own — the six across
+three adapters that depart from the common signature, not a divergence
+between the two documents.
 
-**Namespace resolution goes through one function (D18, §3.3).** §3.3 requires
-`namespace_of(x)` — the native `__array_namespace__` where it exists, and
-`array_api_compat.array_namespace` where it does not, which today is torch
-alone. `core.py` calls `__array_namespace__()` directly at five sites:
-`_validate_bar_arrays` (I7, and the `xp` it returns),
-`PersistenceDiagram.xp`, `DiagramBatch.__post_init__` (B5), and
-`DiagramBatch.xp`. That spelling is exactly what D18 identified as broken —
-it raises `AttributeError` on a torch tensor before reaching the identity
-question I7 and B5 exist to ask. To close: add the resolver, route all five
-through it, and keep it the only caller, since resolving two ways yields
-`array_api_compat.numpy` alongside `numpy` for one backend and fires I7's
-`is` on arrays that legitimately agree (A.7.5).
+**`probe_backends.py` has no `reduced_homology=False` row.** Closed on both
+counts the entry left open. `probe_backends.py` now runs all three
+`infinity_values` settings at `reduced_homology=False` and asserts each, so the
+sweep is repeated on the other branch rather than varying one flag; and A.1's
+table carries the three rows, with the two mechanisms separated in the prose —
+`reduced_homology` decides whether the class exists, `infinity_values` decides
+how its death is represented.
 
-**`array-api-compat` is undeclared.** §3.3 requires it in the `akriti[torch]`
-extra with a version floor, on §10.1 requirement 2's terms — lazy,
-function-scoped, unreachable on the default install. The extra is still
-`torch = ["torch>=2.0"]` and the string occurs nowhere in the repository.
+Measured 2026-08-20 on giotto-tda 0.6.2, scikit-learn 1.3.2, numpy 1.26.4,
+CPython 3.11; the three `reduced_homology=True` rows reproduce the 2026-07-29
+figures exactly, which is what makes the new ones comparable. The appendix
+rows are bar **counts** and are stated as measurements with their environment,
+the way A.5 and A.7 already are, rather than as a committed fixture — which
+matters, because `tests/fixtures/giotto_output.json` turns out **not** to be
+byte-reproducible across CPython patch levels. Re-running
+`tools/capture_giotto_fixture.py` under 3.11.4 rather than the 3.11.15 the
+fixture records rewrites its coordinates in the last one or two decimal
+places, with every version the script names held equal. Counts do not move;
+coordinates do. Anyone regenerating that fixture needs the exact interpreter,
+and the script's own instruction to use "the pinned environment" under-specifies
+it.
 
-**`coeff_field_source` is unvalidated (D17, §8).** `DiagramMeta` must raise
-`ValueError` when it holds anything but `"caller"` or `"backend_default"`,
-and when it is present while `coeff_field` is `None` — a source describing no
-value being incoherent rather than merely weak. `_validate_provenance` covers
-`essential_bars_dropped` and `essential_bars_source` and has no branch for
-the new key. The adapter half of D17 belongs with `adapters.py`.
 
-**Three CI tests §3.3 now requires and nothing provides:** which resolution
-branch a `torch.Tensor` takes, marked on the `akriti[torch]` extra, so that
-the release closing gh-58743 breaks the build rather than quietly changing
-what `d.xp` returns; namespace identity across two arrays of each natively
-implementing backend (D16, narrowed by D18 to those backends); and a
-cross-namespace check that `essential`, `persistence`, `bar_counts` and
-`dim(k)` agree, since those accessors are built from operators the resolver
-does not reach and are safe only because I2 and §6.1 fix every operand's
-dtype.
+## `adapters.py` does not implement D20 or D21
+
+*`src/akriti/diagrams/adapters.py` — RFC-0001 §11, §11.2.*
+
+Both decisions landed in §11 on 2026-08-20 and neither has code behind it.
+`homology_dimensions` appears zero times in `adapters.py`, and nothing checks
+D21's condition. The specification is therefore ahead of the implementation in
+two places, deliberately and visibly rather than by drift — which is what this
+entry is for.
+
+**D20.** `from_gudhi` MUST accept GUDHI's sklearn-compatible form — per sample,
+a `list` of `(n,2)` blocks — with `homology_dimensions` required alongside it,
+because that form's index is a position in the caller's dimension list rather
+than the homological degree, and the returned value does not carry the list.
+Omitting it with a degree-indexed input MUST raise `TypeError`; a sequence
+whose length does not match the outer list MUST raise `ValueError`.
+
+**D21.** Where `reduced_homology=False`, `from_giotto` MUST refuse a non-empty
+diagram whose H0 deaths are all finite while `infinity_values=inf` is claimed:
+non-reduced H0 of a nonempty space carries a class that never dies, so the two
+declarations cannot both be true. It MUST name both arguments, the adapter
+being unable to tell which is wrong. The check does not extend to
+`reduced_homology=True`.
+
+To close: implement both, and add §11.2's refusal test for D21 — which needs no
+new fixture, `tests/fixtures/giotto_output.json`'s
+`samples_default_infinity.reduced_false` being exactly the array that must now
+be refused.
+
+**Neither has been reviewed by the adapters' author.** Both were written into
+§11 by the lead and pushed onto this branch on the same day; the note on #23
+asks for pushback and none has come yet. If D20's shape turns out to cut across
+something in `from_gudhi`'s dispatch, the row is a small edit and the
+requirement should move rather than the code being bent around it.
 
 ## The conformance module still skips as one unit
 
@@ -112,31 +160,16 @@ conformance module skips — a `--strict-markers`-style guard, an explicit
 importing `array_api_strict` unconditionally in a CI-only conftest so its
 absence is an error rather than a skip.
 
-## `probe_backends.py` has no `reduced_homology=False` row
-
-*`rfcs/evidence/` — RFC-0001 Appendix A.1.*
-
-Appendix A.1 varies `infinity_values` across three settings and holds
-`reduced_homology` fixed at `True`, so it establishes that `infinity_values`
-is not the cause of giotto's H0 loss and leaves `reduced_homology` as an
-inference. §5.1's adapter requirement rests on that inference.
-
-Blocked rather than merely unwritten: giotto-tda 0.6.2 does not run on current
-scikit-learn (§9.2), so the row cannot be produced by a live call in this
-environment. To close: capture it in a pinned environment and commit it as a
-frozen fixture, which §11.2 accepts as real backend output, then add the row
-to the appendix table.
-
-## `io.py` does not exist
+## `.akd` I/O (implemented)
 
 *RFC-0001 §10 — `save`/`load`, `.akd`, and the byte-determinism test.*
 
 §10.2 specifies the format and §11.2 requires a byte-determinism test
 (dumping twice gives identical bytes), which §10.1 requirement 4 notes is not
 satisfied for free by any candidate: zip entry metadata has to be pinned
-explicitly. Nothing is implemented yet.
+explicitly. `src/akriti/diagrams/io.py` now implements this contract.
 
-Two constraints to carry in when it is.
+Two implementation constraints are now enforced.
 
 **The lazy import checks the version, not just presence, and both failure
 paths name the extra.** `numpy` is imported lazily and function-scoped inside

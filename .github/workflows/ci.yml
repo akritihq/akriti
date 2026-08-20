@@ -55,7 +55,8 @@ jobs:
       # asserted.
       #
       # Genuinely bare first, before anything test-only lands: the default
-      # closure is empty, numpy included (DEPENDENCIES.md), so `import akriti`
+      # closure is empty, numpy included (DEPENDENCIES.md) only in named
+      # extras, so `import akriti`
       # has to work with nothing else installed at all. Doing this after
       # `.[test]` would prove nothing -- that extra carries numpy, and the
       # step would pass on an install that is not the one users get.
@@ -71,17 +72,55 @@ jobs:
       - name: Test (no backend)
         run: pytest -m "not backend"
 
-      # Backends are optional and some do not ship wheels everywhere. Install
-      # them where we can and run the marked tests; never let a backend
-      # packaging problem fail the core matrix.
-      - name: Install optional backends
-        id: backends
-        continue-on-error: true
-        run: pip install -e ".[rips,alpha,distances]"
-
-      - name: Test (with backends)
-        if: steps.backends.outcome == 'success'
-        run: pytest -m backend
+  optional:
+    name: optional / ${{ matrix.name }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: rips
+            extra: rips
+            marker: rips
+            imports: import ripser
+          - name: alpha
+            extra: alpha
+            marker: alpha
+            imports: import gudhi
+          - name: distances
+            extra: distances
+            marker: distances
+            imports: import persim
+          - name: cross
+            extra: rips,alpha
+            marker: cross_backend
+            imports: import ripser, gudhi
+          - name: torch
+            extra: torch
+            marker: torch
+            imports: import torch, array_api_compat
+          - name: parquet
+            extra: parquet
+            marker: parquet
+            imports: import pyarrow
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install isolated optional row
+        run: pip install -e ".[test,${{ matrix.extra }}]"
+      - name: Verify installed optional imports
+        run: python -c "${{ matrix.imports }}"
+      - name: Test selected optional path
+        run: pytest -m "${{ matrix.marker }}"
+      # Torch's wheel closure is intentionally report-only: it is large and
+      # may contain transitive packages whose licence metadata is not suitable
+      # for the strict default/io/parquet gates. This reuses the row's install.
+      - name: Audit torch closure (report only)
+        if: matrix.name == 'torch'
+        run: python tools/check_license_closure.py --profile torch --allow-copyleft
 
   closure:
     runs-on: ubuntu-latest
@@ -112,6 +151,15 @@ jobs:
         run: |
           .venv-closure/bin/pip install --quiet ".[io]"
           .venv-closure/bin/python tools/check_license_closure.py --profile io
+
+      # Keep Parquet strict in its own clean environment. The isolated venv
+      # prevents cumulative contamination from any unrelated optional path.
+      - name: Enforce permissive-only akriti[parquet] closure
+        run: |
+          python -m venv .venv-parquet-closure
+          .venv-parquet-closure/bin/pip install --quiet ".[parquet]"
+          .venv-parquet-closure/bin/python tools/check_license_closure.py \
+            --profile parquet
 
       # Extras are expected to contain copyleft; report so a change is visible
       # in the log, but do not fail on it.

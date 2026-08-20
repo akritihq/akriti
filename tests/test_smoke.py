@@ -151,9 +151,12 @@ def test_numpy_is_not_a_hard_dependency(module: str) -> None:
     place `pip install akriti` can actually be observed. What that cannot
     check is the half that makes the declaration honest: `diagrams/core.py`
     and `diagrams/adapters.py` must import nothing beyond the standard library
-    and work through `__array_namespace__` on the caller's own arrays, so a
+    at import time and resolve the caller's namespace (native
+    `__array_namespace__` or a documented lazy fallback), so a
     single convenience `import numpy` would make the empty closure a lie
-    without failing any dependency check.
+    without failing any dependency check. The row-sequence adapter fallback,
+    torch's array-api-compat resolver, and Parquet's PyArrow exporter are all
+    lazy optional boundaries and are not import-time requirements.
 
     Run in a subprocess rather than by clearing `sys.modules`, which is how
     the backend test above manages it. numpy is imported by almost every other
@@ -173,5 +176,47 @@ def test_numpy_is_not_a_hard_dependency(module: str) -> None:
     assert result.stdout.strip() == "False", (
         f"importing {module} pulled in numpy; the default install declares no "
         "third-party dependency at all, and numpy belongs only inside "
-        "io.py's save/load as a lazy, function-scoped import"
+        "row-sequence adapters and io.py's save/load as lazy, function-scoped "
+        "imports"
+    )
+
+
+def test_no_docstring_holds_an_unencodable_code_point() -> None:
+    """Every docstring must survive UTF-8, which is not a source-level property.
+
+    A non-raw docstring reading ``\\ud800`` compiles that escape into a real
+    unpaired surrogate, so the *source* stays pure ASCII while the docstring
+    *value* cannot be encoded. Python 3.13 raises on import; 3.12 does not.
+
+    That combination is the reason this test exists rather than a lint rule:
+    the file looks clean, the failure appears only on newer interpreters, and
+    it takes down `import akriti` rather than a single test -- so a suite run
+    on one version reports green while the package is unimportable on another.
+
+    Found exactly this way, in the docstring of the helper that rejects
+    unpaired surrogates.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[1]
+    offenders: list[str] = []
+    for path in sorted(root.joinpath("src").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            ):
+                continue
+            doc = ast.get_docstring(node, clean=False)
+            if doc is None:
+                continue
+            try:
+                doc.encode("utf-8")
+            except UnicodeEncodeError:
+                where = getattr(node, "name", "<module>")
+                offenders.append(f"{path.relative_to(root)}::{where}")
+
+    assert not offenders, (
+        "docstrings that cannot encode to UTF-8, so `import akriti` fails on "
+        f"Python 3.13+: {offenders}"
     )

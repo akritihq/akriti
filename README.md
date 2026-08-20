@@ -99,22 +99,26 @@ pip install akriti              # interchange layer — zero dependencies
 pip install akriti[rips]        # + Ripser    (MIT, GPLv3 transitively)
 pip install akriti[alpha]       # + GUDHI     (GPLv3)
 pip install akriti[distances]   # + persim    (MIT, GPLv3 transitively)
-pip install akriti[torch]       # + torch     (BSD-3; multi-gigabyte)
+pip install akriti[numpy]       # + NumPy namespace / Python-row fallback
+pip install akriti[parquet]     # + PyArrow   (Apache-2.0)
+pip install akriti[torch]       # + torch and array-api-compat
 pip install akriti[bio]         # + anndata   (BSD-3)
 ```
 
 > Currently a placeholder release; real functionality is coming.
 
-**Nothing is a required dependency** — no persistence backend, and no numpy
-either. `akriti.diagrams` runs against whatever array library you already
-have, through the Python array API standard, so it has nothing to install on
-your behalf; "bring your own diagrams" is the primary path by design. The
-licence consequences above are stated here rather than in a footnote because
-they are real: `persim` depends on `hopcroftkarp`, which is GPLv3 and has had no
-release since 2019, and the `gudhi` wheel bundles CGAL-dependent modules and
-ships no licence metadata at all. See **[DEPENDENCIES.md](DEPENDENCIES.md)** for
-the verified closure, and `tools/check_license_closure.py` for the CI gate that
-keeps it honest.
+**Nothing is a required dependency** — no persistence backend, and no NumPy
+either. Native array inputs retain their Python array API namespace. Accepted
+Python-row adapter inputs lazily use `akriti[numpy]`; torch tensors use the
+compatibility resolver supplied by `akriti[torch]`; and Parquet imports
+PyArrow only when requested through `akriti[parquet]`. "Bring your own
+diagrams" remains the primary path by design. The licence consequences above
+are stated here rather than in a footnote because they are real: `persim`
+depends on `hopcroftkarp`, which is GPLv3 and has had no release since 2019,
+and the `gudhi` wheel bundles CGAL-dependent modules and ships no licence
+metadata at all. See **[DEPENDENCIES.md](DEPENDENCIES.md)** for the verified
+closure, and `tools/check_license_closure.py` for the CI gate that keeps it
+honest.
 
 ## The research behind it
 

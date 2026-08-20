@@ -3,9 +3,10 @@
 `PersistenceDiagram` (§3) and `DiagramBatch` (§4) are the interchange layer:
 every backend adapter produces one of these, every `core/`/`castle/` routine
 consumes one. This module and `adapters.py` carry no third-party dependency
-at all -- everything here is written against `__array_namespace__` (the
-Python array API standard), never against `numpy` directly (§3.3, §10.1
-requirement 2).
+required at import time: all namespace resolution goes through
+`namespace_of`, with a lazy optional `array_api_compat` fallback. Everything
+is written against the Python array API, never against `numpy` directly
+(§3.3, §10.1 requirement 2).
 
 Neither type has a mutating method (I8, and the equivalent reasoning for
 `DiagramBatch`): every operation that looks like one constructs and returns a
@@ -13,13 +14,14 @@ new instance rather than modifying `self`. That is what makes
 `DiagramBatch.__getitem__`'s zero-copy views (§4.2) safe -- nothing offered
 here can write through one view and corrupt a sibling.
 
-**That guarantee covers this module's methods, not the arrays themselves.**
-`@dataclass(frozen=True)` prevents rebinding a field; it cannot stop a caller
-who kept a reference to the array they handed in from writing through it, and
-such a write does reach every view derived from it, and stales the
-`DiagramBatch._bounds` cache along with them. Guarding that boundary belongs
-to whoever builds a diagram out of foreign data -- the adapters (§11) -- not
-to the type.
+**Public construction copies caller-owned arrays.** `@dataclass(frozen=True)`
+prevents rebinding a field, and the constructors copy each input buffer before
+validation, so later mutation through a caller's original reference cannot
+change a constructed object. The array API supplies no read-only array
+contract, however: a caller can still write directly through `d.births[0]` (or
+through a batch/view), and this module cannot prevent that residual mutation.
+Its methods never write in place, which is the contract that makes the
+deliberate zero-copy views safe.
 
 **Which operations are available under `jax.jit` is settled in §3.3 and
 §4.3, and is not re-argued here.** Each one says so in its own docstring;
@@ -47,15 +49,17 @@ import hashlib
 import itertools
 import math
 import operator
+import re
 import struct
 import sys
-from collections.abc import Mapping, Sequence
+from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
-from types import MappingProxyType
-from typing import Any, TypeAlias
+from importlib import import_module, metadata
+from typing import Any, NoReturn, SupportsIndex, TypeAlias
 
-# The Python array API standard's `Array` (§3): any object implementing
-# `__array_namespace__`, never `np.ndarray` specifically. There is no
+# The Python array API standard's `Array` (§3): any object resolved by
+# `namespace_of`, either through native `__array_namespace__` or the optional
+# `array_api_compat` fallback, never `np.ndarray` specifically. There is no
 # practical Protocol that captures the full surface (arithmetic, boolean
 # indexing, `.shape`, `.dtype`, ...) without becoming its own maintenance
 # burden, so this is a documented `Any`, not a structural type. Unrelated to
@@ -63,13 +67,373 @@ from typing import Any, TypeAlias
 # `_big_endian_block`.
 Array: TypeAlias = Any
 
-__all__ = ["Array", "DiagramBatch", "DiagramMeta", "PersistenceDiagram"]
+__all__ = [
+    "Array",
+    "DiagramBatch",
+    "DiagramMeta",
+    "PersistenceDiagram",
+    "namespace_of",
+]
 
 # Domain-separation tags for the two content hashes (§8.1, §8.2). Distinct
 # tags are what make a one-diagram batch structurally unable to collide with
 # the diagram it wraps, rather than merely unlikely to.
 _DIAGRAM_HASH_TAG = b"akriti.PersistenceDiagram.v1\x00"
 _BATCH_HASH_TAG = b"akriti.DiagramBatch.v1\x00"
+_ARRAY_API_COMPAT_MIN_VERSION = (1, 15, 0)
+_COMPAT_ARRAY_NAMESPACE: Any = None
+_OPTIONAL_VERSION_RE = re.compile(
+    r"^(?P<epoch>\d+!)?(?P<release>\d+(?:\.\d+)*)"
+    r"(?P<pre>a|b|rc|alpha|beta|c|pre|preview)?(?P<pre_n>\d+)?"
+    r"(?P<post>(?:\.post|post)\d+)?(?P<dev>(?:\.dev|dev)\d+)?"
+    r"(?:\+[0-9A-Za-z]+(?:[._-][0-9A-Za-z]+)*)?$",
+    re.IGNORECASE,
+)
+
+
+def _parse_optional_version(version: str) -> tuple[int, tuple[int, ...], bool]:
+    """Parse the PEP 440 forms needed by optional dependency floor checks."""
+    match = _OPTIONAL_VERSION_RE.fullmatch(version)
+    if match is None:
+        raise ValueError(version)
+    epoch = int((match.group("epoch") or "0").rstrip("!"))
+    release = tuple(int(part) for part in match.group("release").split("."))
+    while len(release) > 3 and release[-1] == 0:
+        release = release[:-1]
+    if len(release) < 3:
+        release += (0,) * (3 - len(release))
+    unstable = match.group("pre") is not None or (
+        match.group("dev") is not None and match.group("post") is None
+    )
+    return epoch, release, unstable
+
+
+def _clear_namespace_cache() -> None:
+    """Clear the validated optional-compat resolver cache (tests/internal)."""
+    global _COMPAT_ARRAY_NAMESPACE
+    _COMPAT_ARRAY_NAMESPACE = None
+
+
+def namespace_of(x: Array) -> Any:
+    """Resolve an array's Python array-API namespace. RFC-0001 §3.3.
+
+    Native ``__array_namespace__`` is authoritative and is always preferred.
+    Backends that conform in substance but do not expose that method (notably
+    torch) use the optional ``array_api_compat`` fallback. The fallback import
+    is deliberately function-scoped so the default install remains free of
+    optional backend dependencies. A successfully imported and validated
+    fallback is cached; metadata is checked against the ``>=1.15.0`` floor
+    once per process. Missing dependencies, below-floor versions, and
+    unparseable version metadata raise actionable ``ImportError`` exceptions.
+
+    Assumes *x* is an array object or a backend object supported by
+    ``array_api_compat``. When the fallback dependency is unavailable, callers
+    receive an actionable error naming the extra that supplies it.
+    """
+    global _COMPAT_ARRAY_NAMESPACE
+    native = getattr(x, "__array_namespace__", None)
+    if native is not None:
+        return native()
+
+    # A numpy 1.x array reaches here too, and its problem is not torch's.
+    # Main-namespace `__array_namespace__` landed in numpy 2.0 (D6), so an
+    # array from an older numpy answers `None` above exactly as a torch tensor
+    # does, and would fall through to the `array-api-compat` path below and be
+    # told to install `akriti[torch]` -- an extra with nothing to do with it.
+    # That is the failure §3.3 reasons about and `io.py`'s `_numpy()` gets
+    # right one module over. Detected on the type's module rather than by
+    # importing numpy, which this scope may not do.
+    if type(x).__module__.partition(".")[0] == "numpy":
+        raise ImportError(
+            "this array comes from a numpy older than 2.0, which has no "
+            "main-namespace `__array_namespace__` (D6); install `akriti[numpy]` "
+            "to resolve the >=2.0 floor at install time"
+        )
+
+    if _COMPAT_ARRAY_NAMESPACE is not None:
+        return _COMPAT_ARRAY_NAMESPACE(x)
+    try:
+        compat = import_module("array_api_compat")
+    except ModuleNotFoundError as exc:
+        if exc.name != "array_api_compat":
+            raise
+        raise ImportError(
+            "array namespace resolution for this backend requires "
+            "array-api-compat; install akriti[torch]"
+        ) from exc
+    try:
+        installed_version = metadata.version("array-api-compat")
+    except metadata.PackageNotFoundError as exc:
+        raise ImportError(
+            "array-api-compat is unavailable for this backend; install akriti[torch]"
+        ) from exc
+    try:
+        epoch, release, unstable = _parse_optional_version(installed_version)
+    except (TypeError, ValueError) as exc:
+        # `TypeError` as well as `ValueError`: `_parse_optional_version` reaches
+        # `fullmatch` on whatever the metadata held, which raises `TypeError`
+        # rather than `ValueError` when that is not a `str`. Catching one of the
+        # two let a malformed distribution escape as a bare `TypeError` naming
+        # `re`, while `adapters.py`'s identical numpy check turned the same
+        # input into the actionable `ImportError` below. Whichever way the
+        # metadata is broken, both resolvers must name the extra that fixes it.
+        raise ImportError(
+            "could not parse the installed array-api-compat version; install "
+            "akriti[torch]"
+        ) from exc
+    floor = (0, _ARRAY_API_COMPAT_MIN_VERSION)
+    if (epoch, release) < floor or ((epoch, release) == floor and unstable):
+        raise ImportError(
+            "array-api-compat >=1.15.0 is required for this backend; install "
+            "akriti[torch]"
+        )
+    _COMPAT_ARRAY_NAMESPACE = compat.array_namespace
+    return _COMPAT_ARRAY_NAMESPACE(x)
+
+
+class _FrozenList(list[Any]):
+    """A JSON list that cannot be mutated after metadata construction. §8."""
+
+    @staticmethod
+    def _read_only() -> NoReturn:
+        raise TypeError("metadata containers are read-only")
+
+    def __setitem__(self, index: Any, value: Any) -> NoReturn:
+        self._read_only()
+
+    def __delitem__(self, index: Any) -> NoReturn:
+        self._read_only()
+
+    def append(self, value: Any) -> NoReturn:
+        self._read_only()
+
+    def extend(self, values: Any) -> NoReturn:
+        self._read_only()
+
+    def insert(self, index: SupportsIndex, value: Any) -> NoReturn:
+        self._read_only()
+
+    def pop(self, index: SupportsIndex = -1) -> NoReturn:
+        self._read_only()
+
+    def remove(self, value: Any) -> NoReturn:
+        self._read_only()
+
+    def clear(self) -> NoReturn:
+        self._read_only()
+
+    def reverse(self) -> NoReturn:
+        self._read_only()
+
+    def sort(self, *, key: Any = None, reverse: bool = False) -> NoReturn:
+        self._read_only()
+
+    # Mypy requires in-place operators to return Self even when they always
+    # raise; NoReturn states the runtime contract more accurately.
+    def __iadd__(self, values: Iterable[Any]) -> NoReturn:  # type: ignore[misc]
+        self._read_only()
+
+    def __imul__(self, count: SupportsIndex) -> NoReturn:
+        self._read_only()
+
+
+class _FrozenDict(dict[str, Any]):
+    """A JSON mapping that cannot be mutated after metadata construction. §8."""
+
+    @staticmethod
+    def _read_only() -> NoReturn:
+        raise TypeError("metadata containers are read-only")
+
+    def __setitem__(self, key: str, value: Any) -> NoReturn:
+        self._read_only()
+
+    def __delitem__(self, key: str) -> NoReturn:
+        self._read_only()
+
+    def clear(self) -> NoReturn:
+        self._read_only()
+
+    def pop(self, key: str, default: Any = None) -> NoReturn:
+        self._read_only()
+
+    def popitem(self) -> NoReturn:
+        self._read_only()
+
+    def setdefault(self, key: str, default: Any = None) -> NoReturn:
+        self._read_only()
+
+    def update(self, *args: Any, **kwargs: Any) -> NoReturn:
+        self._read_only()
+
+    # See _FrozenList.__iadd__: this operator is deliberately non-returning.
+    def __ior__(self, value: Any) -> NoReturn:  # type: ignore[misc]
+        self._read_only()
+
+
+def _freeze_json_value(value: Any) -> Any:
+    """Recursively copy JSON-compatible containers, leaving scalars alone. §8."""
+    if isinstance(value, list):
+        return _FrozenList(_freeze_json_value(item) for item in value)
+    if isinstance(value, Mapping):
+        return _FrozenDict(
+            (key, _freeze_json_value(item)) for key, item in value.items()
+        )
+    return value
+
+
+def _freeze_json_mapping(mapping: Mapping[str, Any]) -> _FrozenDict:
+    """Own and freeze one metadata mapping, including all nested containers. §8."""
+    # `dict` retains the existing constructor behavior for mapping-like
+    # inputs, while the value walk below closes the nested aliasing hole.
+    copied = dict(mapping)
+    return _FrozenDict(
+        (key, _freeze_json_value(value)) for key, value in copied.items()
+    )
+
+
+def _require_json_representable(mapping: Mapping[str, Any], field: str) -> None:
+    """Require §8 metadata values to survive the normative JSON round trip.
+
+    The public ``DiagramMeta`` boundary owns this check so hand-built
+    diagrams and every adapter receive the same contract. Values are limited
+    to exact builtin JSON scalar types, lists, and recursively str-keyed
+    mappings. Tuples, NumPy scalars, and non-finite floats are rejected.
+    """
+    scalars = (str, bool, int, float)
+
+    def check_keys(m: Mapping[Any, Any], path: str) -> None:
+        for key in m:
+            if not isinstance(key, str):
+                raise TypeError(
+                    f"{field}{path} has the key {key!r} of type "
+                    f"{type(key).__name__}; §8 admits str-keyed mappings "
+                    f"only, since §10.2 stores this as JSON -- json.dumps "
+                    f"would silently rewrite it as {str(key)!r}"
+                )
+            _require_utf8_encodable(key, f"{field}{path} key {key!r}")
+
+    def check(value: Any, path: str) -> None:
+        if type(value) is str:
+            _require_utf8_encodable(value, f"{field}{path}")
+        if value is None or type(value) in scalars:
+            if type(value) is float and not math.isfinite(value):
+                raise TypeError(
+                    f"{field}{path} is {value!r}; §10.2 keeps non-finite "
+                    "values out of the JSON entirely -- json.dumps writes "
+                    "them as the bare tokens NaN and Infinity, which are not "
+                    "valid JSON, and nan does not even survive a round trip "
+                    "as itself (§10.1 requirement 1)"
+                )
+            return
+        if isinstance(value, list):
+            for i, item in enumerate(value):
+                check(item, f"{path}[{i}]")
+            return
+        if isinstance(value, Mapping):
+            check_keys(value, path)
+            for key, item in value.items():
+                check(item, f"{path}[{key!r}]")
+            return
+        raise TypeError(
+            f"{field}{path} is {value!r} of type {type(value).__name__}, "
+            "which §8 does not admit: every value must be JSON-representable "
+            "(str, int, float, bool, None, or a list or str-keyed mapping of "
+            "those), because §10.2 stores this mapping as UTF-8 JSON. A NumPy "
+            "scalar is the usual culprit -- convert it at the call site"
+        )
+
+    check_keys(mapping, "")
+    for key, value in mapping.items():
+        check(value, f"[{key!r}]")
+
+
+def _require_utf8_encodable(text: str, where: str) -> None:
+    """Reject strings §10.2's UTF-8 JSON cannot represent. §8.
+
+    Python `str` is a sequence of code points, not of Unicode *scalar values*:
+    it admits unpaired UTF-16 surrogates like `"\\ud800"`, which are legal in
+    the type and have no UTF-8 encoding. `json.dumps` will happily produce
+    `"\\ud800"` as an escape, and encoding the result raises.
+
+    So this is the same defect §8 already fixed once for `params` and
+    `provenance`, arriving through a door that fix does not cover: that rule
+    reasons about *types* -- `str`, `int`, finite `float` -- and a lone
+    surrogate is a `str`. Without this check the type admits a diagram the
+    normative format cannot write, and §10.1 requirement 1's metadata round
+    trip fails at `save()`, arbitrarily far from whatever built the metadata.
+
+    Checked at construction for §3.1's reason: an invalid instance must not be
+    constructible, rather than being caught by the one boundary that happens
+    to encode.
+    """
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(
+            f"{where} contains a code point with no UTF-8 encoding "
+            f"({exc.object[exc.start : exc.end]!r} at position {exc.start}); "
+            "§8 admits only Unicode scalar values, since §10.2 stores metadata "
+            "as UTF-8 JSON and an unpaired surrogate cannot be written"
+        ) from None
+
+
+def _validate_scalar_fields(meta: DiagramMeta) -> None:
+    """§8's declared types for the five scalar fields, enforced here.
+
+    `params` and `provenance` are walked by `_require_json_representable`;
+    without this the five fields beside them were typed in the annotation and
+    checked nowhere, so `DiagramMeta(filtration=3.5)` constructed and every
+    `from_*` adapter (§11) passed `**meta` straight into it.
+
+    The check belongs here for §3.1's reason and not in five adapters: a rule
+    stated only as an obligation on writers is one every future writer has to
+    remember, and the adapters are not the only writer -- `dataclasses.replace`
+    and direct construction reach these fields too.
+
+    **Exact builtin types, matching `_require_json_representable`'s house
+    rule**, because §10.2 stores `meta.json` as UTF-8 JSON and the same reason
+    applies one field over: a `Path` filtration or a NumPy `coeff_field` is a
+    diagram that satisfies §3.1 and §8 completely and cannot be saved, failing
+    arbitrarily far from whatever wrote it. Adapters may widen at their own
+    boundary -- `adapters._require_coeff_field` admits any `numbers.Integral`
+    and converts -- so the widening stays where a caller's array scalar
+    actually arrives, and the stored value is a builtin either way.
+
+    `bool` is refused for `coeff_field` on `adapters._as_degree`'s ground:
+    `coeff_field=True` records the field of one element, which is a
+    coincidence of the language rather than anything a caller means.
+    """
+    for name in ("filtration", "backend", "backend_version", "description"):
+        value = getattr(meta, name)
+        if value is not None and type(value) is not str:
+            raise TypeError(
+                f"{name} is {value!r} of type {type(value).__name__}; §8 "
+                f"types it `str | None`, and §10.2 stores it as JSON"
+            )
+        if value is not None:
+            _require_utf8_encodable(value, name)
+    # `type(...) is not int` already excludes `bool`, `type(True)` being
+    # `bool`; spelled exactly rather than with `isinstance` for that reason.
+    field_value = meta.coeff_field
+    if field_value is not None and type(field_value) is not int:
+        raise TypeError(
+            f"coeff_field is {field_value!r} of type "
+            f"{type(field_value).__name__}; §8 types it `int | None` -- the "
+            "characteristic of the field homology was computed over (§9.3)"
+        )
+
+
+# §8's closed vocabulary for `provenance["essential_bars"]`, in document
+# order. Two of the four are an adapter's verdict on what the backend gave it
+# and two are `finitize`'s record of what it did (§5); `essential_bars_source`
+# ranges over the first two alone, which is why that check spells its pair
+# separately rather than slicing this tuple.
+_ESSENTIAL_BARS_VALUES = (
+    "faithful",
+    "lost_upstream",
+    "finitized_at",
+    "finitized_dropped",
+)
 
 
 def _validate_provenance(provenance: Mapping[str, Any]) -> None:
@@ -83,13 +447,61 @@ def _validate_provenance(provenance: Mapping[str, Any]) -> None:
     these keys through this constructor and none of them passes through
     `finitize`'s code path.
 
-    Two rules, both quoted directly from §8; nothing beyond them is checked.
-    In particular the free-form `<value>` in `"finitized_at:<value>"` is not
-    parsed, and unknown keys are left alone -- `provenance` is an open mapping
-    and §8 reserves names within it rather than closing it.
+    Four rules, all quoted directly from §8; nothing beyond them is checked.
+    Unknown keys are left alone -- `provenance` is an open mapping and §8
+    reserves names within it rather than closing it.
     """
     bars = provenance.get("essential_bars")
     dropped_present = "essential_bars_dropped" in provenance
+
+    # §8 closes the vocabulary: "one of `faithful`, `lost_upstream`,
+    # `finitized_at`, `finitized_dropped`". Checked before the two iff-rules
+    # below, because both are stated against specific members of it -- a
+    # misspelled `"finitized_droped"` would otherwise pass the dropped-count
+    # rule by failing to be the value that requires a count, reporting nothing
+    # while meaning nothing.
+    # Keyed on presence rather than on `bars is not None`: an explicit
+    # `{"essential_bars": None}` is a key that is there holding no verdict,
+    # which is not one of the four and is not the same as saying nothing.
+    if "essential_bars" in provenance and bars not in _ESSENTIAL_BARS_VALUES:
+        raise ValueError(
+            f"provenance['essential_bars'] is {bars!r}; §8 closes the "
+            f"vocabulary to {', '.join(map(repr, _ESSENTIAL_BARS_VALUES))}"
+        )
+
+    # "present iff essential_bars == 'finitized_at'" (§8), and the value is
+    # the substituted death, so it MUST be a finite real number: `inf` is the
+    # thing finitizing removes, and `NaN` is not a death time. `bool` is
+    # refused on `_validate_meta_types`' ground -- `True` is not a death.
+    at_present = "essential_bars_finitized_at" in provenance
+    if at_present and bars != "finitized_at":
+        raise ValueError(
+            "provenance['essential_bars_finitized_at'] is present but "
+            f"provenance['essential_bars'] is {bars!r}; §8 admits the "
+            "substituted death only alongside 'finitized_at'"
+        )
+    if bars == "finitized_at" and not at_present:
+        raise ValueError(
+            "provenance['essential_bars'] is 'finitized_at' but "
+            "provenance['essential_bars_finitized_at'] is missing; §8 "
+            "requires the substituted death alongside it"
+        )
+    if at_present:
+        at_value = provenance["essential_bars_finitized_at"]
+        if type(at_value) is bool or not isinstance(at_value, (int, float)):
+            raise TypeError(
+                "provenance['essential_bars_finitized_at'] is "
+                f"{at_value!r} of type {type(at_value).__name__}; §8 types it "
+                "as the finite numeric death `finitize` substituted"
+            )
+        # §8 also requires that death to be **finite**, and there is
+        # deliberately no check for it here: §10.2 keeps non-finite floats out
+        # of `provenance` entirely, and `_require_json_representable` runs
+        # ahead of this function, so `inf` and `NaN` are already refused by a
+        # strictly stronger rule. Restating it would add a branch nothing can
+        # reach, which is worse than absent -- it reads as live defence and
+        # rots untested. `test_a_non_finite_substituted_death_is_rejected`
+        # asserts the outcome §8 wants against whichever layer delivers it.
 
     # "present iff essential_bars == 'finitized_dropped'" (§8). Both
     # directions matter: a stale count outliving a substitution is the failure
@@ -124,13 +536,14 @@ def _validate_provenance(provenance: Mapping[str, Any]) -> None:
 class DiagramMeta:
     """Filtration, backend, and provenance facts about a diagram. §8.
 
-    All fields are optional -- a diagram typed in by hand from a paper is a
-    valid diagram -- but `from_*` adapters MUST populate `backend`,
-    `backend_version`, and `provenance`.
+        All fields are optional -- a diagram typed in by hand from a paper is a
+        valid diagram -- but `from_*` adapters MUST populate `backend`,
+        `backend_version`, and `provenance`.
 
-    `params` and `provenance` are stored as read-only mappings, and
-    `provenance` is checked against §8's reserved-key rules; see
-    `__post_init__` and `_validate_provenance`.
+    `params` and `provenance` own their complete value trees and are stored as
+    read-only dict/list containers, checked for JSON-safe values, and
+    `provenance` is checked against §8's reserved-key rules; see `__post_init__`
+    and the internal validators.
     """
 
     filtration: str | None = None
@@ -139,35 +552,54 @@ class DiagramMeta:
     coeff_field: int | None = None
     params: Mapping[str, Any] = field(default_factory=dict)
     provenance: Mapping[str, Any] = field(default_factory=dict)
-    space: str | None = None
+    description: str | None = None
 
     # Explicitly unhashable, and it has to be said rather than left to the
-    # mapping proxies to enforce. `@dataclass(frozen=True, eq=True)` generates
+    # private metadata containers to enforce. `@dataclass(frozen=True, eq=True)`
+    # generates
     # a `__hash__`, so without this line `DiagramMeta` would satisfy
     # `isinstance(m, Hashable)` and pass any `Hashable` guard, then raise
     # `TypeError: unhashable type: 'dict'` from inside the generated tuple
     # hash -- an error naming neither this class nor the field responsible.
     # Nothing here hashes a `DiagramMeta`: `content_hash` (§8.1) covers bars
-    # only and deliberately excludes metadata. `==` is unaffected, a proxy
-    # comparing equal to the mapping it wraps.
+    # only and deliberately excludes metadata. `==` is unaffected because the
+    # private containers compare equal to their builtin counterparts.
     __hash__ = None  # type: ignore[assignment]
 
     def __post_init__(self) -> None:
-        """Freeze the two mapping fields, then enforce §8 over `provenance`.
+        """Own, recursively freeze, and validate the two mapping fields. §8.
 
-        `frozen=True` stops `meta.params = {...}`; it does nothing about
-        `meta.params["k"] = v` written through the dict the caller passed in,
-        so a `DiagramMeta` built from a caller's dict would otherwise stay
-        aliased to it. Both fields are copied and wrapped in a
-        `MappingProxyType`: neither writable nor aliased.
-
-        Copying happens before validation so the checked mapping is the one
-        actually stored, not a caller's dict that could differ by the time it
-        is read.
+        `frozen=True` stops `meta.params = {...}`, while the private dict/list
+        subclasses below stop ordinary mutation at every nested level. They
+        retain builtin list/dict equality and `json.dumps` behavior, so the
+        normalized JSON representation remains the RFC's representation.
+        Construction copies before validation, so neither the caller's
+        mapping nor any nested list or mapping can be aliased into the stored
+        metadata. JSON validation precedes reserved-key validation so all
+        metadata failures use the same field/path-aware contract.
         """
-        object.__setattr__(self, "params", MappingProxyType(dict(self.params)))
-        object.__setattr__(self, "provenance", MappingProxyType(dict(self.provenance)))
+        _validate_scalar_fields(self)
+        object.__setattr__(self, "params", _freeze_json_mapping(self.params))
+        object.__setattr__(self, "provenance", _freeze_json_mapping(self.provenance))
+        _require_json_representable(self.params, "params")
+        _require_json_representable(self.provenance, "provenance")
         _validate_provenance(self.provenance)
+        source_present = "coeff_field_source" in self.provenance
+        source = self.provenance["coeff_field_source"] if source_present else None
+        if source_present and source not in ("caller", "backend_default"):
+            raise ValueError(
+                f"provenance['coeff_field_source'] is {source!r}; §8 admits "
+                "only 'caller' or 'backend_default'"
+            )
+        if source_present and self.coeff_field is None:
+            raise ValueError(
+                "provenance['coeff_field_source'] requires a non-None coeff_field"
+            )
+
+
+def _copy_array(x: Array, xp: Any) -> Array:
+    """Copy a caller-owned array at a public construction boundary. §3.1."""
+    return xp.asarray(x, copy=True)
 
 
 def _validate_bar_arrays(dims: Array, births: Array, deaths: Array) -> Any:
@@ -180,13 +612,9 @@ def _validate_bar_arrays(dims: Array, births: Array, deaths: Array) -> Any:
     I9 is checked before I1 deliberately: `shape[0]` on a rank-0 array raises
     `IndexError` rather than reporting the real problem.
     """
-    if not (
-        dims.__array_namespace__()
-        is births.__array_namespace__()
-        is deaths.__array_namespace__()
-    ):
+    if not (namespace_of(dims) is namespace_of(births) is namespace_of(deaths)):
         raise ValueError("dims, births, and deaths must share one array namespace (I7)")
-    xp = dims.__array_namespace__()
+    xp = namespace_of(dims)
 
     if not (dims.ndim == births.ndim == deaths.ndim == 1):
         raise ValueError(
@@ -501,7 +929,8 @@ class PersistenceDiagram:
     returns a new instance rather than modifying `self`, which is what makes
     `DiagramBatch.__getitem__`'s zero-copy views (§4.2) safe. See the module
     docstring for the exact extent of that guarantee, and for which accessors
-    are eager-only (§3.3).
+    are eager-only (§3.3). The array API cannot make arrays read-only, so a
+    caller can still mutate a coordinate directly through `d.births[0]`.
     """
 
     dims: Array
@@ -516,6 +945,15 @@ class PersistenceDiagram:
         immutability, which `frozen=True` and the absence of any mutating
         method carry structurally instead of at construction.
         """
+        object.__setattr__(
+            self, "dims", _copy_array(self.dims, namespace_of(self.dims))
+        )
+        object.__setattr__(
+            self, "births", _copy_array(self.births, namespace_of(self.births))
+        )
+        object.__setattr__(
+            self, "deaths", _copy_array(self.deaths, namespace_of(self.deaths))
+        )
         _validate_bar_arrays(self.dims, self.births, self.deaths)
 
     @classmethod
@@ -553,7 +991,7 @@ class PersistenceDiagram:
         with nothing to keep in sync at the view construction sites §4.2
         introduces.
         """
-        return self.dims.__array_namespace__()
+        return namespace_of(self.dims)
 
     # -- §3.2 accessors ----------------------------------------------------
 
@@ -876,7 +1314,7 @@ class PersistenceDiagram:
 
         Provenance is recorded so a human can audit it, not so equality can
         reject on it; this is the accessor for the cases that genuinely care.
-        Compares the whole `DiagramMeta`, not `provenance` alone.
+        Compares every `DiagramMeta` field except free-text `description`.
 
         Raises `TypeError` for a non-diagram rather than returning `False`,
         matching `allclose`: `==` may legitimately be asked to compare against
@@ -891,7 +1329,23 @@ class PersistenceDiagram:
             raise TypeError(
                 f"same_provenance expects a PersistenceDiagram, got {type(other)!r}"
             )
-        return self.meta == other.meta
+        # `description` is intentionally free text and excluded from every
+        # provenance comparison (§8); all other metadata fields participate.
+        return (
+            self.meta.filtration,
+            self.meta.backend,
+            self.meta.backend_version,
+            self.meta.coeff_field,
+            self.meta.params,
+            self.meta.provenance,
+        ) == (
+            other.meta.filtration,
+            other.meta.backend,
+            other.meta.backend_version,
+            other.meta.coeff_field,
+            other.meta.params,
+            other.meta.provenance,
+        )
 
     # -- §8.1 content hash -------------------------------------------------
 
@@ -942,7 +1396,8 @@ class PersistenceDiagram:
         """Replace or drop essential bars. Explicit, never implicit (§5).
 
         `at="max_finite_death"` or `at=<float>` substitute a finite death
-        time and record `provenance["essential_bars"] = "finitized_at:<value>"`.
+        time and record `provenance["essential_bars"] = "finitized_at"` plus
+        `provenance["essential_bars_finitized_at"]`, the substituted death.
         `at="drop"` removes essential bars entirely -- a cardinality change,
         not a substitution -- and records `"finitized_dropped"` plus
         `provenance["essential_bars_dropped"]`, the count.
@@ -954,10 +1409,15 @@ class PersistenceDiagram:
 
         **`essential_bars` is overwritten; `essential_bars_source` is the
         adapter's and is never touched here** -- not written, not read, not
-        disturbed if already present (§5, §8). A substitution does clear
-        `essential_bars_dropped`, which §8 admits only alongside
-        `"finitized_dropped"`; `_validate_provenance` enforces that pairing
-        on the way out.
+        disturbed if already present (§5, §8).
+
+        **Each mode clears the other's qualifier** (§8): a substitution drops
+        `essential_bars_dropped` and a drop drops
+        `essential_bars_finitized_at`, since §8 admits each only alongside the
+        one `essential_bars` value it qualifies. Finitizing twice overwrites
+        rather than accumulates, so the recorded death is always the one now
+        in `deaths`. `_validate_provenance` enforces both pairings on the way
+        out, in both directions.
 
         **`at` is validated in full -- type and finiteness, not only the two
         mode names -- before `essential` is looked at** (§5). A check placed
@@ -975,20 +1435,9 @@ class PersistenceDiagram:
         - `ValueError` for an `at` of the right type carrying a value this
           method cannot use: an unrecognised mode name, a non-finite float,
           `at="max_finite_death"` on a diagram with no finite death to take a
-          maximum over, and -- from the ordinary constructor, via I6 -- a
-          substituted death below some essential bar's birth.
-
-        **That last case has two spellings and only one is about the
-        argument**, which is why it is raised by I6 rather than here.
-        `at=<float>` below an essential birth is a bad argument.
-        `at="max_finite_death"` reaches it too, whenever the largest finite
-        death is below some essential bar's birth -- one finite bar dying at
-        `0.5` alongside an essential bar born at `2.0` is the smallest
-        example, and nothing in §5 rules such a diagram out. There the
-        argument is fine and the data has no maximum I6 will accept, so I6 is
-        the right judge and its message, about death times, is the right one.
-        It reads oddly for the first spelling; that is the accepted cost of
-        not having two checks answer for one condition.
+          maximum over, or a substituted death below some essential bar's
+          birth. The latter check is performed here, after resolving either
+          spelling of the substitution, so the error can name both values.
         """
         xp = self.xp
         # `at` is never rebound: a validated substitution lands in
@@ -1044,6 +1493,12 @@ class PersistenceDiagram:
             kept = self._masked(~essential)
             provenance["essential_bars"] = "finitized_dropped"
             provenance["essential_bars_dropped"] = self.n_bars - kept.n_bars
+            # §8: each qualifier is present iff `essential_bars` holds the one
+            # value it qualifies, so a drop over an already-substituted
+            # diagram MUST clear the substituted death rather than leave it
+            # describing a bar that is no longer here. The mirror of the pop
+            # in the substitution branch below.
+            provenance.pop("essential_bars_finitized_at", None)
             return PersistenceDiagram._unchecked(
                 dims=kept.dims,
                 births=kept.births,
@@ -1062,7 +1517,27 @@ class PersistenceDiagram:
                 )
             value = float(xp.max(finite_deaths))
 
-        provenance["essential_bars"] = f"finitized_at:{value}"
+        max_essential_birth = float(xp.max(self.births[essential]))
+        if value < max_essential_birth:
+            if substitute is not None:
+                raise ValueError(
+                    f"finitize(at={value!r}) is below the maximum essential "
+                    f"birth {max_essential_birth!r}"
+                )
+            raise ValueError(
+                "finitize(at='max_finite_death') computed "
+                f"{value!r}, below the maximum essential birth "
+                f"{max_essential_birth!r}"
+            )
+
+        # §8: the state is the bare enum member and the substituted death is a
+        # separate numeric key. Not `f"finitized_at:{value}"` -- that spelling
+        # made every reader parse a float back out of a string, and made
+        # `essential_bars` an open vocabulary that `DiagramMeta` could not
+        # validate. Repeated finitization overwrites both, so the value here
+        # is always the death currently in `deaths`, never the first one.
+        provenance["essential_bars"] = "finitized_at"
+        provenance["essential_bars_finitized_at"] = value
         provenance.pop("essential_bars_dropped", None)
 
         fill = xp.asarray(value, dtype=self.deaths.dtype)
@@ -1086,7 +1561,8 @@ class DiagramBatch:
     range into the concatenated `dims`/`births`/`deaths` buffers, matching
     §10.2's on-disk layout. `__getitem__` returns a view, safe only because
     `PersistenceDiagram` is immutable (I8); see the module docstring for the
-    extent of that guarantee.
+    extent of that guarantee. The array API cannot make arrays read-only, so a
+    caller can still mutate a coordinate directly through `b.dims[0]`.
     """
 
     dims: Array
@@ -1118,10 +1594,22 @@ class DiagramBatch:
         `metas` is normalised to a tuple, so a caller's list cannot be
         appended to behind the batch's back.
         """
+        object.__setattr__(
+            self, "dims", _copy_array(self.dims, namespace_of(self.dims))
+        )
+        object.__setattr__(
+            self, "births", _copy_array(self.births, namespace_of(self.births))
+        )
+        object.__setattr__(
+            self, "deaths", _copy_array(self.deaths, namespace_of(self.deaths))
+        )
+        object.__setattr__(
+            self, "offsets", _copy_array(self.offsets, namespace_of(self.offsets))
+        )
         xp = _validate_bar_arrays(self.dims, self.births, self.deaths)
         object.__setattr__(self, "metas", tuple(self.metas))
 
-        if self.offsets.__array_namespace__() is not xp:
+        if namespace_of(self.offsets) is not xp:
             raise ValueError("offsets must share the batch's array namespace (B5)")
         if self.offsets.ndim != 1:
             raise ValueError(
@@ -1182,6 +1670,30 @@ class DiagramBatch:
         available under `jax.jit`.
         """
         return int(self.offsets.shape[0]) - 1
+
+    def __iter__(self) -> Iterator[PersistenceDiagram]:
+        """Each diagram in turn, in batch order. §4.2.
+
+        **Stated rather than inherited from `__getitem__`.** Python's legacy
+        iteration protocol already made `for d in batch` work, so this adds no
+        runtime capability -- but a protocol satisfied by accident is not part
+        of an interface. Without `__iter__`, `isinstance(batch, Iterable)` is
+        `False` on an object that iterates, which is the same shape of bug as
+        a `Hashable` that raises when hashed: a guard branching on the check
+        takes the path the object cannot follow. No type checker sees the
+        legacy protocol either, so `[d.dimensions for d in b]` -- the
+        expression §4.3 argues *from* when it declines to add a batch-level
+        `dimensions` accessor -- does not type-check without this method.
+
+        A generator, so each call starts over. Returning `self` would let the
+        first consumer exhaust the batch for every later one, and nested loops
+        over one batch are ordinary here.
+
+        Yields the same zero-copy views `__getitem__` returns, on the same
+        terms (§4.2).
+        """
+        for i in range(len(self)):
+            yield self[i]
 
     def __getitem__(self, i: int) -> PersistenceDiagram:
         """The `i`-th diagram, as a zero-copy view into the shared buffer. §4.2.
@@ -1264,7 +1776,7 @@ class DiagramBatch:
         `dims`' namespace. Same derive-don't-store reasoning as
         `PersistenceDiagram.xp` (§3).
         """
-        return self.dims.__array_namespace__()
+        return namespace_of(self.dims)
 
     @classmethod
     def from_diagrams(
@@ -1317,7 +1829,7 @@ class DiagramBatch:
             deaths = namespace.asarray([], dtype=namespace.float64)
 
         boundaries = [0, *itertools.accumulate(d.n_bars for d in diagrams)]
-        return cls(
+        return cls._unchecked(
             dims=dims,
             births=births,
             deaths=deaths,

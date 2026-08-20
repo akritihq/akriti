@@ -449,6 +449,50 @@ def main(argv: Sequence[str] | None = None) -> int:
             _require(h1_count == 2, "A.1", f"giotto H1 count is {h1_count}, expected 2")
         print("  => giotto drops the essential class under every setting.")
 
+        # A.1's second half. The loop above holds `reduced_homology` at
+        # giotto's default of True and varies `infinity_values`, so it
+        # establishes only that `infinity_values` is *not* the cause. Flipping
+        # `reduced_homology` shows the cause directly, which is what §5.1's
+        # adapter requirement rests on. Counts rather than coordinates, so
+        # this row survives the float-level environment sensitivity the
+        # fixture capture has.
+        for iv, expected_essential in ((None, 1), (np.inf, 1), (99.0, 0)):
+            vr = VietorisRipsPersistence(
+                homology_dimensions=(0, 1),
+                infinity_values=iv,
+                reduced_homology=False,
+            )
+            transformed = _require_batch_shape(
+                vr.fit_transform(A[None]),
+                samples=1,
+                section="A.1",
+                label="giotto result (reduced_homology=False)",
+            )
+            g = transformed[0]
+            h0_count = len(g[g[:, 2] == 0])
+            essential_count = int((~np.isfinite(g)).sum())
+            h1_count = int((g[:, 2] == 1).sum())
+            print(
+                f"  giotto  H0={h0_count:3d}  essential={essential_count}"
+                f"  H1={h1_count}"
+                f"   infinity_values={iv!r}  reduced_homology=False"
+            )
+            _require(
+                h0_count == 40,
+                "A.1",
+                f"giotto H0 count is {h0_count} with reduced_homology=False, "
+                "expected 40 -- the essential class should be present",
+            )
+            _require(
+                essential_count == expected_essential,
+                "A.1",
+                f"giotto essential count is {essential_count} for "
+                f"infinity_values={iv!r}, expected {expected_essential}",
+            )
+            _require(h1_count == 2, "A.1", f"giotto H1 count is {h1_count}, expected 2")
+        print("  => reduced_homology decides whether the class exists;")
+        print("     infinity_values decides how its death is represented.")
+
     # ---------------------------------------------------------------- A.2
     rule("A.2  GIOTTO BATCH PADDING — the diagram depends on the batch")
 
