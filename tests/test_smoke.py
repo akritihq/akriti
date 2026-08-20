@@ -179,3 +179,44 @@ def test_numpy_is_not_a_hard_dependency(module: str) -> None:
         "row-sequence adapters and io.py's save/load as lazy, function-scoped "
         "imports"
     )
+
+
+def test_no_docstring_holds_an_unencodable_code_point() -> None:
+    """Every docstring must survive UTF-8, which is not a source-level property.
+
+    A non-raw docstring reading ``\\ud800`` compiles that escape into a real
+    unpaired surrogate, so the *source* stays pure ASCII while the docstring
+    *value* cannot be encoded. Python 3.13 raises on import; 3.12 does not.
+
+    That combination is the reason this test exists rather than a lint rule:
+    the file looks clean, the failure appears only on newer interpreters, and
+    it takes down `import akriti` rather than a single test -- so a suite run
+    on one version reports green while the package is unimportable on another.
+
+    Found exactly this way, in the docstring of the helper that rejects
+    unpaired surrogates.
+    """
+    import ast
+
+    root = Path(__file__).resolve().parents[1]
+    offenders: list[str] = []
+    for path in sorted(root.joinpath("src").rglob("*.py")):
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(
+                node, (ast.Module, ast.ClassDef, ast.FunctionDef, ast.AsyncFunctionDef)
+            ):
+                continue
+            doc = ast.get_docstring(node, clean=False)
+            if doc is None:
+                continue
+            try:
+                doc.encode("utf-8")
+            except UnicodeEncodeError:
+                where = getattr(node, "name", "<module>")
+                offenders.append(f"{path.relative_to(root)}::{where}")
+
+    assert not offenders, (
+        "docstrings that cannot encode to UTF-8, so `import akriti` fails on "
+        f"Python 3.13+: {offenders}"
+    )

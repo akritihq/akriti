@@ -351,9 +351,9 @@ def _require_utf8_encodable(text: str, where: str) -> None:
     """Reject strings §10.2's UTF-8 JSON cannot represent. §8.
 
     Python `str` is a sequence of code points, not of Unicode *scalar values*:
-    it admits unpaired UTF-16 surrogates like `"\ud800"`, which are legal in
+    it admits unpaired UTF-16 surrogates like `"\\ud800"`, which are legal in
     the type and have no UTF-8 encoding. `json.dumps` will happily produce
-    `"\ud800"` as an escape, and encoding the result raises.
+    `"\\ud800"` as an escape, and encoding the result raises.
 
     So this is the same defect §8 already fixed once for `params` and
     `provenance`, arriving through a door that fix does not cover: that rule
