@@ -4,8 +4,7 @@
 |---|---|
 | **Status** | Draft — not yet open for public comment |
 | **Version** | 0.3.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
-| **Author** | Sushovan Majhi |
-| **Edited By** | A. D. Silberman |
+| **Authors** | Sushovan Majhi, A. D. Silberman, Edward Bae |
 | **Created** | 2026-07-29 |
 | **Last Edited** | 2026-08-20 |
 | **Target** | M0 (2026-08-01) drafted — met, initial draft 2026-07-29 · published for comment 2026-08-23, ahead of M1 |
