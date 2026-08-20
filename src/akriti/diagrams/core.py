@@ -294,8 +294,11 @@ def _require_json_representable(mapping: Mapping[str, Any], field: str) -> None:
                     f"only, since §10.2 stores this as JSON -- json.dumps "
                     f"would silently rewrite it as {str(key)!r}"
                 )
+            _require_utf8_encodable(key, f"{field}{path} key {key!r}")
 
     def check(value: Any, path: str) -> None:
+        if type(value) is str:
+            _require_utf8_encodable(value, f"{field}{path}")
         if value is None or type(value) in scalars:
             if type(value) is float and not math.isfinite(value):
                 raise TypeError(
@@ -326,6 +329,36 @@ def _require_json_representable(mapping: Mapping[str, Any], field: str) -> None:
     check_keys(mapping, "")
     for key, value in mapping.items():
         check(value, f"[{key!r}]")
+
+
+def _require_utf8_encodable(text: str, where: str) -> None:
+    """Reject strings §10.2's UTF-8 JSON cannot represent. §8.
+
+    Python `str` is a sequence of code points, not of Unicode *scalar values*:
+    it admits unpaired UTF-16 surrogates like `"\ud800"`, which are legal in
+    the type and have no UTF-8 encoding. `json.dumps` will happily produce
+    `"\ud800"` as an escape, and encoding the result raises.
+
+    So this is the same defect §8 already fixed once for `params` and
+    `provenance`, arriving through a door that fix does not cover: that rule
+    reasons about *types* -- `str`, `int`, finite `float` -- and a lone
+    surrogate is a `str`. Without this check the type admits a diagram the
+    normative format cannot write, and §10.1 requirement 1's metadata round
+    trip fails at `save()`, arbitrarily far from whatever built the metadata.
+
+    Checked at construction for §3.1's reason: an invalid instance must not be
+    constructible, rather than being caught by the one boundary that happens
+    to encode.
+    """
+    try:
+        text.encode("utf-8")
+    except UnicodeEncodeError as exc:
+        raise ValueError(
+            f"{where} contains a code point with no UTF-8 encoding "
+            f"({exc.object[exc.start : exc.end]!r} at position {exc.start}); "
+            "§8 admits only Unicode scalar values, since §10.2 stores metadata "
+            "as UTF-8 JSON and an unpaired surrogate cannot be written"
+        ) from None
 
 
 def _validate_scalar_fields(meta: DiagramMeta) -> None:
@@ -361,6 +394,8 @@ def _validate_scalar_fields(meta: DiagramMeta) -> None:
                 f"{name} is {value!r} of type {type(value).__name__}; §8 "
                 f"types it `str | None`, and §10.2 stores it as JSON"
             )
+        if value is not None:
+            _require_utf8_encodable(value, name)
     # `type(...) is not int` already excludes `bool`, `type(True)` being
     # `bool`; spelled exactly rather than with `isinstance` for that reason.
     field_value = meta.coeff_field

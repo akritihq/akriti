@@ -370,6 +370,52 @@ def test_metadata_rejects_non_json_values_with_a_field_path(
         DiagramMeta(**{field: payload})  # type: ignore[arg-type]
 
 
+@pytest.mark.parametrize(
+    ("kwargs", "path_fragment"),
+    [
+        ({"description": "\ud800"}, "description"),
+        ({"filtration": "ri\ud800ps"}, "filtration"),
+        ({"params": {"\ud800": 1}}, "params"),
+        ({"params": {"k": "\udfff"}}, r"params\['k'\]"),
+        (
+            {"provenance": {"a": {"b": ["ok", "\ud800"]}}},
+            r"provenance\['a'\]\['b'\]\[1\]",
+        ),
+    ],
+)
+def test_metadata_rejects_unpaired_surrogates(
+    kwargs: dict[str, object], path_fragment: str
+) -> None:
+    """§8: metadata strings are Unicode *scalar values*, not code points.
+
+    A `str` may hold an unpaired UTF-16 surrogate, which is legal in the type
+    and has no UTF-8 encoding, so §10.2's `meta.json` cannot be written. §8's
+    JSON rule does not catch it -- that rule reasons about types, and a lone
+    surrogate is a `str` -- so without this the constructor accepts a diagram
+    `save()` cannot write, failing at the one boundary that encodes rather
+    than where the metadata was built.
+
+    Every door is covered: the scalar fields, mapping keys, mapping values,
+    and values nested inside lists and sub-mappings.
+    """
+    with pytest.raises(ValueError, match=path_fragment):
+        DiagramMeta(**kwargs)  # type: ignore[arg-type]
+
+
+def test_metadata_accepts_ordinary_non_ascii() -> None:
+    """The check rejects unencodable code points, not non-ASCII text.
+
+    A rule that refused anything outside ASCII would be much easier to write
+    and would break the domain-science metadata §8 exists to carry.
+    """
+    # The Greek small sigma below trips RUF001 as a confusable, which is the
+    # point: it is exactly the metadata a TDA user writes (a bandwidth), and a
+    # check that refused it would be refusing the domain rather than the defect.
+    meta = DiagramMeta(description="ākṛti — 形", params={"σ": 0.05})  # noqa: RUF001
+    assert meta.description == "ākṛti — 形"
+    assert meta.params["σ"] == 0.05  # noqa: RUF001
+
+
 # -- §5 finitize keeps provenance consistent across calls -----------------
 
 

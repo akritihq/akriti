@@ -1378,6 +1378,19 @@ surfaces at `save()` — arbitrarily far from the adapter that wrote the
 offending value. Adapters MUST convert at the point of recording:
 `str(arr.dtype)` for `source_dtype`, a Python `int` for the counts.
 
+**Every metadata string MUST be a sequence of Unicode scalar values**, and
+`DiagramMeta` MUST enforce that at construction over the five scalar fields,
+over `params` and `provenance` keys, and recursively over their values. The
+rule above is about *types*, and a Python `str` is a sequence of code points
+rather than of scalar values: it admits an unpaired UTF-16 surrogate such as
+`"\ud800"`, which is a perfectly ordinary `str` with no UTF-8 encoding. So the
+type-level rule passes it and §10.2's UTF-8 `meta.json` cannot write it,
+reaching a caller as a `UnicodeEncodeError` from `save()` on a diagram that
+constructed cleanly — the same failure the paragraph above rules out, through a
+door that paragraph does not cover. The check is narrow by design: it excludes
+what cannot be encoded, not what is not ASCII, since the domain metadata §8
+exists to carry is frequently neither.
+
 **`essential_bars` is derived, never independently authored.** For a
 giotto-sourced diagram it is a pure function of
 `params["reduced_homology"]` (§5.1), and it would be fair to ask why both are
@@ -2627,8 +2640,8 @@ its member; and the same bars hash identically under two namespaces.
 
 ## 12. Decisions
 
-Eighteen decisions are on record: D1-D8 and D12-D21. **All eighteen are
-settled** (§12.2), each stating the outcome and pointing at the section
+Nineteen decisions are on record: D1-D8 and D12-D22. **Eighteen are
+settled** (§12.2) and one, D22, is open (§12.1), each stating the outcome and pointing at the section
 that carries the normative requirement; §12.1 is empty. Superseded recommendations
 are not repeated here.
 
@@ -2644,10 +2657,13 @@ not a dense sequence.
 
 ### 12.1 Open
 
-**None.** Every decision this document opened has been resolved; the rows are
-in §12.2. The section is kept rather than deleted so that a later question has
-a place to open into, and so a reader arriving here from a cross-reference
-finds the state of the log stated rather than inferred from an absence.
+One, and it is open deliberately rather than for want of an answer: it is a
+question this document would rather put to its reviewers than settle by
+itself.
+
+| # | Question | Blocked on |
+|---|---|---|
+| **D22** | An `.akd` is a zip holding a member that is itself a zip. §10 says what `load` MUST validate for *correctness* and says nothing about *cost*: no bound on member count, uncompressed size, compression ratio, or bar count. The loader already refuses the cheap attack — an NPY header inconsistent with its member's declared size is rejected before allocation — but nothing bounds a well-formed archive that is merely enormous. Is `load` intended to be safe against a file from a stranger? | A judgment this document should not make alone, which is why it publishes open. Three answers are coherent. **(1) `load` is not a trust boundary**: say so in §10 and tell callers to validate before loading. Honest, and it makes §10.1 requirement 5's inspect-without-our-library argument sit oddly beside a loader that will not defend itself. **(2) Caller-supplied budgets**: `load(path, *, max_bars=None, max_bytes=None)`, unlimited by default so requirement 1 still round-trips *every* diagram this type admits. **(3) Format-contract limits**: numbers in the specification. Best for interoperability, worst against requirement 1, since any fixed ceiling makes some admissible diagram unreadable by a conforming reader. The lead leans to (2), which resolves the contradiction with requirement 1 rather than living beside it and puts the budget where the risk is known. Recorded here rather than resolved because a format's threat model is exactly what a comment window is for, and because the projects most able to answer are the ones being asked to read this. |
 
 
 ### 12.2 Settled
@@ -3329,3 +3345,4 @@ Full narrative: history document.
 - **2026-08-20 (60)** — **Appendix A.1 gains the `reduced_homology=False` rows it has required since 2026-07-30**, and `rfcs/evidence/probe_backends.py` gains the code that produces and asserts them. The table now runs all three `infinity_values` settings at both `reduced_homology` values, so §5.1's cause is shown directly rather than inferred by elimination, and the two mechanisms separate: `reduced_homology` decides whether the class exists, `infinity_values` decides how its death is represented. The retired paragraph said the row "MUST" be added before M1 and could not be produced here; pinning scikit-learn below 1.6 is the whole of what was needed. The rows are stated as measurements with their environment, as A.5 and A.7 already are, rather than as a committed fixture — deliberately: `tests/fixtures/giotto_output.json` is not byte-reproducible across CPython patch levels, its coordinates moving in the last one or two decimal places when regenerated under 3.11.4 rather than the 3.11.15 it records, with every version the capture script names held equal. Bar counts do not move; coordinates do.
 - **2026-08-20 (61)** — **Opens and settles D21**, moving §11's `infinity_values` requirement out of §12.3's R5 and into the decision log where a new obligation belongs, and correcting the mechanism underneath it in R5's own cause cell as well. `infinity_values=None` does not write a finite sentinel; it means *use the cutoff*, and giotto resolves it to `inf` under its own `max_edge_length=inf`, so a caller who configures nothing is safe — the hazard requires a finite cutoff with the default left in place. **§11 gains a check it did not have**: under `reduced_homology=False` a non-empty diagram must carry a non-finite H0 death, so one declared alongside `infinity_values=inf` with all H0 deaths finite is impossible and MUST be refused. Measured 24 of 24 across four clouds and three cutoffs. The check does not extend to `reduced_homology=True`, where the essential class is dropped by design; the asymmetry is stated. R5 keeps the defect it names. Implementation and the §11.2 refusal test follow on the adapter branch; the fixture the test needs is already committed.
 - **2026-08-20 (62)** — **Opens and settles D20**: `from_gudhi` accepts GUDHI's sklearn-compatible form, with `homology_dimensions` required alongside it. Decided on measurement rather than API taste. That form's shape is identical to Ripser's `Rips().fit_transform(X)` and to persim's input, so it cannot identify itself — and it is not the same object, Ripser's index being the homological degree while GUDHI's is a position in the caller's `homology_dimensions` list, which the return value does not carry: `[2, 0]` returns H2 then H0, and `[1]` a length-one list holding H1. Reading index as degree would mislabel every diagram computed with a reordered or non-contiguous list, silently and plausibly. The missing fact is therefore required from the caller, on §5.1's `reduced_homology` precedent. A separate adapter and a `format=` argument are both rejected in the row: neither supplies the degrees. `coeff_field` is unaffected — `RipsPersistence` also defaults to 11 — and the row records the planned `compute_persistence()` at $\mathbb{Z}/2$ as the condition to reopen against.
+- **2026-08-20 (63)** — **Opens D22 and leaves it open**, the first row §12.1 has carried since D18 closed. `load` has no resource-budget contract: §10 says what it MUST validate for correctness and nothing about cost, so a well-formed but enormous `.akd` is unbounded even though the loader already refuses an NPY header inconsistent with its member's declared size. The row states the prior question — whether `load` is meant to be safe against a file from a stranger — and the three coherent answers, with the lead's lean toward caller-supplied budgets. It is published unresolved deliberately: a format's threat model is what a comment window is for, and the projects best placed to answer are the ones being asked to read this. Raised by Edward Bae. **§8 also gains a Unicode clause**: metadata strings MUST be sequences of Unicode scalar values, enforced at construction over the scalar fields, mapping keys and nested values. §8's existing rule reasons about types and an unpaired surrogate is an ordinary `str` with no UTF-8 encoding, so the type admitted diagrams §10.2 could not write, failing at `save()` rather than where the metadata was built.
