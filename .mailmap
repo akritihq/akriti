@@ -1,8 +1,8 @@
 # Contribution counts should measure people, not accounts.
 #
-# Edward committed under both `edward` and `Edward-Bae-00` from the same
-# address, so every tool that counts by name reported him as two contributors
+# Edward Bae committed under `edward` and `Edward-Bae-00` from three different
+# addresses, so every tool that counts by name reported him as two contributors
 # who each did less than he did. That matters wherever those counts are read
 # as evidence of who built this.
-Edward Bae <145471329+Edward-Bae-00@users.noreply.github.com>
+Edward Bae <145471329+Edward-Bae-00@users.noreply.github.com> <edward.bae.05@gmail.com>
 Sushovan Majhi <s.majhi@gwu.edu> <sushovan4@users.noreply.github.com>
