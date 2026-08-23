@@ -90,8 +90,19 @@ A bar with `birth == death` is **trivial**: it has zero persistence.
 *Multiset*, not set: two bars with identical coordinates are two bars, and the
 multiplicity is meaningful. Any representation that deduplicates is wrong.
 
-*Finite*: infinite diagrams (e.g. the full diagonal) are out of scope. The
-diagonal is implicit and MUST NOT be stored.
+*Finite*: infinite diagrams (e.g. the full diagonal) are out of scope, and
+**the diagonal is not materialised as a multiset**: a conforming
+representation MUST NOT store it, and nothing in this document adds a diagonal
+bar to a diagram it did not receive.
+
+That is a rule about the diagonal, not about the bars that lie on it. **A
+trivial bar is an ordinary bar** — stored, counted, hashed and round-tripped
+like any other. §4's padding argument turns on a padded row being
+byte-identical in form to a genuine zero-persistence bar, §11.1's three
+`strip_padding` modes exist so a caller can decide what to do about that, and
+§11.2 requires a genuine zero-persistence bar as a round-trip case; a
+prohibition on `birth == death` would take the object all three are about out
+of the type.
 
 ---
 
@@ -224,7 +235,7 @@ everywhere, including at the two places above where it is real.
 d.dim(k)          # -> PersistenceDiagram, the sub-diagram of degree k
 d.dimensions      # -> sorted unique degrees actually present
 d.essential       # -> bool mask, deaths == inf
-d.finite          # -> PersistenceDiagram, essential bars removed
+d.finite          # -> PersistenceDiagram, essential bars removed and recorded
 d.persistence     # -> deaths - births  (inf for essential bars)
 d.n_bars          # -> int
 ```
@@ -236,6 +247,46 @@ permanent second spelling of the canonical accessor is a permanent liability.
 
 `d.dim(k)` for a `k` not present MUST return an empty diagram, not raise. Empty
 is a legitimate answer to "what are the 7-dimensional cycles".
+
+**Every derived diagram carries `meta` through unchanged, except where the
+derivation invalidates what `provenance` says about the bars.** Stated once
+here rather than per accessor, because the failure it rules out is the same
+one every time: two diagrams with identical bars and contradictory
+provenance. Only `essential_bars` and its qualifiers (§8) are in that
+position — every other reserved key records a fact about the adapter call,
+which no derivation changes.
+
+| Derivation | `meta` | Why |
+|---|---|---|
+| `d.canonical()` (§7) | unchanged | a permutation; no bar added, none removed |
+| `d.dim(k)` | unchanged | a restriction of degree, not a deletion within one |
+| `d.finite` | records the drop | it removes exactly the bars `essential_bars` describes |
+| `d.finitize(at=...)` (§5) | records the substitution or the drop | §5 |
+| `b[i]` (§4.2) | `metas[i]`, unchanged | the member's own metadata, not a derivation |
+
+**`d.finite` MUST record the drop it performs**, on exactly the terms §5 sets
+for `finitize(at="drop")`: `provenance["essential_bars"] = "finitized_dropped"`
+and `essential_bars_dropped`, the count removed, with
+`essential_bars_finitized_at` cleared and `essential_bars_source` untouched.
+The two produce the same diagram bar for bar, so they MUST produce the same
+provenance. An accessor that stripped the essential set while leaving
+`essential_bars = "faithful"` would write §9's clean-plausible-wrong signal
+into the one field §8 exists to make auditable, and it does not stop there:
+`d.finite.finitize(at="drop")` then meets §5's return-unchanged rule and
+carries the false claim through both calls. A diagram with **no** essential
+bar is returned with `meta` untouched, on §5's terms — nothing was dropped,
+and a recorded drop of zero bars asserts a change that did not happen.
+
+**`d.dim(k)` is not that case, and the difference is what makes this a rule
+rather than a list.** A degree restriction removes bars `essential_bars` is
+not describing: every essential bar of degree `k` survives it, so what the key
+claimed of the source it still claims of the result. One imprecision follows
+and is stated rather than left to be found — `essential_bars` is a claim about
+a diagram as a whole, so a `"lost_upstream"` inherited by a degree whose
+essential classes all survived is *conservative*. That is the safe direction,
+and the precise alternative is a per-degree vocabulary this document does not
+have. A consumer MUST read `essential_bars` as a statement about the diagram
+it is attached to.
 
 **The list above is deliberately narrow, not the complete read-only
 surface.** Every item on it is specifiable from §2's definitions and this
@@ -256,8 +307,9 @@ property.
 - `d.content_hash` — sha256 over canonical-ordered bars, §8.1.
 - `d1.same_provenance(d2)` — provenance comparison, excluded from `==`, §8.
 - `d.finitize(at=...)` — not an accessor, listed here only so its absence
-  isn't mistaken for an oversight. It takes an argument and records the
-  substitution in `meta.provenance`: a transformation, not a read (§5).
+  isn't mistaken for an oversight. It takes an argument choosing among three
+  treatments of the essential set, where `finite` above is the one of them
+  that needs no argument: a transformation, not a read (§5).
 
 `DiagramBatch` has the analogous surface catalogued the same way in §4.3.
 
@@ -511,7 +563,8 @@ batch container is:
 ```python
 class DiagramBatch:          # a sequence of PersistenceDiagram
     def __len__(self) -> int: ...
-    def __getitem__(self, i) -> PersistenceDiagram: ...
+    def __getitem__(self, i: SupportsIndex) -> PersistenceDiagram: ...
+    def __iter__(self) -> Iterator[PersistenceDiagram]: ...
 ```
 
 This is an interface contract, not a storage commitment. §4.2 specifies the
@@ -578,11 +631,19 @@ class DiagramBatch:
     def __len__(self) -> int:
         return self.offsets.shape[0] - 1
 
-    def __getitem__(self, i) -> PersistenceDiagram:
-        lo = int(self.offsets[i])        # int(), not offsets[i]: §3.3,
-        hi = int(self.offsets[i + 1])    # and why this is eager-only
+    def __getitem__(self, i: SupportsIndex) -> PersistenceDiagram:
+        k = operator.index(i)            # TypeError on anything else
+        n = len(self)
+        k = k + n if k < 0 else k        # normalise *before* either read
+        if not 0 <= k < n:
+            raise IndexError(...)        # naming what the caller passed
+        lo = int(self.offsets[k])        # int(), not offsets[k]: §3.3,
+        hi = int(self.offsets[k + 1])    # and why this is eager-only
         # a view: dims[lo:hi], births[lo:hi], deaths[lo:hi], no copy
         ...
+
+    def __iter__(self) -> Iterator[PersistenceDiagram]:
+        ...                              # batch order; see below
 ```
 
 **`.shape[0]`, not `len(...)`, and that is not a stylistic choice.** The
@@ -594,6 +655,38 @@ shorthand for `shape[0]` and MUST be implemented as such. `len(batch)`,
 `len(diagrams)` and B1's `len(metas)` are ordinary Python over ordinary
 sequences and unaffected; B1 is the one invariant spanning both, and each side
 takes the spelling its own operand requires.
+
+**`__getitem__` MUST normalise its index before it reads `offsets`**, and the
+three lines the sketch above spends on that are normative rather than
+illustrative. Read straight through, a negative index reaches `offsets[i]` and
+`offsets[i + 1]`, which for `i = -1` are `offsets[-1]` and `offsets[0]` —
+`total_bars` and `0`. The slice is then `dims[total_bars:0]`, empty, while
+`metas[-1]` is nonetheless the right metadata: **the last diagram of every
+batch silently becomes an empty diagram carrying correct provenance.** That is
+§9's clean-plausible-wrong category, in the one operation §4.3 routes every
+batch-level accessor through. So:
+
+- A non-integer index MUST raise `TypeError`, through `operator.index` rather
+  than an `isinstance` check, so that any object implementing `__index__`
+  works. That is also what refuses a `slice`.
+- A negative index MUST be normalised to `i + len(batch)` before either
+  `offsets` read.
+- An index still outside `range(len(batch))` after normalisation MUST raise
+  `IndexError`, naming the index **the caller passed** rather than the
+  normalised form: an `IndexError(-3)` raised for a `batch[-5]` names an index
+  nobody asked for and sends the reader after the wrong bug.
+- Slicing a batch is **not** supported. Sub-batching is a real operation and a
+  real gap, but it returns a `DiagramBatch` where this method's return type
+  promises a `PersistenceDiagram`, and §4.3 catalogues gaps rather than
+  half-filling them.
+
+**`DiagramBatch` MUST be iterable, yielding its diagrams in batch order.**
+§4.3's `[d.dimensions for d in b]` already depends on it. The legacy
+`__getitem__` iteration protocol would supply it, but only as a consequence of
+the `IndexError` rule above — a batch that raised anything else there would
+iterate forever — so `__iter__` is stated rather than inherited from that
+accident. Iteration is eager-only for the reason `__getitem__` is (§3.3), and
+re-iterating a batch MUST yield the same diagrams again.
 
 `__getitem__` MUST return a **view**: a `PersistenceDiagram` whose arrays are
 slices into the batch's own buffers, not a copy. This is safe on three
@@ -726,6 +819,7 @@ so the only constructor for one would be the private path.
 ```python
 len(b)                # -> int, number of diagrams in the batch
 b[i]                  # -> PersistenceDiagram, a zero-copy view (§4.2)
+iter(b)               # -> the diagrams in batch order (§4.2)
 b.essential           # -> bool mask, shape (total_bars,), deaths == inf
 b.persistence         # -> deaths - births, shape (total_bars,), inf for essential bars
 b.bar_counts          # -> int array, shape (len(b),), bar count per diagram
@@ -785,8 +879,10 @@ such rather than left for a reader to discover by searching:
   `DiagramBatch`, filtered within each `[offsets[i], offsets[i+1])` segment
   the way `canonical()` is per-segment sorted, and would inherit the
   diagram-level versions' eager-only restriction (§3.3) since filtering
-  changes shape. Straightforward generalizations; nobody has written them
-  down yet.
+  changes shape. A batch-level `finite` would additionally have to rewrite
+  each `metas[i]` per segment, on §3.2's propagation rule, since how many
+  bars it dropped differs per diagram. Straightforward generalizations;
+  nobody has written them down yet.
 - **No batch-level `dimensions`.** Unlike the gap above, this one has no
   single obvious generalization. The global union of degrees present
   anywhere in the batch, and the per-diagram list, already expressible as
@@ -837,6 +933,8 @@ change as a value change, exactly the kind of clean-plausible-wrong signal §9
 exists to rule out. `finitize(at="drop")` MUST instead set
 `provenance["essential_bars"] = "finitized_dropped"` and
 `provenance["essential_bars_dropped"]` to the count of bars removed (§8).
+§3.2's `d.finite` is this mode reached without an argument, and this paragraph
+and the next bind it in full.
 
 **A diagram with no essential bars MUST be returned unchanged, provenance
 included.** No bar was substituted and none was dropped, so there is nothing
@@ -1356,7 +1454,7 @@ document reads, and `save`/`load` still round-trip it like any other.
 | Key | Meaning |
 |---|---|
 | `essential_bars` | one of `"faithful"`, `"lost_upstream"`, `"finitized_at"`, `"finitized_dropped"` |
-| `essential_bars_dropped` | count of essential bars removed by `finitize(at="drop")`; present iff `essential_bars == "finitized_dropped"` |
+| `essential_bars_dropped` | count of essential bars removed by `finitize(at="drop")` or `d.finite` (§3.2); present iff `essential_bars == "finitized_dropped"` |
 | `essential_bars_finitized_at` | the finite death `finitize` substituted for `inf` (§5), whichever mode computed it; present iff `essential_bars == "finitized_at"` |
 | `essential_bars_source` | `essential_bars` as the adapter recorded it — `"faithful"` or `"lost_upstream"`, never a `"finitized_*"` value. Written only by `from_*`, never by `finitize` (§5) |
 | `coeff_field_source` | where `meta.coeff_field` came from — `"caller"` if the caller stated it, `"backend_default"` if the adapter recorded the backend's documented default (§9.3, §11) |
@@ -1408,9 +1506,10 @@ stored when one determines the other. Two reasons, not one:
   to answer the same question for every diagram's whole life, not just at
   adapter time for one backend.
 
-Both writers, `from_giotto` at construction and `finitize()` later, MUST be
-the only places that set this key, so the derived value and its source never
-have the chance to drift apart.
+The writers are `from_giotto` at construction and the finitizing operations
+afterwards — `finitize()` (§5) and `d.finite` (§3.2), which are one operation
+reached two ways. Those MUST be the only places that set this key, so the
+derived value and its source never have the chance to drift apart.
 
 **`essential_bars_source` has one writer, and it is not `finitize()`.** Every
 `from_*` adapter that records `essential_bars` MUST record
@@ -2667,9 +2766,9 @@ its member; and the same bars hash identically under two namespaces.
 ## 12. Decisions
 
 Nineteen decisions are on record: D1-D8 and D12-D22. **Eighteen are
-settled** (§12.2) and one, D22, is open (§12.1), each stating the outcome and pointing at the section
-that carries the normative requirement; §12.1 is empty. Superseded recommendations
-are not repeated here.
+settled** (§12.2) and one, D22, is open (§12.1), each stating the outcome and
+pointing at the section that carries the normative requirement. Superseded
+recommendations are not repeated here.
 
 **D9, D10 and D11 were removed from this RFC** as dependency-and-licensing
 policy questions rather than interchange ones, and this document does not set
