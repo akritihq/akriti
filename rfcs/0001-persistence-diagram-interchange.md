@@ -1890,9 +1890,21 @@ TypeError: check_array() got an unexpected keyword argument 'force_all_finite'
 ```
 
 on scikit-learn 1.8.0. The keyword was renamed in scikit-learn 1.6 and removed
-in 1.8; giotto-tda has not tracked it. **The most-installed general-purpose TDA
-library in Python is currently unusable on a default `pip install` of its own
-declared dependency** (Appendix A.8).
+in 1.8; giotto-tda has not tracked it. Measured across the range: 1.5.2 has the
+old keyword only, 1.6.0 through 1.7.2 have both, and 1.8.0 has the new one
+only.
+
+giotto-tda 0.6.2 pins `scikit-learn==1.3.2` exactly, so a default
+`pip install giotto-tda` still resolves to a working environment — by pinning
+its ecosystem to a release from 2023. **The most-installed general-purpose TDA
+library in Python cannot be installed alongside a current scikit-learn at all**
+(Appendix A.8): the resolver refuses `giotto-tda==0.6.2` with
+`scikit-learn==1.8.0` as unsatisfiable, and forcing it through with `--no-deps`
+produces the `TypeError` above on the first `fit_transform`. Either way, no
+environment holds both giotto-tda and a scikit-learn released after 2023. An
+earlier version of this paragraph said "unusable on a default `pip install` of
+its own declared dependency", which the exact pin makes false: the default
+install works, and what it costs is the rest of the ecosystem.
 
 Consequences:
 
@@ -1930,8 +1942,17 @@ requested. No reply at the time of writing.
 The report exists for the reason D5 gives, and one more. A maintainer who
 learns from a published specification that their library is described as
 unusable has been ambushed; one who was told first has been consulted. The
-sentence above is strongly worded and sourced, and it stays as it is — but it
-is a sentence we put to them before we put it here.
+sentence above is strongly worded and sourced, and it is a sentence we put to
+them before we put it here.
+
+**It is also narrower than it was, and the narrowing is ours rather than
+theirs.** It read "unusable on a default `pip install` of its own declared
+dependency" until 2026-08-23, when re-measuring for a review pass found the
+exact `scikit-learn==1.3.2` pin: the default install works. What is reported
+upstream is the `TypeError`, which is unchanged and still reproduces, so #726
+stands as filed. What changed is a claim this document made *around* it, and
+it is corrected here rather than quietly — a document arguing that unmeasured
+claims rot silently does not get to exempt its own.
 
 ### 9.3 GUDHI and Ripser compute over different coefficient fields by default
 
@@ -2516,19 +2537,33 @@ that passed it has its essential bars visible as `inf` where §5 requires.
 **Where `reduced_homology=False`, the declaration is checkable and
 `from_giotto` MUST check it.** Non-reduced H0 of a nonempty space carries a
 class that never dies, so such a diagram has an essential H0 bar unless
-something substituted it away. A non-empty diagram declared
-`reduced_homology=False` and `infinity_values=inf` whose H0 deaths are all
-finite is therefore not merely unlikely but impossible: one of the two
-declarations is false. `from_giotto` MUST raise `ValueError` naming both
-arguments together, the adapter being unable to tell which is wrong and an
-error blaming one sending the caller to the wrong place.
+something substituted it away. A diagram declared `reduced_homology=False`
+and `infinity_values=inf` that **carries at least one degree-0 bar**, all of
+whose H0 deaths are finite, is therefore not merely unlikely but impossible:
+one of the two declarations is false. `from_giotto` MUST raise `ValueError`
+naming both arguments together, the adapter being unable to tell which is
+wrong and an error blaming one sending the caller to the wrong place.
 
 The check does not extend to `reduced_homology=True`, where the essential H0
 class is dropped by design and its absence proves nothing. That half is taken
 on trust, and this document says so rather than leaving a reader to assume the
-guarantee is symmetric. It is scoped to non-empty diagrams: an empty one has no
-H0 bar to be non-finite, and refusing it here would reject what §3.2 and §8.2
-both treat as valid.
+guarantee is symmetric.
+
+**It is scoped to diagrams that have an H0 sub-diagram at all, which is
+strictly narrower than non-empty, and the difference is not hypothetical.** An
+empty diagram has no H0 bar to be non-finite, and refusing it here would reject
+what §3.2 and §8.2 both treat as valid. But so would a **non-empty** diagram
+computed with a `homology_dimensions` that excludes 0, which giotto's own API
+makes an ordinary request rather than a perverse one: "all H0 deaths are
+finite" is a reduction over an empty selection, and vacuously true. Measured
+(A.10): `homology_dimensions=(1, 2)`, `(1,)` and `(2,)` each return a
+non-empty array with no degree-0 row, and the predicate holds vacuously for
+all three, so an unscoped check refuses three valid calls.
+`reduced_homology=False` says nothing about a diagram whose H0 was never
+computed, and there is nothing there to check. The predicate an implementation
+tests is therefore three-termed — the diagram is non-empty, it carries at
+least one degree-0 row, and every degree-0 death is finite — and all three
+terms MUST hold before it raises.
 
 **`strip_padding` is `from_giotto`'s third explicit bar-data control,
 defaulting to `None`.** It cannot travel through `**meta`: §11.1's `True`,
@@ -2846,10 +2881,31 @@ running implementation or a live backend before the correction was written.
 A.1 through A.4 were measured on 2026-07-29 with
 `gudhi 3.11.0`, `ripser 0.6.14`, `persim 0.3.8`, `giotto-tda 0.6.2`,
 `numpy 2.4.4`, `scikit-learn 1.8.0`, Python 3.12.11. Reproduction script:
-`rfcs/evidence/probe_backends.py`. A.5 through A.9 were each measured later and
-separately, and state their own dates: A.5, A.7 and A.9 their environments too,
-A.6 that it was measured in neither, and A.8 that it re-runs over the network
-rather than reproducing offline.
+`rfcs/evidence/probe_backends.py`. A.5 through A.10 were each measured later
+and separately, and state their own dates: A.5, A.7, A.9 and A.10 their
+environments too, A.6 that it was measured in neither, and A.8 that it re-runs
+over the network rather than reproducing offline.
+
+**giotto-tda 0.6.2 does not run on scikit-learn 1.8.0 unpatched (§9.2), and
+the giotto rows of A.1 and the whole of A.2 were nonetheless measured in that
+environment.** This is stated because it is the one thing a reader following
+the preamble to the script cannot otherwise reconstruct, and because a
+document whose §9 is about unmeasured claims rotting silently should not have
+an unstated dependency on its own tooling. `probe_backends.py`'s
+`patch_giotto()` translates giotto's `check_array(force_all_finite=...)` call
+into scikit-learn's current `ensure_all_finite=` at the public-API boundary
+and prints a `[shim]` line when it fires. It is a workaround for *measuring*
+and nothing more: it is installed by the reproduction script, by nothing under
+`src/`, and §9.2's verdict does not rest on it. Reproducing that environment
+also needs `--no-deps`, giotto-tda's own exact `scikit-learn==1.3.2` pin
+making the two unresolvable together.
+
+**Every figure in A.1 and A.2 was re-measured on 2026-08-23 in a second
+environment that needs no shim** — `giotto-tda 0.6.2`, `scikit-learn 1.3.2`,
+`numpy 1.26.4`, `scipy 1.17.1`, `joblib 1.5.3`, `giotto-ph 0.2.4`,
+`pyflagser 0.4.7`, `igraph 1.0.0`, CPython 3.11.15 — and reproduces there
+identically, counts and padding-row coordinates alike. Where two environments
+disagree, neither figure is reported.
 
 Input: 40 points sampled uniformly on the unit circle with Gaussian noise
 `σ = 0.05`, `numpy` default_rng seed 0.
@@ -2878,14 +2934,21 @@ both at once — the class is present, and `99.0` then substitutes a finite
 death for its infinite one, which is `infinity_values` doing what it
 documents.
 
-The `reduced_homology=False` rows were measured on 2026-08-20 in a pinned
-environment, giotto-tda 0.6.2 not running on current scikit-learn (§9.2):
-giotto-tda 0.6.2, scikit-learn 1.3.2, numpy 1.26.4, CPython 3.11. The three
-`reduced_homology=True` rows reproduce the figures recorded on 2026-07-29
-exactly, which is what makes the three below them comparable rather than
-merely adjacent. These are bar **counts**, so unlike the coordinate-level
-captures in `tests/fixtures/` they do not move with the floating-point
-sensitivity that a change of CPython patch level introduces.
+The `reduced_homology=False` rows were added on 2026-08-20 and measured in
+the pinned environment the preamble's second paragraph names, then confirmed
+in the shimmed 1.8.0 environment the three rows above them were first measured
+in. **All six giotto rows reproduce in both.** An earlier version of this note
+said the `=False` rows needed the pinned environment because giotto-tda 0.6.2
+does not run on current scikit-learn: that is a true sentence about an
+unpatched call and a false reason for these rows, which sit in the same
+shimmed block as the three above them and give the same numbers there. The
+three `reduced_homology=True` rows also reproduce the figures recorded on
+2026-07-29 exactly, which is what makes the three below them comparable rather
+than merely adjacent. These are bar **counts**, so unlike the
+coordinate-level captures in `tests/fixtures/` they do not move with the
+floating-point sensitivity that a change of CPython patch level introduces —
+measured directly, A.3's coordinates being bit-identical across gudhi
+3.11.0/3.13.0, ripser 0.6.14/0.6.15, numpy 2.4.4/2.5.1 and CPython 3.12/3.14.
 
 GUDHI `persistence()` returns `list[tuple[int, tuple[float, float]]]`, e.g.
 `(0, (0.0, inf))`. `persistence_intervals_in_dimension(k)` returns a C-contiguous
@@ -3204,6 +3267,39 @@ two wall-clock writes closer than that land in the same bucket and report
 identical bytes for a reason that does not survive the next run. Measured at
 1.1 s the row comes out `yes` about half the time — a test written that way
 passes against an implementation with no pinning at all.
+
+### A.10 `homology_dimensions` and the H0 sub-diagram
+
+Measured 2026-08-23 in a pinned environment, giotto-tda 0.6.2 not being
+installable alongside a current scikit-learn (§9.2): `giotto-tda 0.6.2`,
+`scikit-learn 1.3.2`, `numpy 1.26.4`, `scipy 1.17.1`, `joblib 1.5.3`,
+`giotto-ph 0.2.4`, `pyflagser 0.4.7`, `igraph 1.0.0`, CPython 3.11.15.
+Reproduction script: `rfcs/evidence/giotto_h0_scope.py`. Input is A.1's cloud,
+`reduced_homology=False`, `infinity_values=inf`.
+
+| `homology_dimensions` | shape | non-empty | degrees present | H0 rows | H0 deaths at `inf` | "all H0 deaths finite" |
+|---|---|---|---|---|---|---|
+| `(1, 2)` | `(1, 5, 3)` | yes | `{1, 2}` | **0** | 0 | **true, vacuously** |
+| `(1,)` | `(1, 2, 3)` | yes | `{1}` | **0** | 0 | **true, vacuously** |
+| `(2,)` | `(1, 3, 3)` | yes | `{2}` | **0** | 0 | **true, vacuously** |
+| `(0, 1)` — control | `(1, 42, 3)` | yes | `{0, 1}` | 40 | 1 | false |
+
+**The first three rows are why §11's check is three-termed rather than
+two-termed.** Each is an ordinary transformer configuration returning a
+non-empty, correct array with no degree-0 row, so a reduction over the H0
+deaths holds with nothing in it, and a check scoped only to non-empty diagrams
+refuses a valid call. The control is the same input with degree 0 asked for:
+40 H0 bars, one of them essential, which is A.1's `reduced_homology=False`,
+`infinity_values=inf` row reproducing here.
+
+The **positive control** is the array the check exists to refuse, and it is
+what shows the clause is worth keeping rather than deleting: real giotto
+output under a finite `max_edge_length` and giotto's own
+`infinity_values=None`, carrying 40 H0 rows with every death finite and a
+maximum H0 death of `4.0` — the cutoff, substituted in. Declaring that array
+`infinity_values=inf` is false, and §11 is right to raise on it.
+
+---
 
 ---
 
