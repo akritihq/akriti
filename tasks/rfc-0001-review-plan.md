@@ -281,13 +281,40 @@ Findings not listed above are new.
 
 ## Status
 
-- [ ] Measurements for `F1` and `F2`
-- [ ] Tier 1 corrections
-- [ ] `F25` in code, test first
-- [ ] Tier 2 decisions taken and recorded
-- [ ] Tier 3 editing pass
-- [ ] Tier 4 and Tier 5
-- [ ] Normative-requirements index (`F23`)
-- [ ] Internal-reference sweep (`F24`)
-- [ ] Version bump, `rfc/publish-for-comment` rebased, changelog
-- [ ] Full proof run
+Executed 2026-08-23. See `rfc-0001-review-progress.md` for what landed on
+which branch and what the measurements changed about the findings.
+
+- [x] Measurements for `F1` and `F2` -- and a third, unplanned, for `F4`
+- [x] Tier 1 corrections
+- [x] `F25` in code, test first
+- [x] Tier 2 decisions taken and recorded -- `F1` settled as D23, `F5` and
+      `F8` as clauses, `F6`/`F21` **opened as D24 and left with the lead**
+- [x] Tier 3 editing pass
+- [x] Tier 4 and Tier 5
+- [x] Normative-requirements index (`F23`) -- generated, with a standing test
+- [x] Internal-reference sweep (`F24`)
+- [x] Version bump to `0.4.0` and changelog entries 66-71
+- [ ] `rfc/publish-for-comment` rebased -- **blocked on D24**, per this plan's
+      own ordering constraint: that commit reproduces the bump-rule text
+      verbatim, so settling `F6`/`F21` changes the publication diff
+- [x] Full proof run
+
+Two findings turned out to be wrong as written, and both were caught by
+measuring rather than by reading:
+
+- **`F1`'s headline.** JAX carries a second, narrower 64-bit lever, so a
+  JAX-backed diagram is constructible; a *default* JAX install is what cannot
+  build one. Also: I2's `int32` half is satisfied natively, B7 is unreachable
+  because I2 raises first, and the truncation is not silent where it is
+  explicit.
+- **`F4`'s premise.** `probe_backends.py` has shimmed scikit-learn since the
+  document's first commit, so the preamble and §9.2 were never in conflict.
+  What was true, and worse, is that the shim is nowhere in the document.
+
+Three items are open and named as such rather than closed quietly:
+
+- **D24** (`F6`, `F21`) is with the lead, and blocks the publication rebase.
+- **`F22`'s rename** of `d.essential` to `essential_mask` is not taken here:
+  it is a public API change and pre-M1 is the last cheap moment for it.
+- **`F9`'s clamp threshold** is stated as an unfixed gap with its cost named.
+  Fixing it is `O4`.

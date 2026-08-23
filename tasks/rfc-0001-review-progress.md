@@ -8,6 +8,21 @@ Started 2026-08-23. Base: `main` at `149e958`.
 
 ## Phase status
 
+All eight phases executed 2026-08-23 on `main`, one branch per phase, merged
+in the plan's order.
+
+| # | Phase | Branch | State |
+|---|---|---|---|
+| 1 | Measurements | `rfc/0001/evidence-{jax-x64,giotto-h0-scope}` | done; A.1's environment settled by archaeology, no recapture needed |
+| 2 | Tier 1 corrections | `rfc/0001/tier1-corrections` | done, six findings |
+| 3 | `F25` in code | `diagrams/meta-propagation` | done, landed first |
+| 4 | Tier 2 decisions | `rfc/0001/decisions-d23-d26` | D23 settled, D24 opened, `F5`/`F8` as clauses |
+| 5 | Tier 3, then 4 and 5 | `rfc/0001/tier3-gaps`, `rfc/0001/tier4-5-editorial` | done |
+| 6 | Structural | `rfc/0001/normative-index`, `rfc/0001/internal-reference-sweep` | done |
+| 7 | Version and changelog | `rfc/0001/version-and-changelog` | 0.4.0, entries 66-71. **`rfc/publish-for-comment` NOT rebased** -- blocked on D24 |
+| 8 | Proof | -- | pytest 1198 passed / 6 skipped, Ruff check and format, mypy clean |
+
+
 | # | Phase | Branch(es) | State |
 |---|---|---|---|
 | 1 | Measurements (`F1`, `F2`, `F4`) | `rfc/0001/evidence-*` | `F4` archaeology done; `F1`, `F2` running |
@@ -76,3 +91,37 @@ Small and deliberately not mixed into an RFC-only branch:
 - **`O9`'s `__iter__` folded into `F3`.** The plan's tracker table says one
   amendment to §4's interface block closes both, and questions.md records the
   decision as already taken with the implementation complete.
+
+## What is left
+
+- **`rfc/publish-for-comment` is not rebased**, and this is deliberate. The
+  plan's own ordering constraint says `F6` and `F21` settle before it merges,
+  because that commit reproduces §10.2's bump-rule text verbatim. They are
+  now D24 and with the lead. `origin/rfc/publish-for-comment` is one commit
+  and still rebases cleanly onto `main` apart from its changelog entry, which
+  becomes 72 rather than 66.
+- **Nothing is pushed.** Every branch is local.
+- The dependency-closure check was not re-run in a clean environment: it
+  exits 1 in the developer venv on the *unmodified* baseline tool too, gudhi
+  and hopcroftkarp being installed there, and CI builds `.venv-closure`
+  separately for it. This pass added no dependency -- the only
+  `pyproject.toml` change is one pytest marker.
+
+## Code follow-ups still owed
+
+- `DiagramBatch.__getitem__`'s docstring still says iteration "works through
+  the legacy `__getitem__` protocol"; `__iter__` has existed since then.
+- `DiagramBatch.__getitem__` is annotated `i: int` where it accepts, and §4.2
+  now specifies, `SupportsIndex`.
+- `probe_backends.py` prints one version, conditionally, and only
+  scikit-learn's. Appendix A's provenance problem was that no run artifact
+  has ever been committed; having the script print every version it ran
+  against is the cheap half of fixing that.
+- §11.2's determinism case now requires asserting `ZipInfo.date_time` and
+  `compress_type` directly (`F30f`); `tests/test_rfc0001_io.py` still sleeps.
+- §10.1 now requires `save()` to refuse a non-host-resident array by name
+  (`F29`); `io.py` does not yet check.
+- §3.1 now requires the clamp target and the `clamped_rows` record (`F9`);
+  `adapters.py` should be read against it.
+- §11's three-termed impossibility check (`F2`) is still unimplemented in
+  `adapters.py`, as it was before this pass.
