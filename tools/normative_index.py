@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
-"""Generate RFC-0001's normative-requirements index (Appendix D).
+"""Generate RFC-0001's normative-requirements index (Appendix C).
 
 Run:  python tools/normative_index.py --check    # CI: is the appendix current?
       python tools/normative_index.py --write    # regenerate it in place
 
-The appendix exists because a ~44,000-word specification carrying ~290 BCP 14
-obligations cannot be reviewed for *consistency* by reading it: four of the
-findings in the 2026-08-23 review pass were one failure repeated -- a rule
-argued exhaustively in one section and not propagated to the places it binds
--- and every one of them is visible at a glance in a table that puts the
-obligations about a single subject next to each other.
+The appendix exists because a specification this size cannot be checked for
+*consistency* by reading it. Its failure mode is a rule argued exhaustively in
+one section and not propagated to the places it binds, which is invisible in
+prose and obvious in a table that puts every obligation about one subject next
+to the others.
 
 It is generated rather than written for the reason RFC-0001 gives itself for
 dropping `provenance["order"]` (D15): a hand-maintained index is a cached
@@ -40,7 +39,8 @@ RFC = (
     / "0001-persistence-diagram-interchange.md"
 )
 
-APPENDIX_HEADING = "## Appendix D — Normative requirements index"
+APPENDIX_HEADING = "## Appendix C — Normative requirements index"
+CHANGELOG_HEADING = "## Appendix D — Changelog"
 _END_MARKER = "\n<!-- end normative index -->\n"
 
 # All-capitals only, per the document's preamble. `MUST NOT` and `SHOULD NOT`
@@ -50,10 +50,13 @@ _KEYWORD = re.compile(r"\b(MUST NOT|SHOULD NOT|MUST|SHOULD|MAY)\b")
 # Sections whose keywords are quotations rather than obligations. Section 12's
 # own header says each row states the outcome "and points at the section that
 # carries the normative requirement", so a D-row restating a MUST is by the
-# document's own account a mention. Appendix C is the changelog and Appendix D
-# is this index. `REVIEWING.md`: a count check cannot tell a use from a
-# mention, so the distinction is drawn here rather than discovered later.
-_QUOTING_SECTIONS = ("12", "Appendix C", "Appendix D")
+# document's own account a mention. The appendices are evidence, rationale,
+# this index and the changelog -- none of them a place a requirement lives,
+# and Appendix B says outright that it is non-normative. `REVIEWING.md`: a
+# count check cannot tell a use from a mention, so the line is drawn here
+# rather than discovered later.
+_QUOTING_SECTIONS = ("12",)
+_APPENDIX_SECTION = re.compile(r"^(Appendix |[A-D]\.\d)")
 
 
 @dataclass(frozen=True)
@@ -91,6 +94,14 @@ def _strip_code_blocks(lines: list[str]) -> list[str]:
             in_fence = not in_fence
             out.append("")
             continue
+        if not in_fence and re.match(r"^\s*[-*] ", line):
+            # A list item is its own clause. Without this, a bulleted
+            # requirement is glued to the paragraph above it and the row
+            # reports two obligations under the first one's wording.
+            out.append("")
+            out.append(line)
+            out.append("")
+            continue
         out.append("" if in_fence else line)
     return out
 
@@ -121,6 +132,8 @@ def extract(source: str) -> list[Requirement]:
         paragraph.clear()
         if section == "(front matter)" or section.startswith(_QUOTING_SECTIONS):
             return
+        if _APPENDIX_SECTION.match(section):
+            return
         for sentence in _sentences(text):
             found = _KEYWORD.search(sentence)
             if found:
@@ -149,11 +162,16 @@ def _tidy(sentence: str) -> str:
 
 
 def _label(section: str) -> str:
-    """`3.1` from `3.1 Invariants`, `A` from `Appendix A -- ...`."""
-    match = re.match(r"^(\d+(?:\.\d+)?)", section)
+    """`3.1` from `3.1 Invariants`, `A.7` from `A.7 array-api-compat -- ...`.
+
+    Appendix subsections are headed by their own label rather than by the word
+    "Appendix", so both spellings are matched and the label is only ever the
+    number, never the title after it.
+    """
+    match = re.match(r"^Appendix ([A-Z])\b", section)
     if match:
         return match.group(1)
-    match = re.match(r"^Appendix ([A-Z])", section)
+    match = re.match(r"^([A-Z]?\.?\d+(?:\.\d+)?|[A-Z]\.\d+)", section)
     return match.group(1) if match else section
 
 
@@ -186,18 +204,19 @@ def render(requirements: list[Requirement]) -> str:
             'dropping `provenance["order"]`.',
             "",
             "**What this is for.** The body carries the argument for each",
-            "obligation and this carries the obligations, so a reader can",
-            "check what conforming means without reading 44,000 words, and a",
-            "reviewer can see every clause about one subject at once. Four of",
-            "the defects found in the 2026-08-23 review pass were a single",
-            "failure repeated -- a rule argued in one section and not",
-            "propagated to the places it binds -- and each is visible here as",
-            "two adjacent rows that disagree.",
+            "obligation; this carries the obligations. A reader can check what",
+            "conforming means without reading the whole document, and every",
+            "clause about one subject can be read together — which is where a",
+            "rule stated in one section and contradicted in another shows up",
+            "as two adjacent rows that disagree.",
             "",
             "**What it is not.** It is not normative. Where a row and the body",
             "differ, the body governs and the generator has a bug. Rows are",
             "clauses as they appear, so a sentence carrying two keywords",
-            "appears once, under the first.",
+            "appears once, under the first. §1 through §11 are indexed: §12",
+            "records decisions and points at the sections carrying them, and",
+            "the appendices hold evidence and rationale, so a keyword in",
+            "either is a quotation of an obligation rather than one.",
             "",
             f"{len(requirements)} clauses: {tally}.",
             "",
@@ -211,10 +230,19 @@ def render(requirements: list[Requirement]) -> str:
 
 
 def splice(source: str, appendix: str) -> str:
-    """Replace the existing appendix, or append it at the end."""
+    """Replace the existing appendix, or insert it before the changelog.
+
+    Position is not cosmetic. The changelog is removed when the comment window
+    closes, by its own author's note, and this index is permanent; the
+    permanent appendix therefore comes first, so that removing the other one
+    leaves no gap in the lettering and renames nothing that outlives it.
+    """
     start = source.find(APPENDIX_HEADING)
     if start == -1:
-        return source.rstrip("\n") + "\n\n---\n\n" + appendix + "\n"
+        anchor = source.find(CHANGELOG_HEADING)
+        if anchor == -1:
+            return source.rstrip("\n") + "\n\n---\n\n" + appendix + "\n"
+        return source[:anchor] + appendix + "\n\n---\n\n" + source[anchor:]
     end = source.find(_END_MARKER.strip(), start)
     assert end != -1, "appendix heading present without its end marker"
     return source[:start] + appendix + source[end + len(_END_MARKER.strip()) :]
@@ -239,9 +267,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"wrote {RFC}")
         return 0
     if updated != source:
-        print("Appendix D is stale; run tools/normative_index.py --write")
+        print("Appendix C is stale; run tools/normative_index.py --write")
         return 1
-    print("Appendix D is current")
+    print("Appendix C is current")
     return 0
 
 
