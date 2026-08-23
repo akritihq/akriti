@@ -173,6 +173,7 @@ markers = [
     "distances: requires the persim optional backend",
     "cross_backend: requires two optional persistence backends",
     "torch: requires torch and array-api-compat",
+    "jax: requires jax, in a 64-bit configuration the caller sets (D23)",
 ]
 filterwarnings = ["error"]
 

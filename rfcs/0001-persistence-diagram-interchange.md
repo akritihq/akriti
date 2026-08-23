@@ -214,12 +214,48 @@ a sibling diagram or the batch itself.
   would otherwise break an invariant after the construction that enforced it.
   The elements need no copying — `DiagramMeta` is frozen (§8) — only the
   sequence holding them.
+  **`DiagramMeta` MUST take the same rule for `params` and `provenance`**,
+  which are `Mapping[str, Any]` and which frozenness does not reach any
+  further than it reaches into an array: `meta.provenance` cannot be
+  *rebound*, and a caller who retains the dict they passed can still write
+  through it. Unlike the array case this is enforceable — the mappings hold
+  JSON-representable values (§8), which are copyable — so `DiagramMeta` MUST
+  copy them, recursively over nested lists and mappings, and MUST expose them
+  read-only. What that protects is not decoration: `provenance` is the field
+  §8 exists to make auditable, and its `essential_bars` rules are validated
+  once, at construction. A caller mutating the mapping afterwards produces a
+  diagram whose provenance never passed the check it appears to have passed.
 
 **`DiagramBatch.__getitem__` is the deliberate exception to the third rule and
 MUST NOT be implemented through the public path.** It aliases on purpose (§4.2)
 and is safe for precisely the reason a caller-supplied array is not: both ends
 of the alias are objects this document forbids anyone to write to, and neither
 is reachable by a caller who held a reference before the batch existed.
+
+**Derivation from an already-valid instance MAY skip revalidation, and this
+is a general rule rather than that one exception.** "Enforce at construction"
+above is an obligation on the *public* paths — the constructor, the adapters,
+`from_diagrams`. Read as binding every construction it would make §3.2 and §7
+unimplementable as specified: I6 is checked exactly, so validating it means
+`bool(xp.all(deaths >= births))`, a Python-level branch on array values that
+concretizes a traced array. Every operation returning a diagram would then be
+eager-only, and §3.3's claim that `d.canonical()` is traceable would be false
+by this section's own rule.
+
+The bypass is sound under stated conditions, and MUST be confined to them. A
+private construction path MAY skip revalidation for a result that is a
+**slice, a boolean-mask subset, or a permutation** of arrays already known to
+satisfy I1 through I9, because each invariant survives all three: I1, I2, I7
+and I9 are properties of the arrays rather than of particular rows, and I3
+through I6 are elementwise, so they hold on any subset or reordering of rows
+that satisfied them. `canonical()`, `dim(k)`, `finite`, `finitize(at="drop")`
+and `DiagramBatch.__getitem__` are all in that set.
+
+**Anything computing a *new* coordinate value MUST use the ordinary
+constructor**, `finitize`'s substituting modes being the case: a substituted
+death is not a value any earlier check saw, and it can break I6. The line is
+what the operation does to the numbers, not which module it lives in — a
+private helper that arithmetic reaches is not thereby exempt.
 
 **What remains unenforceable MUST be documented rather than implied.** After
 all three rules, `d.births[0] = 5.0` still runs on every backend, because no
@@ -413,6 +449,40 @@ the floor.
 **Adapters preserve the input namespace.** `from_*` MUST NOT force-convert to
 NumPy. A diagram built from JAX arrays stays JAX-backed. What adapters
 convert is *dtype* (§6.1), not namespace.
+
+**JAX is supported only in a 64-bit configuration the caller sets, and this
+document MUST NOT set it (D23).** JAX's defaults supply neither dtype the
+diagram type requires: an explicitly requested `float64` is truncated to
+`float32` with a `UserWarning`, so I2 rejects the bars, and an explicitly
+requested `int64` is truncated to `int32`, so B7 would reject `offsets` if
+I2 had not already raised. The namespace's own
+`__array_namespace_info__().dtypes()` omits both. **Measured, and the sentence
+above is a promise about an object a default JAX install cannot construct
+(A.11).**
+
+Either of two caller-set flags lifts it, and they are not equivalent:
+
+- `jax_explicit_x64_dtypes='allow'` honours a dtype requested **by name**
+  while leaving JAX's default float dtype at `float32`. This is the one to
+  prefer, and the one this document names in errors and documentation: it
+  changes only what akriti asks for.
+- `jax_enable_x64=True` additionally changes every default dtype in the
+  process.
+
+**`core.py`, `adapters.py` and `io.py` MUST NOT set either flag.** Both are
+process-global, neither has a public scoped form, and setting one would
+silently change the numerics of unrelated JAX code in the caller's program —
+a library reaching outside its own call to make its own invariant hold. The
+failure a caller sees is I2's ordinary `ValueError`, which names the dtype it
+got; §3.3 is where it is explained, and the error MUST point here.
+
+**The constraint MUST be exercised rather than asserted**, on D16's pattern
+and for §9's reason: a support claim no test runs is a claim that rots
+silently. A `@pytest.mark.backend` test MUST construct a diagram and a batch
+under `jax_explicit_x64_dtypes='allow'` and assert that the default
+configuration refuses them, skipping where JAX is absent — JAX is not in the
+default test environment and does not enter the dependency closure to satisfy
+this.
 
 **Namespace resolution MUST go through exactly one function, and its answer
 MUST depend on the input and never on the environment.** `d.xp`, I7, B5 and
@@ -2800,10 +2870,10 @@ its member; and the same bars hash identically under two namespaces.
 
 ## 12. Decisions
 
-Nineteen decisions are on record: D1-D8 and D12-D22. **Eighteen are
-settled** (§12.2) and one, D22, is open (§12.1), each stating the outcome and
-pointing at the section that carries the normative requirement. Superseded
-recommendations are not repeated here.
+Twenty-one decisions are on record: D1-D8 and D12-D24. **Nineteen are
+settled** (§12.2) and two, D22 and D24, are open (§12.1), each stating the
+outcome or the question and pointing at the section that carries the normative
+requirement. Superseded recommendations are not repeated here.
 
 **D9, D10 and D11 were removed from this RFC** as dependency-and-licensing
 policy questions rather than interchange ones, and this document does not set
@@ -2817,13 +2887,15 @@ not a dense sequence.
 
 ### 12.1 Open
 
-One, and it is open deliberately rather than for want of an answer: it is a
-question this document would rather put to its reviewers than settle by
-itself.
+Two, and neither is open for want of an answer. D22 is a question this
+document would rather put to its reviewers than settle by itself; D24 is with
+the project lead and is recorded here rather than answered in passing by the
+review pass that raised it.
 
 | # | Question | Blocked on |
 |---|---|---|
 | **D22** | An `.akd` is a zip holding a member that is itself a zip. §10 says what `load` MUST validate for *correctness* and says nothing about *cost*: no bound on member count, uncompressed size, compression ratio, or bar count. The loader already refuses the cheap attack — an NPY header inconsistent with its member's declared size is rejected before allocation — but nothing bounds a well-formed archive that is merely enormous. Is `load` intended to be safe against a file from a stranger? | A judgment this document should not make alone, which is why it publishes open. Three answers are coherent. **(1) `load` is not a trust boundary**: say so in §10 and tell callers to validate before loading. Honest, and it makes §10.1 requirement 5's inspect-without-our-library argument sit oddly beside a loader that will not defend itself. **(2) Caller-supplied budgets**: `load(path, *, max_bars=None, max_bytes=None)`, unlimited by default so requirement 1 still round-trips *every* diagram this type admits. **(3) Format-contract limits**: numbers in the specification. Best for interoperability, worst against requirement 1, since any fixed ceiling makes some admissible diagram unreadable by a conforming reader. The lead leans to (2), which resolves the contradiction with requirement 1 rather than living beside it and puts the budget where the risk is known. Recorded here rather than resolved because a format's threat model is exactly what a comment window is for, and because the projects most able to answer are the ones being asked to read this. |
+| **D24** | §10.1 requirement 4 wants a regenerated `.akd` fixture to be verifiable against the committed one by checksum alone, without this library. But `meta.json` carries `spec_version`, so the bytes move on every minor bump — and §10.2's bump rule fires on *any* clause carrying a BCP 14 keyword being added, removed or altered, which took the document from 0.1.0 to 0.3.0 in three weeks and makes an editorial rewording of a MUST a minor bump. The two are one question asked twice: requirement 4 is defeated by a version field whose bump condition counts keywords as a proxy for semantic change. What replaces the pair? | **With the project lead, and deliberately not settled by the review pass that raised it.** Three answers are coherent and they trade differently. **(1) Semantic bumps, writer-scoped determinism**: bump the minor on a change to what a conforming implementation must do, patch otherwise, and state that requirement 4's byte-determinism binds one writer version — which is what reproducible builds mean everywhere else. Smallest change, format untouched. **(2) Move `spec_version` out of the compared bytes**: the checksum binds `bars.npz` and the `meta` object, the envelope's version fields sitting outside it. Strongest guarantee, but a partial checksum needs the reader to unzip and know what to exclude, which cuts against requirement 5's inspect-without-our-library argument. **(3) Drop `spec_version`**: `load` MUST NOT branch on it and `format_version` already carries the only version a reader acts on, so it is audit-only; removing it makes requirement 4 hold across revisions unchanged, at the cost of not recording which spec revision a writer implemented, and it is itself a `format_version` bump. **Until it is settled the current rule stands unchanged**, and this revision's own bump was taken under it. The cost of leaving it open is dated: fixtures published at `1.0.0` will checksum-diff against every later `1.x`, so the longer it stands the more artifacts are on the wrong side of whichever answer wins. |
 
 
 ### 12.2 Settled
@@ -2848,6 +2920,7 @@ itself.
 | **D19** | §9.1 requires `core/distances.py` to compute the essential part of the bottleneck distance itself. §9's delegation rule forbids that outright — Akriti delegates computation and owns inference — and §6.3 restates it from the other side. Is this an exception, or does the requirement go? | **An exception, named and bounded here so it is not read as drift.** Delegating the whole distance means delegating to a known-wrong answer: persim drops essential bars and returns a finite number for diagrams that are infinitely far apart (§9.1, A.4). What §9.1 requires instead is not a persistence computation but a one-dimensional matching on birth values whose optimum is a sort, and **the exception is bounded to exactly that** — §9.1 carries the per-pair costs, and the finite part is still persim's. §6.3's rule is unaffected in both directions: `allclose` implements no distance, and `core/distances.py` MUST NOT be built on it. **Reopen when persim handles `inf` correctly** — the issue D5 requires us to file is the same one that would close this row — or if any second formula is ever proposed for `core/` on this row's precedent, which is the drift this row exists to make visible. |
 | **D20** | GUDHI's sklearn-compatible interface (`RipsPersistence` and its siblings) returns, per sample, a list of `(n,2)` blocks, and its maintainers recommend it over `SimplexTree` for Rips. §11 did not accept it. Does `from_gudhi` gain it as a third form, does it get its own adapter, or does `from_gudhi` take an explicit `format=`? | **A third form on `from_gudhi`, with `homology_dimensions` required alongside it.** What decides it is measurement rather than API taste. The shape is *identical* to Ripser's `Rips().fit_transform(X)` and to persim's input, so it cannot identify itself; and it is **not the same object**, because Ripser's index is the homological degree while GUDHI's is a position in the `homology_dimensions` list the caller passed and the return value does not carry. Measured: `[2, 0]` returns H2 then H0, and `[1]` returns a length-one list holding H1. An adapter reading index as degree would mislabel every diagram computed with a reordered or non-contiguous list — silently, plausibly, and wrongly, which is §9's category self-inflicted. So the fact the array lacks is required from the caller, on §5.1's `reduced_homology` precedent and for the identical reason. **A separate `from_gudhi_sklearn` is rejected** because it buys a name and solves nothing: it would still need `homology_dimensions`, the degrees being absent from the object rather than ambiguous about which adapter reads it. **`format=` is rejected** as the same argument wearing a worse hat — it makes the caller state which entry point produced the bars without stating the thing that is actually missing. **`coeff_field` needs no special handling**: `RipsPersistence`'s `homology_coeff_field` defaults to 11, as `SimplexTree.persistence()` does, so both current GUDHI Python entry points agree and §11's recording rule resolves identically either way (§9.3, A.5). **The condition to reopen against** is the planned `compute_persistence()`, which its maintainers expect to default to $\mathbb{Z}/2$: on the release that ships it, GUDHI's entry points stop agreeing on the coefficient field and this row's last paragraph stops being true. |
 | **D21** | §11 requires `infinity_values` on `from_giotto` as a keyword-only argument admitting only `inf`, with `None` and any finite value each raising `ValueError`. That obligation entered through entry 55's reconciliation pass as §12.3's R5 — a *defect* row — while behaving like a new requirement: it adds a mandatory argument to a public signature and narrows what the adapter accepts. Does the requirement stand, and where is it recorded? | **The requirement stands, the record moves here, and §11 gains a check it did not have.** R5 describes a gap rather than a falsehood — the implementation enforced this before the document described it — and §12.3 is for places this document stated something *false*. A requirement whose only record is a defect row cannot be found by a reader looking where requirements live. **The mechanism, measured rather than reasoned.** `infinity_values=None` does not name a value but a rule: use the transformer's cutoff. Under giotto's own `max_edge_length=inf` that rule yields `inf`, which is what §5 requires, so a caller who configures nothing is safe. The hazard needs a **finite** cutoff — deliberate, and the ordinary choice on real data, as A.1's own GUDHI call makes — with `infinity_values` left at its default. **Half the requirement is verifiable, and §11 now verifies it.** Non-reduced H0 of a nonempty space carries a class that never dies, so a diagram declared `reduced_homology=False, infinity_values=inf` with no non-finite H0 death is impossible rather than merely suspicious, and the adapter MUST refuse it. Measured at 24 of 24 across four topologically distinct clouds and three cutoffs, degenerate inputs included. Under `reduced_homology=True` the essential class is dropped by design, nothing is checkable, and the declaration is taken on trust — the asymmetry is stated rather than smoothed over. **What decides required-over-warned** is the remaining half: `max_edge_length` never reaches the adapter and the substituted death is an ordinary float, so where the check does not apply there is no condition to warn *on*, and the choice is between requiring and accepting a diagram whose `essential_bars = "faithful"` may be false. **Three alternatives were weighed.** *Strike it* leaves that live for any caller who truncates. *Default and warn once* is what §5.1 rejected for `reduced_homology` on measured evidence — §9.1's own evidence script suppressed a warning and reached a wrong conclusion until a reviewer caught it — and here there is additionally nothing to test before warning. *Accept any value and record it in `params`* mistakes the argument's kind: it constrains admissibility rather than describing the computation. **The accepted cost** is that a caller who set `infinity_values=99.0` deliberately is refused rather than warned, the trade §5.1 already accepts, and one line at the call site. **Detectability is settled rather than open.** On a truncated filtration (`max_edge_length=1.5`, `reduced_homology=False`) the substitution lands on the cutoff exactly — one H0 and one H1 bar there, finite bars identical to the `inf` run, next-highest H0 death `0.501902` — so it is invisible in the values and visible only in the *absence* the check tests for. **The condition to reopen against** is reach: if `from_giotto` ever receives the transformer rather than its output array, `max_edge_length` becomes visible, the `reduced_homology=True` half becomes checkable too, and the requirement could soften to a check in both branches. |
+| **D23** | §3.3 promises that a diagram built from JAX arrays stays JAX-backed, and uses JAX as its worked example throughout. JAX defaults to 64-bit dtypes disabled, under which I2's `float64` and B7's `int64` are both truncated. Is JAX supported, and on what terms? | **Supported, under a caller-set 64-bit configuration this document MUST NOT set, stated as a supported-backend constraint on D16's pattern (§3.3).** What decides the shape is measurement (A.11), which corrects the premise the question was raised on: JAX carries a *second*, narrower lever, `jax_explicit_x64_dtypes='allow'`, under which an explicitly requested `float64` and `int64` are both honoured with `jax_enable_x64` still off and the process's default float dtype still `float32`. So a JAX-backed diagram is constructible, and both types construct and operate; what was true is that a *default* JAX install cannot build one. The narrow flag is the one this document names, changing only what akriti asks for. **Setting either flag ourselves is rejected on what was measured rather than on taste**: both are process-global, `jax_enable_x64` has no scoped form at all and the narrow one's is private API, so a library cannot set either without changing the numerics of unrelated JAX code in the caller's program. **Requiring x64 unconditionally is rejected** as the heavier of two flags where the lighter suffices. **Dropping JAX as the illustrative backend is rejected**: entry 45 moved those illustrations here deliberately, and the constraint is now stated and tested rather than assumed. A `@pytest.mark.backend` test exercises it; JAX does not enter the dependency closure. **Reopen if** JAX makes `dtypes()` agree with what `allow` mode actually produces, which A.11 asserts is still broken and the probe will catch, or if a scoped form of either flag becomes public API. |
 
 ### 12.3 Reconciled
 
@@ -3300,6 +3373,44 @@ maximum H0 death of `4.0` — the cutoff, substituted in. Declaring that array
 `infinity_values=inf` is false, and §11 is right to raise on it.
 
 ---
+
+### A.11 JAX's 64-bit dtypes
+
+Measured 2026-08-23 with `jax 0.11.1`, `jaxlib 0.11.1`, `numpy 2.5.2`,
+CPython 3.12.13, CPU. Reproduction script: `rfcs/evidence/jax_x64.py`, which
+runs in both configurations. Probes are down the array-API path `core.py`
+actually uses — `xp = arr.__array_namespace__()`, then `xp.asarray(...,
+dtype=xp.float64)` — not the `jnp.*` one.
+
+| Probe | default | `explicit_x64_dtypes='allow'` | `enable_x64=True` |
+|---|---|---|---|
+| requested `float64` | `float32` + `UserWarning` | `float64` | `float64` |
+| requested `int64` | `int32` + `UserWarning` | `int64` | `int64` |
+| `dims` as `int32` (I2) | `int32` | `int32` | `int32` |
+| default float dtype, no `dtype=` | `float32` | `float32` | **`float64`** |
+| `dtypes()` advertises `float64` | no | **no** | yes |
+| `jnp.asarray(<numpy float64>)` | `float32`, **no warning** | `float32`, no warning | `float64` |
+| `PersistenceDiagram` from JAX arrays | `ValueError`: `births must be float64 (I2); got float32` | constructs | constructs |
+| `DiagramBatch` from JAX arrays | same `ValueError` | constructs, `offsets` `int64` | constructs |
+
+**Four things this table settles that a citation would not have.**
+
+- **I2's `int32` half is satisfied natively.** `dims` is `int32` under every
+  configuration, so the truncation is a B7 problem and not an I2 one, and B7
+  is unreachable by default because I2 rejects the bar arrays first. A test
+  written to assert "B7 raises on default JAX" would be asserting I2's
+  message.
+- **The truncation is not silent where it is explicit**, carrying one
+  `UserWarning` per request. It *is* silent where an existing 64-bit array is
+  merely converted, which is the adapter path and the one worth watching.
+- **`allow` mode leaves the namespace describing itself wrongly**: JAX
+  produces `float64` while `dtypes()` still omits it, so code trusting that
+  introspection would reject a namespace that works. The script asserts this
+  stays broken, so the probe fails when JAX fixes it.
+- **Neither flag has a public scoped form.** `jax_enable_x64` has none at all;
+  the narrow flag's is private (`jax._src.config`). That is what makes §3.3's
+  prohibition on setting either a statement about what is possible rather
+  than a preference.
 
 ---
 
