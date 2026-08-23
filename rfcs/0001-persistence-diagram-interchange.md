@@ -175,6 +175,24 @@ and it MUST warn when it does. Extended persistence is the one setting where
 `death < birth` is not a bug — its relative and extended− bars carry it by
 construction — and it is out of scope (§1).
 
+**The clamp has one target and one record.** An adapter that repairs such a
+row MUST set `death := birth`, which is the only value satisfying I6 that
+changes the row by less than the violation it repairs, and it MUST record the
+count in `provenance["clamped_rows"]` (§8) — including `0` where it looked and
+found none, on the rule §11.1 states for `padding_removed`: the key records
+what was actually repaired, so its meaning does not change with the outcome.
+A repaired row is a *trivial* bar (§2) and an ordinary one; nothing downstream
+treats it specially.
+
+**How large a violation may be absorbed is not fixed here, and that is a
+gap rather than a decision.** The threshold has to be small enough that it
+cannot reach a genuine inversion — the implementation uses eight downward
+float64 ULPs — but this document sets no number, so two conforming adapters
+can disagree about whether a given diagram is valid and how many rows they
+repaired. The cost is interoperability at exactly the boundary §1 exists to
+remove, and it is stated rather than left for a reader to infer from the key's
+silence.
+
 **I8 exists because §4.2 already assumes it, and it takes three separate
 obligations to deliver.** `DiagramBatch.__getitem__` returns a
 `PersistenceDiagram` whose arrays are views into the batch's shared buffer, not
@@ -188,6 +206,17 @@ a sibling diagram or the batch itself.
   arrays, so a batch-level in-place write is a write to N diagrams at once.
 - **`@dataclass(frozen=True)` is the mechanism, and it is not sufficient by
   itself.** Both types SHOULD be frozen, as `DiagramMeta` already is (§8).
+  **It MUST be `frozen=True, eq=False` on both, and both MUST be
+  unhashable.** The two generated methods `frozen=True` brings with it are
+  each wrong here. A generated `__eq__` compares the three arrays field by
+  field, which on any backend returns an array rather than a `bool` and on
+  none of them expresses §6.3's equality over the *multiset* of bars. §6.3's
+  `__eq__` is therefore written in the class body, which in Python sets
+  `__hash__` to `None` — the intended outcome here rather than a side effect. Any `__hash__`
+  would have to agree with `==`, and the only thing that does is
+  `content_hash` (§8.1) — a 64-character digest costing a canonical sort, not
+  a machine word — so callers who want it ask for it by name. `DiagramMeta`
+  is unhashable on the same grounds one level over: it holds two mappings.
   What frozen buys is that `d.births = other` raises; what it does not touch
   is `d.births[0] = 5.0`, which reaches the array through an attribute the
   dataclass never sees assigned. **The array API standard supplies nothing
@@ -359,7 +388,11 @@ test.
 
 **Filtering produces data-dependent shapes.** `d.finite`, `d.dim(k)` and any
 boolean-mask selection give an output shape that depends on the *values* in the
-array. The standard permits this on eager backends and explicitly does not
+array. **`d.dimensions` is on this list too**, and it is worth naming
+separately because it is neither a boolean-mask selection nor one of the
+`bool`/`str` returns below: it reduces through `unique_values`, so how many
+degrees come back is a property of the values, and a reader checking the two
+categories named here would not find it in either. The standard permits this on eager backends and explicitly does not
 guarantee it on lazy or JIT ones — under `jax.jit` these operations fail. They
 are therefore **eager-only accessors**, and MUST be documented as such. They are
 not available inside a traced or compiled region.
@@ -493,9 +526,21 @@ def namespace_of(x):
     ns = getattr(x, "__array_namespace__", None)
     if ns is not None:
         return ns()                              # numpy, jax, array_api_strict
+    if <x's type comes from numpy>:              # numpy < 2.0; D6
+        raise ImportError(...)                   # naming akriti[numpy]
     import array_api_compat                      # lazy; akriti[torch]
     return array_api_compat.array_namespace(x)
 ```
+
+**The numpy-floor branch belongs here and not only at the two boundaries
+below.** An array from a `numpy` older than 2.0 answers `None` to the first
+test exactly as a torch tensor does — main-namespace `__array_namespace__`
+landed in 2.0 (D6) — and without the branch it falls through to the fallback
+and reaches its caller as `ImportError: install akriti[torch]`, an extra with
+nothing to do with the problem. That array is an ordinary arrival: a
+transitive dependency pinning `numpy<2` is enough. The branch MUST test the
+type's own module rather than importing `numpy`, which this scope may not do,
+and MUST name `akriti[numpy]`, on the same rule the messages above state.
 
 The native method MUST be preferred wherever it exists, and the fallback MUST
 be reached only where it does not. **This is not a lower bar for backends that
@@ -758,9 +803,18 @@ iterate forever — so `__iter__` is stated rather than inherited from that
 accident. Iteration is eager-only for the reason `__getitem__` is (§3.3), and
 re-iterating a batch MUST yield the same diagrams again.
 
-`__getitem__` MUST return a **view**: a `PersistenceDiagram` whose arrays are
-slices into the batch's own buffers, not a copy. This is safe on three
-conditions (§3.1): neither type has a method that writes in
+`__getitem__` MUST NOT deep-copy the buffers: it MUST construct its
+`PersistenceDiagram` from ordinary slices of the batch's own `dims`, `births`
+and `deaths`, and MUST NOT materialise an independent copy of the bar data.
+**Whether the slice is a view is the backend's business, not this document's**
+— it is on NumPy and torch, and on JAX slicing allocates, so a clause reading
+"MUST return a view" is one no JAX-backed batch could satisfy and D23 has
+just finished saying JAX-backed batches exist. Nothing here needs the stronger
+form: the safety argument below is about what cannot be written to, and a copy
+is strictly safer on every count, while the cost argument is about not walking
+the buffer in Python, which the slice already settles.
+
+This is safe on three conditions (§3.1): neither type has a method that writes in
 place (I8, B8), a batch's buffers were copied at construction rather than
 aliased from a caller's arrays (I8's third rule, which `from_diagrams` gets for
 free from `concat`), and the residual hole — a caller subscript-assigning into
@@ -1495,6 +1549,16 @@ All fields are optional — a diagram typed in by hand from a paper is a valid
 diagram — but `from_*` adapters MUST populate `backend`, `backend_version`, and
 `provenance`.
 
+**Those three are the floor every adapter meets, not the whole obligation, and
+§11 is where the rest lives.** §11 additionally requires `filtration`,
+`coeff_field` and `provenance["coeff_field_source"]`, and
+`provenance["essential_bars_source"]`, each on the adapters and conditions it
+names. Listing them again here is what produced D17: a rule argued in one
+section and copied into another goes stale in the copy, and the copy is the
+one a reader finds first. **A reader wanting the complete per-adapter
+obligation MUST read §11**; this section defines what each key *means* and
+what makes a value valid.
+
 **An adapter MUST also populate `filtration` where its own input form
 determines it, and MUST NOT guess otherwise.** One adapter is in that
 position: `ripser(X)` and `Rips().fit_transform(X)` compute a Vietoris–Rips
@@ -1724,6 +1788,34 @@ contiguous blocks instead of walking the diagram bar by bar in Python; the
 layout is fixed either way, and nothing else in this document depends on which
 was chosen.
 
+**The big-endian bytes are specified, not left to whatever the backend
+exposes.** §11.2 requires the buffer path and the per-element path to agree
+byte for byte on signed zero, `inf`, subnormals and the `int32` extremes, and
+a requirement that two paths agree is only testable if both are defined. So:
+
+- A namespace whose array exposes a C-contiguous buffer of exactly the
+  expected format and item size MAY reinterpret the raw machine values and
+  byte-swap the block, which for an IEEE 754 `double` or a two's-complement
+  `int32` is by definition what the per-element form emits.
+- **Every other namespace MUST pack element by element as `>d` for `births`
+  and `deaths` and `>i` for `dims`**, in canonical order, reading each element
+  as a Python `float` or `int`. That is the fallback `array_api_strict` takes,
+  and therefore CI.
+
+The two are identical by construction rather than by measurement, because the
+second is the definition and the first is a bulk spelling of it. A backend
+with no exposed buffer is the ordinary case, not a corner: it is what a
+published `content_hash` has to survive being recomputed on.
+
+**Signed-zero normalisation happens before either path, on the array**, and
+this placement is normative. Normalising inside the per-element packing would
+leave the buffer path emitting raw `-0.0` bytes, so the two would disagree on
+exactly the value the next paragraph exists to pin — a divergence §11.2's
+agreement test is written to catch and would then be catching in the wrong
+place. Adding `+0.0` elementwise is exact for every value I4 and I5 admit
+(there is no `NaN`, and `inf + 0.0` is `inf`), so its only effect is the one
+wanted.
+
 **Negative zero MUST be normalised to `+0.0` before hashing.** `-0.0 == 0.0`
 is true, so §6.3's `==` calls two diagrams differing only in the sign of a
 zero equal, and §7's canonical order cannot separate them either: a stable
@@ -1891,20 +1983,40 @@ place this document requires a consumer to implement part of a distance rather
 than call one (D19).** The bottleneck distance is
 
 $$
-d_{B}(D_{1}, D_{2}) = \inf_{\gamma} \sup_{p \in D_{1} \cup \Delta} \lVert p - \gamma(p) \rVert _{\infty}
+d_{B}(D_{1}, D_{2}) = \max_{k} \; \inf_{\gamma_{k}} \; \sup_{p \in D^{(k)}_{1} \cup \Delta} \lVert p - \gamma_{k}(p) \rVert _{\infty}
 $$
 
-over bijections $\gamma : D_{1} \cup \Delta \to D_{2} \cup \Delta$, where the
-cost of sending a bar $p = (b, d)$ to the diagonal is
+over bijections $\gamma_{k} : D^{(k)}_{1} \cup \Delta \to D^{(k)}_{2} \cup \Delta$
+taken **within each homological degree $k$**, where the cost of sending a bar
+$p = (b, d)$ to the diagonal is
 
 $$
 \lVert p - \gamma(p) \rVert _{\infty} = \frac{d - b}{2}
 $$
 
+**The degree index is written into the definition rather than imported when
+it is needed.** A degree-$k$ class and a degree-$j$ class are not the same
+kind of object, so a bijection between them is not a statement about
+homology; the ungraded formula, which pairs any bar with any bar, is the same
+degree-pooling this section requires `core/distances.py` not to hand persim,
+stated one level up. It is written here because the sentence that used to
+follow — "in the same dimension" — is not derivable from a formula with no
+dimension in it, and importing an obligation silently is the defect §9.1
+attributes to persim.
+
 That cost is $+\infty$ for an essential bar, and so is
-$\lVert p - \gamma(p) \rVert _{\infty}$ for $p$ essential and $\gamma(p)$ finite. An essential
-bar can therefore be matched only to another essential bar in the same
-dimension, at cost $\lvert b(p) - b(\gamma(p)) \rvert$.
+$\lVert p - \gamma_{k}(p) \rVert _{\infty}$ for $p$ essential and $\gamma_{k}(p)$ finite. An
+essential bar can therefore be matched only to another essential bar, and the
+degree is already fixed by $\gamma_{k}$, at cost $\lvert b(p) - b(\gamma_{k}(p)) \rvert$.
+
+**That cost is a convention and it is stated, not assumed.** For two
+essential bars $\lVert p - \gamma_{k}(p) \rVert _{\infty}$ is
+$\max \left( \lvert b - b' \rvert, \lvert \infty - \infty \rvert \right)$,
+and $\infty - \infty$ is `NaN` in IEEE 754 — the same arithmetic §6.3 spends
+a paragraph on for `allclose`. Two coordinates that are both exactly $+\infty$
+are taken to differ by $0$, so the death coordinate drops out and the cost is
+the birth difference alone. An implementation MUST NOT reach that value by
+subtracting the deaths.
 
 Below, $D^{(k)}$ denotes the degree-$k$ part of $D$, with $m$ that degree's
 essential-bar count, equal on both sides or the `+inf` above already returned:
@@ -2150,7 +2262,23 @@ the on-disk format and on `save`/`load`.
    no conforming implementation could satisfy. `save` MUST still accept a
    diagram or batch backed by any namespace, converting at the I/O boundary
    only (§3.3); what a caller wanting the comparison does is convert at their
-   own boundary first, which §6.3 already names as the remedy. **The
+   own boundary first, which §6.3 already names as the remedy.
+   **That conversion requires host residency, and `save` MUST require it
+   rather than attempt it.** `np.asarray` on a CUDA tensor or a
+   GPU-resident JAX array raises from the backend, with a message about
+   devices and nothing about serialization; and the array API standard's own
+   `__dlpack__` rules make a cross-device transfer something the *owner*
+   asks for, not something a consumer performs silently — a `save()` that
+   moved a training batch off-device would be doing several seconds of
+   unasked-for work in a function the caller reached to write a file.
+   So `save` MUST raise `ValueError` naming the device and the remedy — the
+   caller's own `.cpu()`, `jax.device_get`, or `xp.from_dlpack` — rather than
+   let the backend's message reach them, and MUST make that check before it
+   opens the destination, so a failed save leaves no partial file. `load`
+   returns host-resident NumPy-backed arrays and has no device question.
+   Device is otherwise absent from this document deliberately: it is a
+   property of where an array lives rather than of the diagram, and nothing
+   between the constructor and this boundary reads it. **The
    `same_provenance` clause carries no such restriction** and binds every
    namespace: §6.3 exempts it from the cross-namespace raise, it touching no
    array. §11.2's round-trip cases are NumPy-backed for this reason, and are
@@ -2433,7 +2561,18 @@ Non-normative, and all three MUST warn about what they lose:
   is what people will paste into other tools.
 - `to_csv()` → three columns `dim,birth,death`, with `inf` written as the
   literal `inf`, **preceded by a header row naming them**. For humans and for
-  spreadsheets.
+  spreadsheets. **It has no reader half, and this document does not add one.**
+  `from_array` takes an array rather than a path, and turning `inf`-bearing
+  text into a `float64` array needs `numpy` — which is `akriti[numpy]` (§3.3),
+  so a `from_csv` would put a reader for a non-normative escape hatch behind
+  an extra while `.akd`, the format this document actually makes normative,
+  reads with `load`. The caller supplies the parse: `numpy.genfromtxt`,
+  `pandas.read_csv` or R's `read.csv` each produce the `(n,3)` block
+  `from_array(arr, columns=("dim", "birth", "death"))` consumes, which is what
+  the `columns` argument exists for. **§11.2's round-trip case for this pair
+  is therefore `to_csv` then a caller-side parse then `from_array`**, and it
+  needs `akriti[numpy]` to run; it MUST say so rather than reading as a test
+  of an API that does not exist.
 - `to_parquet()` → a `pyarrow.Table` with the same three columns and order as
   `to_csv()` (`dim` int32, `birth`/`death` float64), so `inf` round-trips
   exactly — Parquet's `double` is IEEE 754, unlike JSON's. Requires
@@ -2546,6 +2685,30 @@ plausibly — §9's category, arrived at by our hand. So the caller MUST pass
 does not carry, and whose absence yields a wrong answer rather than an error.
 Omitting it with a degree-indexed list MUST raise `TypeError`; passing a
 sequence whose length does not match the outer list MUST raise `ValueError`.
+Passing `dim=` alongside this form MUST raise `TypeError` on the same grounds
+the plain `list` form is refused it: both carry every degree at once, and a
+single degree is not a thing the caller can be asserting about them.
+
+**`from_gudhi` takes one sample, and `fit_transform` returns many.**
+`RipsPersistence().fit_transform(X)` gives `list[list[(n,2)]]` — one
+`list[(n,2)]` per sample — while `from_gudhi` returns a scalar
+`PersistenceDiagram`, so the caller indexes: `from_gudhi(result[i],
+homology_dimensions=[0, 1])`, and `DiagramBatch.from_diagrams` (§4.2)
+assembles the batch. This is stated because the two levels of nesting are
+easy to hand in one too many of, and because `from_giotto` faces the same
+situation and resolves it the other way, always returning a `DiagramBatch`.
+
+**The asymmetry is deliberate and rests on what each shape can be
+distinguished from.** giotto returns a single `(n_samples, n_rows, 3)` array
+whose leading axis is unambiguous, so `from_giotto` can read it without
+asking and MUST return a batch of that length. GUDHI's per-sample axis is a
+Python `list` of `list`s, and a `list[(n,2)]` — one sample, several degrees —
+is structurally the same object as a `list` of two single-degree samples with
+one degree each. An adapter that guessed which it had would be wrong
+silently, on data rather than on type, so `from_gudhi` does not guess: it
+takes the inner list, and the outer axis is the caller's to index. That
+distinguishability is exactly what `homology_dimensions` supplies, and it
+supplies it for the inner list alone.
 
 `coeff_field` needs no special handling here. `RipsPersistence`'s
 `homology_coeff_field` defaults to 11, as `SimplexTree.persistence()` does, so
