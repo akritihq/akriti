@@ -2017,6 +2017,29 @@ published, without invoking this library at all: the same
 audit-without-our-library spirit as requirement 5. §11.2 tests it directly,
 as its own case, separate from the round-trip and invariant tests.
 
+**That guarantee is scoped to one `spec_version`, and the scope is a
+consequence rather than a concession.** `meta.json` carries `spec_version`,
+which §10.2 defines as the revision the *writer* implemented and which
+therefore moves on every revision of this document, editorial passes
+included. A fixture committed under one revision and regenerated under a
+later one differs in exactly that field and in nothing else, so the
+byte-comparison above holds **between writers implementing the same
+`format_version` and the same `spec_version`**, and a checksum mismatch
+across a spec bump is the field doing its job rather than a determinism
+failure. A regeneration check that must survive spec revisions compares
+`bars.npz`, which carries no version stamp at all and is where every bar
+lives.
+
+Three alternatives were weighed and rejected. **Dropping `spec_version`**
+buys cross-revision checksums at the cost of the audit trail requirement 3
+exists for. **Redefining it as the revision that last moved
+`format_version`** would make it deterministic across time, but it would
+then duplicate `format_version` and stop answering the question §10.2 says
+it answers. **Excluding it from the compared bytes** asks a reader to know
+which bytes to skip, which is requirement 5's inspectability traded away for
+requirement 4's convenience. Naming the scope costs nothing and misleads
+nobody.
+
 **Requirement 4 is an implementation obligation on `save()`, and the format
 choice does not discharge it.** An `.akd` is a zip holding a member that is
 itself a zip, and neither layer is deterministic on its own: the payload varies
@@ -3352,3 +3375,4 @@ Full narrative: history document.
 - **2026-08-20 (64)** — **Opens D22 and leaves it open**, the first row §12.1 has carried since D18 closed. `load` has no resource-budget contract: §10 says what it MUST validate for correctness and nothing about cost, so a well-formed but enormous `.akd` is unbounded even though the loader already refuses an NPY header inconsistent with its member's declared size. The row states the prior question — whether `load` is meant to be safe against a file from a stranger — and the three coherent answers, with the lead's lean toward caller-supplied budgets. It is published unresolved deliberately: a format's threat model is what a comment window is for, and the projects best placed to answer are the ones being asked to read this. Raised by Edward Bae. **§8 also gains a Unicode clause**: metadata strings MUST be sequences of Unicode scalar values, enforced at construction over the scalar fields, mapping keys and nested values. §8's existing rule reasons about types and an unpaired surrogate is an ordinary `str` with no UTF-8 encoding, so the type admitted diagrams §10.2 could not write, failing at `save()` rather than where the metadata was built.
 - **2026-08-20 (65)** — **The document becomes 0.3.0**, and the minor rather than the patch moves because §10.2's own rule says so: a revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor. Entries 58-64 add several — D20's three, D21's two, and §8's Unicode clause — so 0.2.2 would have been this document breaking a rule it states. Entry 57 correctly took the patch, having altered none. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow, all having been written against `0.1.0` on a branch that predated the rule as well as the number. The note recording that the condition began binding at `0.2.0` stays as it is: that is history, not a current version.
 - **2026-08-23 (66)** — **Published for public comment; the document becomes 1.0.0.** The Status row opens the window, dated to its close on 2026-10-16 and pointing at #31, and the Target row records M0's publication commitment met. The major moves on entry 55's rule, which sets it to `1` at the revision published for comment; no BCP 14 clause is added, removed or altered by this pass, so nothing else in it is normative. Appendix C's author's note is corrected: it had said both that the log was kept for the comment window and that it should be removed before publication, which cannot both hold when publication is what opens the window. It is kept through the window and removed at its close.
+- **2026-08-23 (67)** — §10.1 requirement 4's rationale claimed more than the requirement delivers, reported as #35 against the revision being published. It said a regenerated fixture reproduces "the file previously committed or published" — a claim across time — while `meta.json` carries `spec_version`, which moves on every revision including editorial ones, so the checksum breaks on any spec bump and would have broken on this one. The normative clause was always correct and is untouched; the rationale now states the scope, names `bars.npz` as the version-free comparison for checks that must survive revisions, and records the three alternatives rejected. No BCP 14 clause added, removed or altered.
