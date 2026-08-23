@@ -19,7 +19,7 @@ in the plan's order.
 | 4 | Tier 2 decisions | `rfc/0001/decisions-d23-d26` | D23 settled, D24 opened, `F5`/`F8` as clauses |
 | 5 | Tier 3, then 4 and 5 | `rfc/0001/tier3-gaps`, `rfc/0001/tier4-5-editorial` | done |
 | 6 | Structural | `rfc/0001/normative-index`, `rfc/0001/internal-reference-sweep` | done |
-| 7 | Version and changelog | `rfc/0001/version-and-changelog` | 0.4.0, entries 66-71. **`rfc/publish-for-comment` NOT rebased** -- blocked on D24 |
+| 7 | Version and changelog | `rfc/0001/version-and-changelog` | 0.4.0, entries 66-74. **`rfc/publish-for-comment` NOT rebased** -- blocked on D24 |
 | 8 | Proof | -- | pytest 1198 passed / 6 skipped, Ruff check and format, mypy clean |
 
 
@@ -125,3 +125,29 @@ Small and deliberately not mixed into an RFC-only branch:
   `adapters.py` should be read against it.
 - §11's three-termed impossibility check (`F2`) is still unimplemented in
   `adapters.py`, as it was before this pass.
+
+## Revisions after the first pass
+
+Four corrections, on the owner's reading:
+
+- **The index is Appendix C and the changelog is Appendix D.** The changelog
+  is removed when the comment window closes, by its own author's note, and
+  the index is permanent -- so the permanent one goes first and the removal
+  leaves no gap in the lettering. `tools/normative_index.py` inserts itself
+  *before* the changelog rather than at the end, so the order cannot drift
+  back. Two generator defects surfaced by the move are fixed: appendix
+  subsection labels took the whole heading, and a bulleted requirement was
+  glued to the paragraph above it. The index now covers §1-§11 only.
+- **Changelog entries rewritten to length.** They were 181-289 words against
+  a house median of 52 across entries 1-65; they are now 52-120, and nine
+  entries rather than six, renumbered 66-74. `rfc/publish-for-comment`'s own
+  entry becomes 75 when it rebases.
+- **The document no longer refers to a review of it.** A reader cannot
+  resolve a pointer to a document that is not this one.
+- **Nor to components it does not affect.** The §1 gloss table answered the
+  wrong question: the fix for an unresolvable reference is to remove it, not
+  to define it. §1 now names only `diagrams/core.py`, `diagrams/adapters.py`,
+  `diagrams/io.py` and `core/distances.py`, which §9.1 binds. `castle/`,
+  `repro/`, `compat/`, the licensing files and the `classify` repository are
+  gone from the body, from §12 and from Appendix A. D2 was quoting §4's old
+  wording and was stale in any case.
