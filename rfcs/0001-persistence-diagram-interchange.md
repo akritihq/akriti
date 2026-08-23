@@ -42,6 +42,28 @@ It exists for three reasons, in order of importance:
 **Non-goal.** This RFC does not specify vectorisations, distances, kernels, or
 any statistical procedure. It specifies the *object* those consume.
 
+**Akriti's own components, named here so that every later reference
+resolves.** Goal 2 above says this document does not require adopting the rest
+of Akriti, and that claim is only honest if a reader who has not adopted it
+can still read the document. Nothing below is a dependency of anything
+normative; each is named where it is the *reason* for a requirement, never
+where it is the requirement:
+
+| Name | What it is |
+|---|---|
+| `diagrams/core.py` | the implementation of §3 through §8 — the type, its invariants, its accessors and its hash |
+| `diagrams/adapters.py` | the implementation of §11's five `from_*` adapters and §10.3's exports |
+| `diagrams/io.py` | the implementation of §10's `save`/`load` |
+| `core/` | Akriti's numerical layer — vectorisations, distances, kernels. §9.1's `core/distances.py` lives here and is the one consumer this document places a requirement on |
+| `castle/` | Akriti's statistical-inference layer, and the only consumer of `core/`. Named twice, both times as the reason a batch type exists at all |
+| `compat/` | Akriti's clean-room giotto-tda shim, the module §9.2's AGPLv3 note binds |
+| `repro/` | the reproduction harness for the project's paper tables, and §10.1 requirement 4's motivating consumer |
+| `DEPENDENCIES.md`, `tools/check_license_closure.py` | the project's dependency-and-licensing record and the CI check that enforces it. Named in D6 and D8, which are dependency decisions |
+
+Anything else in a path-like spelling — `rfcs/evidence/*.py`,
+`tests/fixtures/*` — is a file in this repository holding the evidence a
+statement cites, and Appendix A names each where it is used.
+
 **Non-goal: multiparameter persistence**, for this type and for this RFC.
 `PersistenceDiagram` is single-parameter-shaped by construction: a multiset of
 intervals, one scalar `dim`, one `birth` and one `death` per bar.
@@ -701,12 +723,14 @@ without anyone noticing.
 
 ## 4. Batch semantics
 
-Every numerical function in `core/` and `castle/` takes a **leading batch
-dimension** rather than expecting a Python loop over diagrams. That is a
-project-wide commitment made for its own reasons — a looping API is very hard
-to withdraw once published — and it is why this document specifies a batch
-type at all instead of leaving callers to assemble one. For diagrams, the
-batch container is:
+**Every function consuming diagrams takes a leading batch dimension** rather
+than expecting a Python loop over them. That is a commitment about API shape
+made for its own reasons — a looping API is very hard to withdraw once
+published — and it binds this document only in one direction: it is why a
+batch type is specified here at all, instead of being left for each caller to
+assemble. Akriti's own `core/` and `castle/` (§1) are the consumers that
+motivated it, and no reader has to have either to use what follows. For
+diagrams, the batch container is:
 
 ```python
 class DiagramBatch:          # a sequence of PersistenceDiagram
@@ -3374,7 +3398,8 @@ D12's evidence, measured on neither run above and on a machine this appendix
 does not otherwise describe. Reproduced here as the record, since a decision
 log that cites numbers it does not carry is one nobody can check later.
 
-Alpha complex over two datasets from the `classify` repository. The cached
+Alpha complex over two datasets from `classify`, a separate repository of
+this project's that holds the evidence for a different paper. The cached
 diagrams there are truncated to `top_n=50` and diagonal-padded, so they
 saturate and measure nothing; these are recomputed from the point clouds.
 
