@@ -149,5 +149,7 @@ Four corrections, on the owner's reading:
   to define it. §1 now names only `diagrams/core.py`, `diagrams/adapters.py`,
   `diagrams/io.py` and `core/distances.py`, which §9.1 binds. `castle/`,
   `repro/`, `compat/`, the licensing files and the `classify` repository are
-  gone from the body, from §12 and from Appendix A. D2 was quoting §4's old
+  gone from the body and from §12. **A.6's `classify` references are kept**:
+  that is a dataset source rather than an Akriti component, and a bar count is
+  only checkable against the data that produced it. D2 was quoting §4's old
   wording and was stale in any case.

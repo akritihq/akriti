@@ -3382,10 +3382,10 @@ D12's evidence, measured on neither run above and on a machine this appendix
 does not otherwise describe. Reproduced here as the record, since a decision
 log that cites numbers it does not carry is one nobody can check later.
 
-Alpha complex over two datasets held for a separate paper of this project's.
-The diagrams cached alongside them are truncated to `top_n=50` and
-diagonal-padded, so they saturate and measure nothing; these are recomputed
-from the point clouds.
+Alpha complex over two datasets from the `classify` repository, named because
+a bar count is only checkable against the data that produced it. The cached
+diagrams there are truncated to `top_n=50` and diagonal-padded, so they
+saturate and measure nothing; these are recomputed from the point clouds.
 
 | Dataset | Cloud size | Median bars/diagram | Median by degree |
 |---|---|---|---|
@@ -3432,7 +3432,7 @@ datasets, both alpha-complex, both low-dimensional. They establish the order
 of magnitude, not a distribution over what users will actually store.
 
 Reproduction: `rfcs/evidence/bar_counts.py` for the bar-count table, which
-runs against those datasets rather than anything in this repository, and
+runs from the `classify` repository rather than this one, and
 `rfcs/evidence/payload_formats.py` for the format comparison.
 
 ### A.7 `array-api-compat` — what it costs, and what it still corrects
