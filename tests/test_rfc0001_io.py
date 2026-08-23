@@ -31,7 +31,7 @@ import akriti.diagrams as diagrams
 
 FORMAT = "akriti.diagrams.akd"
 SPEC = "RFC-0001"
-SPEC_VERSION = "1.0.0"
+SPEC_VERSION = "1.1.0"
 
 _ROOT = Path(__file__).resolve().parents[1]
 _RFC_PATH = _ROOT / "rfcs/0001-persistence-diagram-interchange.md"
@@ -1302,7 +1302,7 @@ def test_deep_metadata_recursion_is_normalized_to_value_error(tmp_path: Path) ->
     deeply_nested = '{"x":' * depth + "0" + "}" * depth
     metadata = (
         '{"format":"akriti.diagrams.akd","format_version":0,'
-        '"spec":"RFC-0001","spec_version":"1.0.0","kind":"diagram",'
+        '"spec":"RFC-0001","spec_version":"1.1.0","kind":"diagram",'
         '"meta":{"filtration":null,"backend":null,"backend_version":null,'
         '"coeff_field":null,"params":{"deep":'
         + deeply_nested
@@ -1529,13 +1529,13 @@ def test_duplicate_json_object_keys_are_rejected(tmp_path: Path, location: str) 
         )
         metadata = (
             '{"format":"akriti.diagrams.akd","format_version":0,"kind":"diagram",'
-            f'"meta":{duplicate_meta},"spec":"RFC-0001","spec_version":"1.0.0"}}'
+            f'"meta":{duplicate_meta},"spec":"RFC-0001","spec_version":"1.1.0"}}'
         )
     else:
         metadata = (
             '{"format":"akriti.diagrams.akd","format_version":0,"kind":"diagram",'
             f'"meta":{meta_text},"meta":{meta_text},"spec":"RFC-0001",'
-            '"spec_version":"1.0.0"}'
+            '"spec_version":"1.1.0"}'
         )
     path = write_bytes(
         tmp_path / f"duplicate-{location}.akd",
