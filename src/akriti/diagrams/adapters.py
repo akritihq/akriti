@@ -177,6 +177,34 @@ def _is_row_sequence(obj: Any) -> bool:
     return isinstance(obj, Sequence) and not isinstance(obj, (str, bytes, bytearray))
 
 
+def _is_degree_indexed_block_list(obj: Any) -> bool:
+    """Whether `obj` is a list of `(n, 2)` blocks rather than of rows. §11.
+
+    GUDHI's sklearn-compatible form (`RipsPersistence` and its siblings)
+    returns, per sample, a `list[(n, 2)]`. This exists only so that omitting
+    `homology_dimensions` with such a list raises the `TypeError` `N11-2`
+    requires, naming the missing argument, rather than the `ValueError` about
+    a mis-shaped `(dim, (birth, death))` row that `_columns_from_pairs` would
+    otherwise produce -- true, and about the wrong thing.
+
+    **This is not the discriminator between the two GUDHI forms.** §11 states
+    that the sklearn shape is identical to Ripser's `Rips().fit_transform(X)`
+    and to persim's input, so nothing structural can tell them apart; the
+    presence of `homology_dimensions=` is what selects the form, and this
+    predicate is never consulted when it was supplied. Reading the blocks to
+    decide the form would be the guess §11 refuses.
+
+    Rank is asked of the block object itself, which is what the backend
+    returns: an `(n, 2)` array reports `ndim == 2`, and `persistence()`'s
+    `(dim, (birth, death))` rows are Python tuples that report no `ndim` at
+    all. An empty list is not this form -- it is `persistence()` on a
+    filtration with no bars, which already constructs an empty diagram.
+    """
+    if not _is_row_sequence(obj) or len(obj) == 0:
+        return False
+    return all(getattr(block, "ndim", None) == 2 for block in obj)
+
+
 def _is_coordinate_slot(obj: Any) -> bool:
     """Whether `obj` sits where a single filtration value belongs. §11.
 
@@ -1284,13 +1312,27 @@ def _wrong_adapter_hint(block: Any) -> str:
 
 
 def _columns_from_degree_list(
-    dgms: Sequence[Any], xp: Any
+    dgms: Sequence[Any], xp: Any, *, degrees: Sequence[int] | None = None
 ) -> tuple[Array, Array, Array]:
-    """Stack `list[(n, 2)]` where list position is the degree. §11.
+    """Stack `list[(n, 2)]`, where list position selects the degree. §11.
 
     Ripser's `dgms` and persim's input share this shape. Row order within a
     degree is preserved exactly; degrees follow the list, which is the
     backend's own order for the merged diagram.
+
+    **`degrees` is what position means, and the two backends disagree about
+    it** (D20). For Ripser and persim, position *is* the homological degree
+    and `degrees` stays `None`. For GUDHI's sklearn-compatible form the
+    position is an index into the `homology_dimensions` list the caller passed
+    the transformer, which the returned object does not carry -- measured,
+    `homology_dimensions=[2, 0]` returns H2 first and H0 second -- so
+    `from_gudhi` passes that list here and position is resolved through it.
+    Reading position as degree for that form would mislabel every diagram
+    computed with a reordered or non-contiguous list, silently and plausibly.
+
+    Errors name the **index**, not the degree, and for `degrees` they are two
+    different numbers. The index is what the caller can point at in the object
+    they passed; the degree is what this function decided it meant.
 
     Every block must share one namespace (I7). `core.py` checks the same thing
     across the diagrams of a batch and says why: without it, `xp.concat` would
@@ -1299,12 +1341,13 @@ def _columns_from_degree_list(
     the mixed input already erased.
     """
     dim_blocks, birth_blocks, death_blocks = [], [], []
-    for degree, block in enumerate(dgms):
+    for index, block in enumerate(dgms):
+        degree = index if degrees is None else degrees[index]
         if not _is_row_sequence(block):
             block_xp = namespace_of(block)
             if block_xp is not xp:
                 raise ValueError(
-                    f"the diagram at index {degree} has array namespace "
+                    f"the diagram at index {index} has array namespace "
                     f"{block_xp.__name__!r}, not {xp.__name__!r}: one diagram "
                     "has one namespace (I7)"
                 )
@@ -1332,13 +1375,13 @@ def _columns_from_degree_list(
                 )
             except (TypeError, ValueError) as exc:
                 raise ValueError(
-                    f"diagram at index {degree} must have shape (n, 2) "
+                    f"diagram at index {index} must have shape (n, 2) "
                     f"(RFC-0001 §11); these rows could not be read as an "
                     f"array at all: {_abbreviated(block)}" + _wrong_adapter_hint(block)
                 ) from exc
         if block.ndim != 2 or block.shape[1] != 2:
             raise ValueError(
-                f"diagram at index {degree} must have shape (n, 2) "
+                f"diagram at index {index} must have shape (n, 2) "
                 f"(RFC-0001 §11); got shape {tuple(block.shape)}"
             )
         dim_blocks.append(xp.full((block.shape[0],), degree, dtype=xp.int32))
@@ -1573,16 +1616,148 @@ def _source_dtype_of_blocks(blocks: Sequence[Any]) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 
-def from_gudhi(obj: Any, *, dim: int | None = None, **meta: Any) -> PersistenceDiagram:
+def _from_gudhi_sklearn(
+    obj: Any,
+    *,
+    homology_dimensions: Sequence[int],
+    dim: int | None,
+    field: int | None,
+    provenance: dict[str, Any],
+    meta: dict[str, Any],
+) -> PersistenceDiagram:
+    """GUDHI's sklearn-compatible `list[(n, 2)]` for one sample. §11, D20.
+
+    Split out of `from_gudhi` rather than written as a third arm inside it,
+    because it is the arm with the argument checks: the other two dispatch on
+    the object and this one dispatches on a keyword, and interleaving the two
+    made the order of the refusals hard to read.
+
+    **Every refusal here is on the arguments, before the blocks are looked
+    at.** §10.3 imposes the same ordering on `from_array`'s `columns`, §5 on
+    `finitize`'s `at`, and §6.3 on the cross-namespace check, all for one
+    reason: a failure that depends on the data is one the caller reproduces
+    only with that data in hand.
+    """
+    # `N11-3`. Refused first, being a contradiction in the call itself rather
+    # than a disagreement with the object: a per-degree list carries every
+    # degree at once, so a single `dim` is not a thing the caller can be
+    # asserting about it. Same grounds as the `persistence()` list's refusal.
+    if dim is not None:
+        raise TypeError(
+            "homology_dimensions= and dim= cannot both be given (RFC-0001 "
+            "§11): GUDHI's sklearn-compatible output carries one block per "
+            "requested degree and homology_dimensions already names all of "
+            "them, so dim= would be a second source for one fact. dim= is "
+            "for persistence_intervals_in_dimension(k), which is a single "
+            "(n, 2) array stating no degree."
+        )
+
+    if not _is_row_sequence(homology_dimensions):
+        raise TypeError(
+            "homology_dimensions= must be the sequence of degrees you gave "
+            "the transformer, in that order (RFC-0001 §11); got "
+            f"{homology_dimensions!r} of type "
+            f"{type(homology_dimensions).__name__}"
+        )
+    if not _is_row_sequence(obj):
+        raise TypeError(
+            "homology_dimensions= goes with GUDHI's sklearn-compatible "
+            "output, which is a list of (n, 2) blocks, one per requested "
+            f"degree (RFC-0001 §11); got {type(obj).__name__}. A single "
+            "(n, 2) array from persistence_intervals_in_dimension(k) states "
+            "no degree either, and takes dim=k instead."
+        )
+
+    # `N11-2`'s second half. A length disagreement is a `ValueError` rather
+    # than a `TypeError` because the argument is of the right kind and the
+    # wrong size, and it is checkable without reading a single bar: the
+    # caller either passed a different transformer's dimension list or
+    # indexed one nesting level too few, and both are worth naming.
+    if len(homology_dimensions) != len(obj):
+        raise ValueError(
+            f"homology_dimensions= names {len(homology_dimensions)} degrees "
+            f"but the diagram list holds {len(obj)} blocks (RFC-0001 §11); "
+            "they index each other, so the two must agree. "
+            "RipsPersistence().fit_transform(X) returns one such list *per "
+            "sample* -- if you passed the whole result, index it first: "
+            "from_gudhi(result[i], homology_dimensions=...)."
+        )
+
+    degrees = [
+        _as_degree(
+            value,
+            where=f"homology_dimensions[{position}]",
+        )
+        for position, value in enumerate(homology_dimensions)
+    ]
+
+    first_array = next((b for b in obj if not _is_row_sequence(b)), None)
+    xp = namespace_of(first_array) if first_array is not None else _namespace_for_rows()
+    dims, births, deaths = _columns_from_degree_list(obj, xp, degrees=degrees)
+    provenance.update(_source_dtype_of_blocks(obj))
+
+    diagram, clamped = _diagram_from_columns(
+        dims=dims,
+        births=births,
+        deaths=deaths,
+        xp=xp,
+        backend="gudhi",
+        backend_version=_installed_version("gudhi"),
+        provenance=provenance,
+        meta={"coeff_field": field, **meta},
+    )
+    _warn_clamped(clamped)
+    return diagram
+
+
+def from_gudhi(
+    obj: Any,
+    *,
+    dim: int | None = None,
+    homology_dimensions: Sequence[int] | None = None,
+    **meta: Any,
+) -> PersistenceDiagram:
     """A GUDHI persistence result as a `PersistenceDiagram`. §11.
 
-    Accepts both measured input forms (§11):
+    Accepts all three measured input forms (§11, D20):
 
     - `SimplexTree.persistence()` -> `list[(dim, (birth, death))]`, carrying
       every degree at once. This form has no array, so the diagram is
       numpy-backed; see the module docstring.
     - `SimplexTree.persistence_intervals_in_dimension(k)` -> `(n, 2)`, which
       states no degree, so `dim=k` is required.
+    - The sklearn-compatible family (`RipsPersistence` and its siblings) ->
+      per sample, a `list[(n, 2)]`, which requires `homology_dimensions=`.
+
+    **The sklearn form cannot identify itself, so `homology_dimensions` is
+    what selects it** (D20). Its shape is identical to Ripser's
+    `Rips().fit_transform(X)` and to persim's input -- §11 says so -- and it
+    is nonetheless *not the same object*: Ripser's list position **is** the
+    homological degree, while GUDHI's is a position in the
+    `homology_dimensions` list the caller passed the transformer, which the
+    returned value does not carry. Measured: `homology_dimensions=[2, 0]`
+    returns H2 first and H0 second, and `[1]` returns a length-one list
+    holding H1. An adapter reading position as degree would mislabel every
+    diagram computed with a reordered or non-contiguous list -- silently,
+    plausibly, and wrongly. So the discriminator is **the presence of the
+    keyword**, never the shape, and the fact the object lacks is required
+    from the caller, on §5.1's `reduced_homology` precedent.
+
+    `dim=` alongside it raises `TypeError` on the same grounds the
+    `persistence()` list is refused it: both carry every degree at once, and a
+    single degree is not a thing the caller can be asserting about them. A
+    `homology_dimensions` whose length disagrees with the outer list raises
+    `ValueError`.
+
+    **This adapter takes one sample, and `fit_transform` returns many.**
+    `RipsPersistence().fit_transform(X)` gives `list[list[(n, 2)]]`, so the
+    caller indexes -- `from_gudhi(result[i], homology_dimensions=[0, 1])` --
+    and `DiagramBatch.from_diagrams` (§4.2) assembles the batch. `from_giotto`
+    faces the same situation and resolves it the other way, because giotto's
+    leading axis is unambiguous and a `list` of `list`s is not: a
+    `list[(n, 2)]` for one sample over several degrees is structurally the
+    same object as a list of several one-degree samples. Guessing which would
+    be wrong on data rather than on type, so this adapter does not guess.
 
     **Extended persistence is out of scope, and only partly detectable.**
     `extended_persistence()` returns a four-element list of
@@ -1629,6 +1804,16 @@ def from_gudhi(obj: Any, *, dim: int | None = None, **meta: Any) -> PersistenceD
         "coeff_field_source": source,
     }
 
+    if homology_dimensions is not None:
+        return _from_gudhi_sklearn(
+            obj,
+            homology_dimensions=homology_dimensions,
+            dim=dim,
+            field=field,
+            provenance=provenance,
+            meta=meta,
+        )
+
     if isinstance(obj, tuple):
         raise TypeError(
             "from_gudhi rejects a flat tuple of persistence rows; pass the "
@@ -1653,6 +1838,23 @@ def from_gudhi(obj: Any, *, dim: int | None = None, **meta: Any) -> PersistenceD
             raise TypeError(
                 "a persistence() list already carries a degree per bar, so "
                 "dim= would be a second source for one fact"
+            )
+        # `N11-2`. Reached only because `homology_dimensions` was omitted, so
+        # a list of `(n, 2)` blocks is the sklearn form missing the one
+        # argument that makes it readable -- not a malformed `persistence()`
+        # result, which is what `_columns_from_pairs` would report it as.
+        if _is_degree_indexed_block_list(obj):
+            raise TypeError(
+                "this looks like GUDHI's sklearn-compatible output "
+                "(list[(n, 2)], one block per requested degree), which needs "
+                "homology_dimensions= (RFC-0001 §11, D20). List position is "
+                "an index into the homology_dimensions you gave the "
+                "transformer, not the homological degree -- "
+                "homology_dimensions=[2, 0] returns H2 first -- and the "
+                "returned object does not carry it, so this adapter will not "
+                "guess. Pass homology_dimensions= off the fitted transformer. "
+                "If these blocks came from Ripser or persim, where position "
+                "*is* the degree, use from_ripser or from_persim instead."
             )
         xp = _namespace_for_rows()
         dims, births, deaths = _columns_from_pairs(obj, xp)

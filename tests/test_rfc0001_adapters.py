@@ -1853,6 +1853,111 @@ def test_from_giotto_refuses_giottos_own_default_infinity_values(
         from_giotto(unreduced, reduced_homology=False, infinity_values=None)  # type: ignore[arg-type]
 
 
+def test_from_gudhi_maps_list_position_through_homology_dimensions() -> None:
+    """D20, `N11-1`: position is an index into the caller's list, not a degree.
+
+    The whole reason the argument exists. GUDHI's sklearn-compatible form is
+    structurally identical to Ripser's `Rips().fit_transform(X)`, where
+    position *is* the degree -- so an adapter that read it the same way would
+    mislabel every diagram computed with a reordered list. Measured in §11 and
+    reproduced live below: `homology_dimensions=[2, 0]` returns H2 first.
+
+    Spelled with a reordered list rather than `[0, 1]` on purpose: under the
+    identity mapping this test passes against exactly the bug it exists to
+    catch."""
+    blocks = [np.array([[0.5, 1.5]]), np.array([[0.0, 2.0]])]
+
+    d = from_gudhi(blocks, homology_dimensions=[2, 0])
+
+    assert [int(x) for x in np.asarray(d.dims)] == [2, 0]
+    assert [float(x) for x in np.asarray(d.births)] == [0.5, 0.0]
+    assert [float(x) for x in np.asarray(d.deaths)] == [1.5, 2.0]
+
+
+def test_from_gudhi_accepts_a_non_contiguous_homology_dimensions() -> None:
+    """§11: the list need not start at 0 or be contiguous.
+
+    `[1]` returns a length-one list holding H1 -- measured in D20 -- and an
+    adapter reading position as degree would label those bars H0."""
+    d = from_gudhi([np.array([[0.25, 0.75]])], homology_dimensions=[1])
+
+    assert [int(x) for x in np.asarray(d.dims)] == [1]
+
+
+def test_from_gudhi_requires_homology_dimensions_with_a_degree_indexed_list() -> None:
+    """`N11-2`: omitting it with this form MUST raise `TypeError`.
+
+    The failure it replaces is the point. Without this the list fell through
+    to `_columns_from_pairs`, which reported a mis-shaped
+    `(dim, (birth, death))` row -- true, and about the wrong thing entirely."""
+    blocks = [np.array([[0.0, 1.0]]), np.array([[0.5, 2.0]])]
+
+    with pytest.raises(TypeError, match="homology_dimensions"):
+        from_gudhi(blocks)
+
+
+def test_from_gudhi_length_disagreement_is_a_value_error() -> None:
+    """`N11-2`: a sequence whose length does not match the outer list.
+
+    `ValueError` rather than `TypeError`, the argument being of the right kind
+    and the wrong size."""
+    blocks = [np.array([[0.0, 1.0]]), np.array([[0.5, 2.0]])]
+
+    with pytest.raises(ValueError, match="homology_dimensions"):
+        from_gudhi(blocks, homology_dimensions=[0, 1, 2])
+
+
+def test_from_gudhi_refuses_dim_alongside_homology_dimensions() -> None:
+    """`N11-3`: both carry every degree at once, so `dim=` is a second source
+    for one fact -- the same grounds the `persistence()` list is refused it."""
+    blocks = [np.array([[0.0, 1.0]])]
+
+    with pytest.raises(TypeError, match="dim="):
+        from_gudhi(blocks, homology_dimensions=[0], dim=0)
+
+
+def test_from_gudhi_refuses_dim_before_it_reads_the_blocks() -> None:
+    """The refusal is on the arguments, so it does not depend on the blocks.
+
+    §10.3 imposes the same ordering on `from_array`'s `columns` and §5 on
+    `finitize`'s `at`: a failure that depends on the data is one the caller
+    reproduces only with that data in hand. Here the list length disagrees
+    *and* `dim=` is present, and the argument contradiction is what surfaces."""
+    with pytest.raises(TypeError, match="dim="):
+        from_gudhi([np.array([[0.0, 1.0]])], homology_dimensions=[0, 1], dim=0)
+
+
+def test_from_gudhi_refuses_a_non_integral_homology_dimension() -> None:
+    """Degrees go through `_as_degree`, not `int()`. `int(1.5)` is 1, and a
+    diagram whose degrees were silently truncated is clean, plausible and
+    wrong (§9)."""
+    with pytest.raises((TypeError, ValueError), match="homology_dimensions"):
+        from_gudhi([np.array([[0.0, 1.0]])], homology_dimensions=[1.5])
+
+
+def test_from_gudhi_sklearn_form_records_the_gudhi_defaults() -> None:
+    """§11, §5.1: the third form records what the other two do.
+
+    GUDHI is faithful to essential bars whichever entry point produced them,
+    and `RipsPersistence`'s `homology_coeff_field` defaults to 11 exactly as
+    `SimplexTree.persistence()` does (D20, A.5), so §11's recording rule
+    resolves identically."""
+    d = from_gudhi([np.array([[0.0, 1.0]])], homology_dimensions=[0])
+
+    assert d.meta.backend == "gudhi"
+    assert d.meta.provenance["essential_bars"] == "faithful"
+    assert d.meta.provenance["essential_bars_source"] == "faithful"
+    assert d.meta.coeff_field == 11
+    assert d.meta.provenance["coeff_field_source"] == "backend_default"
+
+
+def test_from_gudhi_sklearn_form_keeps_an_essential_bar() -> None:
+    """§5.1: `inf` arrives as `inf` and is stored as `inf`, never a sentinel."""
+    d = from_gudhi([np.array([[0.0, math.inf]])], homology_dimensions=[0])
+
+    assert int(np.sum(np.asarray(d.essential))) == 1
+
+
 def test_from_giotto_refuses_an_impossible_reduced_homology_declaration(
     giotto_default_array: Any,
 ) -> None:

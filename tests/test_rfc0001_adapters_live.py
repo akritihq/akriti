@@ -275,3 +275,54 @@ def test_live_gudhi_extended_persistence_is_rejected(circle: np.ndarray) -> None
     assert all(isinstance(member, list) for member in extended)
     with pytest.raises(TypeError, match="extended persistence"):
         from_gudhi(extended)
+
+
+@pytest.mark.alpha
+def test_live_gudhi_sklearn_position_is_not_the_degree(circle: np.ndarray) -> None:
+    """D20's measurement, against the installed backend. §11, `N11-1`.
+
+    The claim `homology_dimensions` exists to serve: GUDHI's sklearn-compatible
+    family returns one `(n, 2)` block per *requested* degree, in the order
+    requested, and the returned object does not say which degree each block
+    holds. So list position is an index into the caller's list, not the
+    homological degree -- and the same shape from Ripser means the opposite.
+
+    Asserted with a **reordered** list, because under `[0, 1]` the identity
+    mapping and the correct one agree and the test would pass against exactly
+    the bug it guards. `[2, 0]` separates them: H2 of a noisy circle is empty
+    and H0 has one bar per point, so reading position as degree labels 40 H0
+    bars as H2 -- silently, plausibly, and wrongly.
+
+    If this fails, upstream changed what the sklearn interface returns, and
+    §11's third form needs re-measuring along with D20.
+    """
+    pytest.importorskip("gudhi")
+    from gudhi.sklearn.rips_persistence import RipsPersistence
+
+    def blocks_for(requested: list[int]) -> list[np.ndarray]:
+        return list(
+            RipsPersistence(homology_dimensions=requested).fit_transform([circle])[0]
+        )
+
+    forward = blocks_for([0, 2])
+    reversed_ = blocks_for([2, 0])
+
+    # The measurement itself: the blocks come back in the order they were
+    # asked for, and nothing in them says which degree each one holds. H0 of
+    # a 40-point cloud has one bar per point, so the two are told apart by
+    # size alone -- and the sizes swap with the request.
+    assert [b.shape[0] for b in forward] == [len(circle), 5]
+    assert [b.shape[0] for b in reversed_] == [5, len(circle)]
+
+    # So the adapter must label by the caller's list, not by position. Read
+    # positionally, the reversed call's 40-bar H0 block would come out as H1.
+    d = from_gudhi(reversed_, homology_dimensions=[2, 0])
+
+    degrees = np.asarray(d.dims)
+    assert int(np.sum(degrees == 0)) == len(circle), (
+        "the 40-bar H0 block was not labelled degree 0 -- position was read "
+        "as the degree, which is the mislabelling D20 requires this argument "
+        "to prevent"
+    )
+    assert int(np.sum(degrees == 2)) == 5
+    assert int(np.sum(degrees == 1)) == 0, "no H1 was requested"
