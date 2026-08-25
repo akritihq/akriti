@@ -49,6 +49,12 @@ SUPPORTED_PROFILES = (
     "numpy",
     "io",
     "torch",
+    # D23's JAX row (RFC-0001 §3.3). Report-only in CI on the same grounds as
+    # `torch`: jaxlib is a large, platform-specific binary wheel, and its
+    # transitive metadata is not a supported strict permissive-only install
+    # contract even though every package in the closure -- jaxlib, ml_dtypes,
+    # opt_einsum, scipy -- is Apache-2.0, MIT or BSD-3 today.
+    "jax",
     # D8's Parquet escape hatch (RFC-0001 §10.3). Added when the extra
     # arrived: this tuple and pyproject's optional-dependency keys are
     # asserted equal by tests/test_license_closure.py, so an extra

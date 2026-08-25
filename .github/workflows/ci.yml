@@ -99,6 +99,18 @@ jobs:
             extra: torch
             marker: torch
             imports: import torch, array_api_compat
+          # RFC-0001 §3.3 requires D23's 64-bit constraint to be *exercised*
+          # rather than asserted -- "a support claim no test runs is a claim
+          # that rots silently" (§9). `test_rfc0001_jax_live.py` has existed
+          # since the review pass, but until this row nothing installed JAX, so
+          # the `jax` marker selected a module that always skipped and the
+          # claim was never checked anywhere. The row is what makes N3.3-15
+          # real. Note it also carries `backend`, so `-m jax` is the selector
+          # that isolates it.
+          - name: jax
+            extra: jax
+            marker: jax
+            imports: import jax
           - name: parquet
             extra: parquet
             marker: parquet
@@ -115,12 +127,17 @@ jobs:
         run: python -c "${{ matrix.imports }}"
       - name: Test selected optional path
         run: pytest -m "${{ matrix.marker }}"
-      # Torch's wheel closure is intentionally report-only: it is large and
-      # may contain transitive packages whose licence metadata is not suitable
-      # for the strict default/io/parquet gates. This reuses the row's install.
-      - name: Audit torch closure (report only)
-        if: matrix.name == 'torch'
-        run: python tools/check_license_closure.py --profile torch --allow-copyleft
+      # The torch and jax wheel closures are intentionally report-only: both are
+      # large, platform-specific binary wheels that may contain transitive
+      # packages whose licence metadata is not suitable for the strict
+      # default/io/parquet gates. This reuses the row's install rather than
+      # making a second multi-gigabyte one. The profile name is the row name in
+      # both cases, so this stays one step rather than two that can drift.
+      - name: Audit ${{ matrix.name }} closure (report only)
+        if: matrix.name == 'torch' || matrix.name == 'jax'
+        run: |
+          python tools/check_license_closure.py \
+            --profile ${{ matrix.name }} --allow-copyleft
 
   closure:
     runs-on: ubuntu-latest

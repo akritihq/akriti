@@ -110,6 +110,27 @@ io = ["akriti[numpy]"]
 # does not yet expose __array_namespace__ (D18).
 torch = ["torch>=2.0", "array-api-compat>=1.15.0"]
 
+# JAX, for callers who bring JAX arrays. Deliberately NOT parallel to the torch
+# row above: jax.Array exposes __array_namespace__ natively, so it takes
+# `namespace_of`'s first branch and needs no array-api-compat fallback. Adding
+# one here would imply a gap that does not exist.
+#
+# Convenience only, on the `numpy` row's pattern rather than the `torch` one --
+# nothing in `diagrams/` imports jax, and RFC-0001 §3.3 forbids it doing so.
+#
+# The floor is the version Appendix A.11 measured, and it is a floor for a
+# reason rather than by habit: `jax_explicit_x64_dtypes='allow'` is the narrow
+# lever §3.3 names, it is recent, and below the measured version this extra
+# would install a JAX that cannot build a diagram at all. See D23.
+#
+# This extra MUST NOT be added to `test` or `dev`. §3.3's `N3.3-15` requires
+# the 64-bit constraint to be exercised by a test that *skips* where JAX is
+# absent, and states that JAX "does not enter the dependency closure to satisfy
+# this". An opt-in extra is how CI installs it for one isolated matrix row; a
+# test dependency would put it in every contributor's environment and break the
+# clause. torch is excluded from `dev` for the adjacent size reason.
+jax = ["jax>=0.11.1"]
+
 # Apache-2.0 Parquet escape hatch (RFC-0001 §10.3).
 parquet = ["pyarrow>=25.0.0"]
 

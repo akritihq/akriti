@@ -203,6 +203,7 @@ relevant extra on failure.
 | `numpy` | `numpy>=2.0` | BSD-3-Clause; the array namespace, not required by the default install |
 | `io` | → `akriti[numpy]` | BSD-3-Clause; `.akd` `save`/`load` only (RFC-0001 §10) |
 | `torch` | `torch`, `array-api-compat>=1.15.0` | Torch is BSD-3-Clause and multi-gigabyte; array-api-compat is MIT; both are optional and never hard dependencies |
+| `jax` | `jax>=0.11.1` | Apache-2.0; pulls `jaxlib` (Apache-2.0), `ml_dtypes` (Apache-2.0), `opt_einsum` (MIT), `scipy` (BSD-3) and `numpy>=2.1`. No `array-api-compat`: JAX exposes the namespace natively |
 | `parquet` | `pyarrow>=25.0.0` | Apache-2.0; Apache Arrow Developers; strict permissive-only closure audited separately |
 | `bio` | `anndata` | BSD-3-Clause |
 | `test` | `pytest`, `pytest-cov`, `hypothesis`, `packaging>=22`, `array_api_strict`, → `akriti[numpy]` | `hypothesis` is **MPL-2.0** — weak, file-level, test-only, never shipped |
@@ -217,10 +218,26 @@ verified licence is **Apache-2.0 OR BSD-2-Clause**. Pytest already pulls it
 transitively, so the direct declaration makes the test requirement explicit
 without changing the resolved test closure or the empty default closure.
 
-The torch row is **report-only** in CI because the binary wheel is a large,
-platform-specific closure and its transitive metadata is not a supported strict
-permissive-only install contract. The optional torch job audits the already
-installed row with `--allow-copyleft`; no second torch installation is made.
+The torch and jax rows are **report-only** in CI because both binary wheels are
+large, platform-specific closures whose transitive metadata is not a supported
+strict permissive-only install contract. Each optional job audits the row it
+already installed with `--allow-copyleft`; no second installation is made.
+
+The jax row is report-only despite every package in its closure being permissive
+today -- `jaxlib` and `ml_dtypes` Apache-2.0, `opt_einsum` MIT, `scipy` BSD-3,
+verified on PyPI 2026-08-25. The reason is the same as torch's and is about the
+contract rather than today's metadata: an accelerator build pulls vendor plugins
+(`jax-cuda12-plugin`, `libtpu`) whose metadata we do not control, so promising a
+strict gate here would be promising something a CUDA user's install could break.
+`akriti[jax]` itself installs the CPU closure only.
+
+**JAX is deliberately absent from `test` and `dev`.** RFC-0001 §3.3 (`N3.3-15`)
+requires D23's 64-bit constraint to be exercised by a test that skips where JAX
+is absent, and states that JAX "does not enter the dependency closure to satisfy
+this". CI installs it for one isolated matrix row instead, which is what makes
+the constraint exercised rather than asserted without putting a large wheel in
+every contributor's environment. `torch` is excluded from `dev` for the adjacent
+size reason.
 
 ---
 

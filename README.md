@@ -102,6 +102,7 @@ pip install akriti[distances]   # + persim    (MIT, GPLv3 transitively)
 pip install akriti[numpy]       # + NumPy namespace / Python-row fallback
 pip install akriti[parquet]     # + PyArrow   (Apache-2.0)
 pip install akriti[torch]       # + torch and array-api-compat
+pip install akriti[jax]         # + JAX       (Apache-2.0); see the note below
 pip install akriti[bio]         # + anndata   (BSD-3)
 ```
 
@@ -111,7 +112,9 @@ pip install akriti[bio]         # + anndata   (BSD-3)
 either. Native array inputs retain their Python array API namespace. Accepted
 Python-row adapter inputs lazily use `akriti[numpy]`; torch tensors use the
 compatibility resolver supplied by `akriti[torch]`; and Parquet imports
-PyArrow only when requested through `akriti[parquet]`. "Bring your own
+PyArrow only when requested through `akriti[parquet]`. JAX arrays need no such
+boundary -- they expose the namespace natively, so `akriti[jax]` is a
+convenience that installs JAX for you and nothing more. "Bring your own
 diagrams" remains the primary path by design. The licence consequences above
 are stated here rather than in a footnote because they are real: `persim`
 depends on `hopcroftkarp`, which is GPLv3 and has had no release since 2019,
@@ -119,6 +122,23 @@ and the `gudhi` wheel bundles CGAL-dependent modules and ships no licence
 metadata at all. See **[DEPENDENCIES.md](DEPENDENCIES.md)** for the verified
 closure, and `tools/check_license_closure.py` for the CI gate that keeps it
 honest.
+
+**JAX needs a 64-bit configuration that you set, not us.** A diagram stores
+`float64` births and deaths, and a default JAX install truncates both to
+`float32` -- so building one raises a `ValueError` naming the dtype it got.
+Either lever fixes it, and the first is narrower and preferred, changing only
+what akriti asks for rather than every default dtype in your process:
+
+```python
+import jax
+
+jax.config.update("jax_explicit_x64_dtypes", "allow")  # preferred
+jax.config.update("jax_enable_x64", True)  # heavier alternative
+```
+
+akriti will not set either for you. Both are process-global with no public
+scoped form, so a library setting one would silently change the numerics of
+unrelated JAX code in your program. See RFC-0001 §3.3 and D23.
 
 ## The research behind it
 
