@@ -223,20 +223,98 @@ def _canonical_arrays(
     return arrays
 
 
+# §10.1 requirement 1 makes host residency a precondition of `save` rather
+# than something `save` arranges: a cross-device transfer is the array owner's
+# to ask for, and moving a training batch off-device inside a call the caller
+# reached to write a file is several seconds of unasked-for work. There is no
+# portable way to ask a device object whether it is the host -- the array API
+# standard requires `x.device` to exist and requires devices of one namespace
+# to compare with `==`, and stops there -- so the two spellings the clause
+# names are read directly, and anything else is a "cannot tell".
+_HOST_DEVICE_NAMES = frozenset({"cpu", "host"})
+
+
+def _device_residency(value: Any) -> tuple[str | None, bool | None]:
+    """Report ``(device, on_host)`` for one array at the save boundary. §10.1.
+
+    ``device`` is what the array reports, rendered as text for the error
+    message, or ``None`` when it reports nothing at all -- a Python sequence,
+    or a NumPy older than 2.0, has no ``device`` attribute to read.
+
+    ``on_host`` is three-valued deliberately. ``True`` and ``False`` are
+    positive identifications: a plain string device (NumPy>=2.0 and the
+    standard's own spelling), torch's ``device.type``, and JAX's
+    ``device.platform`` each name the device family in a form this module can
+    compare. ``None`` is "cannot tell", which is not "no": `array_api_strict`'s
+    ``CPU_DEVICE`` is host-resident and matches none of those shapes, and §3.3
+    requires that namespace to reach `save`. Refusing on a "cannot tell" alone
+    would refuse it, so `_to_numpy` refuses on ``False`` up front and treats
+    ``None`` as a reason only once `np.asarray` has already declined.
+    """
+    device = getattr(value, "device", None)
+    if device is None:
+        return None, None
+    text = str(device)
+    for name in (
+        device if isinstance(device, str) else None,
+        getattr(device, "type", None),  # torch: device(type='cuda', index=0)
+        getattr(device, "platform", None),  # JAX: CudaDevice(platform='gpu')
+    ):
+        if isinstance(name, str):
+            # A string device may carry an ordinal ("cuda:0"); the family is
+            # what decides residency, and the ordinal stays in the message.
+            return text, name.split(":", 1)[0].strip().lower() in _HOST_DEVICE_NAMES
+    if any(name in text.lower() for name in _HOST_DEVICE_NAMES):
+        return text, True
+    return text, None
+
+
+def _off_host_error(device: str | None) -> ValueError:
+    """Build §10.1's refusal for an array that does not live on the host.
+
+    The message names the device and the caller's own remedies because the
+    clause requires both, and requires them in place of the backend's own
+    message -- which talks about devices and says nothing about serialization,
+    leaving a caller who asked to write a file to work out why an array
+    library is complaining about CUDA.
+    """
+    return ValueError(
+        f"save requires host-resident arrays; this one reports device {device!r} "
+        "(RFC-0001 §10.1). Moving it across devices is the owner's call, not "
+        "save's: move the arrays yourself -- `.cpu()` under torch, "
+        "`jax.device_get(...)` under JAX, or `xp.from_dlpack(...)` for any "
+        "array-API namespace -- and save the result."
+    )
+
+
 def _to_numpy(np: Any, value: Any) -> Any:
-    """Convert a CPU-compatible array without importing an optional backend."""
+    """Convert a host-resident array without importing an optional backend.
+
+    Refuses an off-host array rather than moving it (§10.1 requirement 1).
+    The check is first, not a translation of whatever `np.asarray` says,
+    because on JAX that call succeeds: a GPU-resident array copies itself to
+    the host to satisfy it, which is the transfer the clause forbids and not a
+    failure to catch. `detach()` survives the clause -- it is not a transfer,
+    §10.1 is about residency, and the document says nothing about autograd --
+    so a CPU tensor that requires grad still converts. `cpu()` does not.
+    """
+    device, on_host = _device_residency(value)
+    if on_host is False:
+        raise _off_host_error(device)
     try:
         return np.asarray(value)
     except Exception as first_error:
+        if device is not None and on_host is not True:
+            # `np.asarray` declined an array that reports a device this module
+            # could not place on the host. That is §10.1's case arriving in
+            # the namespace whose device object we cannot read, so the caller
+            # gets §10.1's message rather than the backend's.
+            raise _off_host_error(device) from None
         detach = getattr(value, "detach", None)
         if not callable(detach):
             raise first_error
-        detached = detach()
-        cpu = getattr(detached, "cpu", None)
-        if callable(cpu):
-            detached = cpu()
         try:
-            return np.asarray(detached)
+            return np.asarray(detach())
         except Exception:
             raise first_error from None
 
@@ -247,6 +325,15 @@ def save(obj: PersistenceDiagram | DiagramBatch, path: str | PathLike[str]) -> N
     Assumes *obj* is a valid public diagram type and *path* is writable. The
     input arrays may use any supported array namespace; conversion to NumPy
     occurs only at this serialization boundary, and the input is not mutated.
+
+    **The arrays must already be host-resident.** §10.1 requirement 1 makes a
+    cross-device transfer something the array's owner asks for, not something
+    a consumer performs silently, so a diagram whose arrays live on an
+    accelerator raises ``ValueError`` naming the device and the remedy -- the
+    caller's own ``.cpu()``, ``jax.device_get``, or ``xp.from_dlpack`` --
+    rather than being moved here. That check runs while the canonical arrays
+    are converted, which is before this function opens *path*, so a save
+    refused for residency leaves nothing behind at the destination.
 
     **The round trip preserves the diagram, not the buffer.** §10.1
     requirement 1 is stated over ``==`` and ``same_provenance``, and §6.3
