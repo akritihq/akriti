@@ -1,12 +1,12 @@
 """The canonical persistence diagram types. RFC-0001.
 
 `PersistenceDiagram` (§3) and `DiagramBatch` (§4) are the interchange layer:
-every backend adapter produces one of these, every `core/`/`castle/` routine
-consumes one. This module and `adapters.py` carry no third-party dependency
-required at import time: all namespace resolution goes through
-`namespace_of`, with a lazy optional `array_api_compat` fallback. Everything
-is written against the Python array API, never against `numpy` directly
-(§3.3, §10.1 requirement 2).
+every backend adapter produces one of these, and every routine downstream of
+them -- Akriti's numerical and statistical-inference layers -- consumes one.
+This module and `adapters.py` carry no third-party dependency required at
+import time: all namespace resolution goes through `namespace_of`, with a
+lazy optional `array_api_compat` fallback. Everything is written against the
+Python array API, never against `numpy` directly (§3.3, §10.1 requirement 2).
 
 Neither type has a mutating method (I8, and the equivalent reasoning for
 `DiagramBatch`): every operation that looks like one constructs and returns a
@@ -32,9 +32,12 @@ rather than a second that can drift. As an index only:
   diagram; `essential`, `persistence`, `bar_counts`, `__len__` on a batch.
 - *Eager-only*: `dim`, `dimensions`, `finite`; `finitize` in **every** mode,
   not only `at="drop"`; `DiagramBatch.__getitem__` and everything routed
-  through it, `DiagramBatch.canonical()` included -- which is
-  shape-preserving and still not traceable, the distinction §3.3 draws; and
-  everything returning a Python `bool` or `str`.
+  through it, `DiagramBatch.canonical()` included -- eager because *this*
+  implementation reaches its segments through `b[i]`, which is where §3.3
+  puts the restriction: segment-wise canonicalisation is not inherently
+  eager, §3.3 sketches a traceable form of it, and a conforming
+  implementation MAY be traceable; and everything returning a Python `bool`
+  or `str`.
 
 `==` and `allclose` raise `ValueError` rather than answering when the two
 sides are backed by different array namespaces (§6.3); see
@@ -378,12 +381,19 @@ def _require_utf8_encodable(text: str, where: str) -> None:
 
 
 def _validate_scalar_fields(meta: DiagramMeta) -> None:
-    """§8's declared types for the five scalar fields, enforced here.
+    """§8's declared types for the four `str` fields and `coeff_field`.
+
+    Two rules rather than one, which is why the loop below runs over four
+    names and `coeff_field` is checked after it: §8 states the rule about
+    text over **four** `str` fields -- `filtration`, `backend`,
+    `backend_version` and `description` -- with `coeff_field` an `int` and so
+    outside it. Only the four reach `_require_utf8_encodable`.
 
     `params` and `provenance` are walked by `_require_json_representable`;
-    without this the five fields beside them were typed in the annotation and
-    checked nowhere, so `DiagramMeta(filtration=3.5)` constructed and every
-    `from_*` adapter (§11) passed `**meta` straight into it.
+    without this the four above and `coeff_field` were typed in the
+    annotation and checked nowhere, so `DiagramMeta(filtration=3.5)`
+    constructed and every `from_*` adapter (§11) passed `**meta` straight
+    into it.
 
     The check belongs here for §3.1's reason and not in five adapters: a rule
     stated only as an obligation on writers is one every future writer has to
@@ -602,6 +612,22 @@ def _copy_array(x: Array, xp: Any) -> Array:
     return xp.asarray(x, copy=True)
 
 
+# Every I2 dtype message carries this pointer, because §3.3 requires it:
+# "the failure a caller sees is I2's ordinary `ValueError`, which names the
+# dtype it got; §3.3 is where it is explained, and the error MUST point
+# here." D23 is what makes that failure ordinary rather than exotic -- a
+# default JAX configuration truncates an explicitly requested `float64` to
+# `float32` (A.11), so I2 is the first thing a JAX caller meets, the dtype
+# named in the message is not the one they asked for, and the flag that
+# lifts it is theirs to set and this library's to leave alone. Shared rather
+# than written out three times so the three cannot drift apart.
+_I2_SEE_DTYPE_SECTION = (
+    "; §3.3 explains where a dtype the caller never asked for comes from: a "
+    "backend may truncate the requested one, JAX's default configuration "
+    "does, and only the caller can lift that (D23)"
+)
+
+
 def _validate_bar_arrays(dims: Array, births: Array, deaths: Array) -> Any:
     """I1-I7, I9: shared invariants for a diagram's coordinate arrays.
 
@@ -632,11 +658,17 @@ def _validate_bar_arrays(dims: Array, births: Array, deaths: Array) -> Any:
     # "real floating")` (§6.1): that predicate admits `float32`, which D3
     # rejects outright, so it would not be a check at all here.
     if births.dtype != xp.float64:
-        raise ValueError(f"births must be float64 (I2); got {births.dtype}")
+        raise ValueError(
+            f"births must be float64 (I2); got {births.dtype}{_I2_SEE_DTYPE_SECTION}"
+        )
     if deaths.dtype != xp.float64:
-        raise ValueError(f"deaths must be float64 (I2); got {deaths.dtype}")
+        raise ValueError(
+            f"deaths must be float64 (I2); got {deaths.dtype}{_I2_SEE_DTYPE_SECTION}"
+        )
     if dims.dtype != xp.int32:
-        raise ValueError(f"dims must be int32 (I2); got {dims.dtype}")
+        raise ValueError(
+            f"dims must be int32 (I2); got {dims.dtype}{_I2_SEE_DTYPE_SECTION}"
+        )
 
     if bool(xp.any(dims < 0)):
         raise ValueError(
@@ -884,9 +916,9 @@ def _big_endian_block(values: Array, typecode: str) -> bytes:
 
     The fast path exists because the alternative is two Python-level scalar
     extractions per bar, each a device synchronisation on a torch- or
-    JAX-backed diagram, on a code path `repro/` runs over every diagram in a
-    table. `memoryview` is the stdlib buffer protocol, not a NumPy API, so
-    §3.3's zero-third-party-dependency requirement is untouched.
+    JAX-backed diagram, on a code path that runs over every diagram behind a
+    published table. `memoryview` is the stdlib buffer protocol, not a NumPy
+    API, so §3.3's zero-third-party-dependency requirement is untouched.
     """
     itemsize = struct.calcsize(">" + typecode)
     try:
@@ -1741,7 +1773,7 @@ class DiagramBatch:
         for i in range(len(self)):
             yield self[i]
 
-    def __getitem__(self, i: int) -> PersistenceDiagram:
+    def __getitem__(self, i: SupportsIndex) -> PersistenceDiagram:
         """The `i`-th diagram, as a zero-copy view into the shared buffer. §4.2.
 
         The returned `PersistenceDiagram`'s arrays are slices of this batch's
@@ -1750,10 +1782,13 @@ class DiagramBatch:
         validated buffer is itself valid, so no revalidation happens here --
         see `PersistenceDiagram._unchecked` for why that matters.
 
-        Negative indices count from the end. Non-integers raise `TypeError`
-        via `operator.index`, out-of-range raises `IndexError`. Slicing a
-        batch is not part of §4's interface and is not supported; iteration
-        works through the legacy `__getitem__` protocol.
+        Negative indices count from the end. Any object with `__index__`
+        is accepted, which is what the `SupportsIndex` annotation states and
+        `operator.index` enforces (§4.2); everything else raises `TypeError`,
+        and out-of-range raises `IndexError`. Slicing a batch is not part of
+        §4's interface and is not supported; iteration is `__iter__`'s, a
+        method this type defines rather than a capability inherited from the
+        legacy `__getitem__` protocol.
 
         Eager-only (§3.3), and not a filtering operation; see `_bounds`.
         """
