@@ -116,9 +116,26 @@ parquet = ["pyarrow>=25.0.0"]
 # Domain integration.
 bio = ["anndata>=0.10"]
 
-# giotto-tda is AGPLv3 and MUST NOT enter any user-facing extra. It is present
-# for compat-shim fixtures only, and it does not currently run on scikit-learn
-# >= 1.8 (RFC-0001 §9.2), so CI uses committed fixture arrays instead.
+# giotto-tda is AGPLv3 and MUST NOT enter any user-facing extra, nor the
+# default closure. It appears in no extra in this file, this one included.
+# Two consequences follow from RFC-0001 §9.2, and they are different things
+# that an earlier version of this note ran together:
+#
+#   - The test suite never imports giotto. `from_giotto` is tested against
+#     committed fixture arrays -- captured from a real giotto call and stored
+#     in `tests/fixtures/giotto_output.json` -- which is what §9.2 requires and
+#     what §11.2 counts as real backend output. So `pip install akriti[test]`
+#     needs no giotto anywhere, on any platform.
+#
+#   - CI's `rfc-evidence` job *does* install giotto, because the appendix
+#     measurements it reproduces include giotto's own rows (A.1, A.5) and a
+#     silently skipped row is not a measurement. It installs `giotto-tda==0.6.2`
+#     with `--no-deps` alongside a modern scikit-learn, because giotto-tda
+#     0.6.2 pins `scikit-learn==1.3.2` exactly and that cannot coexist with the
+#     `numpy>=2.0` floor above (D6); `probe_backends.patch_giotto()` then shims
+#     the `check_array` keyword scikit-learn renamed in 1.6 and removed in 1.8.
+#     §9.2 still holds -- giotto-tda unaided does not run on current
+#     scikit-learn -- and that install is declared in the CI job, never here.
 test = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
