@@ -1468,6 +1468,79 @@ def _require_infinite_infinity_values(value: object) -> None:
         )
 
 
+def _reject_impossible_reduced_homology(
+    dims: Array, deaths: Array, xp: Any, *, sample: int
+) -> None:
+    """Refuse a `reduced_homology=False` declaration the data contradicts. §11.
+
+    Non-reduced H0 of a nonempty space carries a class that never dies, so a
+    diagram declared both `reduced_homology=False` and `infinity_values=inf`
+    whose degree-0 deaths are *all* finite is not merely unlikely but
+    impossible: one of the two declarations is false. The adapter cannot tell
+    which, so the error names both (`N11-9`, `N11-10`).
+
+    **The predicate is three-termed, and the middle term is the one that took
+    measuring.** "Every degree-0 death is finite" is a reduction over an empty
+    selection, so it holds vacuously of a diagram with no degree-0 row at all
+    -- and `homology_dimensions` excluding 0 is an ordinary giotto request
+    rather than a perverse one. Appendix A.10 measures `(1, 2)`, `(1,)` and
+    `(2,)` all returning non-empty, correct arrays with zero H0 rows. A check
+    scoped only to non-empty diagrams refuses every one of them, which is why
+    `N11-11` requires all three terms to hold before it raises:
+
+    1. the diagram is non-empty;
+    2. it carries at least one degree-0 row;
+    3. every degree-0 death is finite.
+
+    Term 1 is implied by term 2 -- a diagram with an H0 row has a row -- and is
+    still spelled out, because the clause states it and a reader checking the
+    code against the clause should find all three rather than have to
+    reconstruct the implication.
+
+    **This does not extend to `reduced_homology=True`**, where the essential H0
+    class is dropped by design and its absence proves nothing. §11 takes that
+    half on trust and says so; the caller guards this call accordingly.
+
+    Called per sample rather than over the batch, `N11-11`'s subject being a
+    diagram and a giotto batch being many of them. One impossible sample is
+    enough to refuse the call: the diagram it would become carries
+    `essential_bars="faithful"` (§5.1) over bars whose essential class was
+    finitized upstream.
+
+    Runs on the rows as giotto returned them, *before* the padding mask, on the
+    same grounds the degree validation above it gives: padding is a row giotto
+    could have emitted, and a mode that changed which arrays are acceptable
+    input is exactly what §11.1's "the caller decides" does not mean.
+    """
+    # Term 1. A giotto batch may carry a sample with no bars at all (§4.2),
+    # and §3.2 and §8.2 both treat an empty diagram as valid.
+    if int(dims.shape[0]) == 0:
+        return
+
+    # Term 2. The H0 sub-diagram is what has to exist, not the diagram.
+    degree_zero = dims == 0
+    if not bool(xp.any(degree_zero)):
+        return
+
+    # Term 3. Spelled as "no H0 death is inf" rather than by masking the
+    # deaths, so the array API standard's boolean-indexing rules are not
+    # needed for a question that is a reduction over a conjunction.
+    if bool(xp.any(degree_zero & xp.isinf(deaths))):
+        return
+
+    raise ValueError(
+        f"sample {sample} declares reduced_homology=False and "
+        "infinity_values=inf, but every one of its degree-0 deaths is finite. "
+        "Non-reduced H0 of a nonempty space carries a class that never dies, "
+        "so that combination is impossible and one of the two declarations is "
+        "false (RFC-0001 §11, §5.1). Either the transformer was built with "
+        "reduced_homology=True, or it was built with a finite "
+        "infinity_values -- giotto's default of None finitizes the essential "
+        "class to max_edge_length -- and this adapter cannot tell which from "
+        "the array. Pass both values off the fitted transformer."
+    )
+
+
 def _source_dtype_of_blocks(blocks: Sequence[Any]) -> dict[str, str]:
     """§8's `source_dtype` over a per-degree list. §11.
 
@@ -2025,6 +2098,24 @@ def from_giotto(
             params={"reduced_homology": bool(reduced_homology)},
             meta=dict(meta),
         )
+        # §11's impossibility check, run on the constructed diagram rather
+        # than on the raw columns, and therefore *after* §3.1's invariants.
+        # The ordering is the point: an array carrying a `nan` death or an
+        # `-inf` birth is not a diagram whose H0 deaths can meaningfully be
+        # called finite, and §3.1's one answer to a violation is to surface
+        # it. Checking first would report an impossible *declaration* for an
+        # array whose real defect is a malformed *coordinate*, sending the
+        # caller to re-read their transformer's arguments over what is
+        # actually a corrupt row.
+        #
+        # Clamping having already run changes nothing here: `_clamp_i6` moves
+        # a death up to its birth, both finite, and never turns an `inf` into
+        # a finite death or the reverse.
+        if not reduced_homology:
+            _reject_impossible_reduced_homology(
+                diagram.dims, diagram.deaths, xp, sample=i
+            )
+
         diagrams.append(diagram)
         clamped_rows += clamped.rows
         clamped_total += clamped.total

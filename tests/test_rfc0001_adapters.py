@@ -1727,7 +1727,7 @@ def test_from_giotto_maps_each_sample_to_its_own_slot() -> None:
     rather than passes on a coincidence of the fixture's shape."""
     arr = np.array([[[7.0, 8.0, 0.0]], [[1.0, 2.0, 0.0]], [[4.0, 5.0, 0.0]]])
 
-    b = from_giotto(arr, reduced_homology=False, infinity_values=math.inf)
+    b = from_giotto(arr, reduced_homology=True, infinity_values=math.inf)
 
     assert [float(b[i].births[0]) for i in range(len(b))] == [7.0, 1.0, 4.0]
     assert [float(b[i].deaths[0]) for i in range(len(b))] == [8.0, 2.0, 5.0]
@@ -1851,6 +1851,134 @@ def test_from_giotto_refuses_giottos_own_default_infinity_values(
 
     with pytest.raises(ValueError, match="giotto's default"):
         from_giotto(unreduced, reduced_homology=False, infinity_values=None)  # type: ignore[arg-type]
+
+
+def test_from_giotto_refuses_an_impossible_reduced_homology_declaration(
+    giotto_default_array: Any,
+) -> None:
+    """§11: `reduced_homology=False` with `infinity_values=inf` is checkable.
+
+    Non-reduced H0 of a nonempty space carries a class that never dies, so a
+    diagram declared both ways that carries degree-0 rows whose deaths are
+    *all* finite is not merely unlikely -- it is impossible. One of the two
+    declarations is false.
+
+    The **positive control**, and §11.2's own requirement that this run
+    against real backend output rather than a hand-written array. The default
+    capture is exactly the impossible array: giotto's own
+    `infinity_values=None` finitized the essential H0 class to
+    `max_edge_length`, so declaring `infinity_values=inf` over it is the lie
+    the check exists to catch. Nothing here is fabricated -- the array is real
+    giotto output and only the declaration is wrong."""
+    unreduced = giotto_default_array(reduced=False)
+
+    with pytest.raises(ValueError, match="reduced_homology") as excinfo:
+        from_giotto(unreduced, reduced_homology=False, infinity_values=math.inf)
+
+    message = str(excinfo.value)
+    # `N11-10`: both arguments, together. The adapter cannot tell which of the
+    # two is wrong, and an error blaming one sends the caller to the wrong
+    # place.
+    assert "reduced_homology" in message, "the error does not name reduced_homology"
+    assert "infinity_values" in message, "the error does not name infinity_values"
+
+
+def test_from_giotto_accepts_a_diagram_whose_h0_was_never_computed(
+    giotto_no_h0_array: Any, giotto_output: dict[str, Any]
+) -> None:
+    """§11's middle term: the **negative control**, and the false positive it rules out.
+
+    "Every degree-0 death is finite" is a reduction over an empty selection,
+    so it is vacuously true of a diagram carrying no degree-0 row at all. A
+    check scoped only to "non-empty" would therefore refuse this array -- and
+    the array is an ordinary giotto call, not a perverse one:
+    `homology_dimensions=(1, 2)` is a request giotto's own API invites.
+    Appendix A.10 measures it.
+
+    This is the term that distinguishes §11's three-termed predicate from the
+    two-termed one it replaced, and `giotto_array` cannot test it: that
+    capture is `homology_dimensions=(0, 1)`, so every sample in it has H0
+    rows."""
+    no_h0 = giotto_no_h0_array(reduced=False)
+    call = giotto_output["samples_no_h0"]["reduced_false"]["call"]
+    assert "homology_dimensions=(1, 2)" in call, (
+        "the negative control was not captured without degree 0; re-run "
+        "tools/capture_giotto_fixture.py in the pinned environment"
+    )
+
+    # The properties the control exists to have, asserted rather than assumed
+    # -- so it cannot quietly become a second copy of a capture that does have
+    # H0 rows while this test keeps passing.
+    assert no_h0.shape[1] > 0, "the negative control is empty, so it tests nothing"
+    assert not np.any(no_h0[..., 2] == 0), "the negative control carries an H0 row"
+
+    b = from_giotto(no_h0, reduced_homology=False, infinity_values=math.inf)
+
+    assert len(b) == 1
+    assert b[0].meta.provenance["essential_bars"] == "faithful"
+
+
+def test_from_giotto_accepts_an_empty_diagram_under_the_same_declaration(
+    giotto_array: Any,
+) -> None:
+    """§11's first term: an empty diagram has no H0 bar to be non-finite.
+
+    Refusing it here would reject what §3.2 and §8.2 both treat as valid, so
+    the predicate is scoped to non-empty diagrams. Built from the fixture's
+    own dtype rather than a bare literal, so the case that reaches the check
+    is the one a real caller's empty batch would."""
+    empty = np.zeros((1, 0, 3), dtype=giotto_array(reduced=False).dtype)
+
+    b = from_giotto(empty, reduced_homology=False, infinity_values=math.inf)
+
+    assert len(b) == 1
+    assert b[0].n_bars == 0
+
+
+def test_from_giotto_does_not_check_a_reduced_homology_true_declaration(
+    giotto_default_array: Any,
+) -> None:
+    """§11: "The check does not extend to `reduced_homology=True`."
+
+    There the essential H0 class is dropped by design and its absence proves
+    nothing, so the same array that is impossible under `False` is ordinary
+    under `True`. That half is taken on trust, and §11 says so rather than
+    leaving a reader to assume the guarantee is symmetric.
+
+    Run against the array whose H0 deaths really are all finite, so the test
+    would fail if the check were applied regardless of the flag."""
+    reduced = giotto_default_array(reduced=True)
+    h0 = reduced[0][reduced[0][:, 2] == 0]
+    assert h0.shape[0] > 0, "the array has no H0 rows, so it cannot test the scoping"
+    assert not np.any(np.isinf(h0[:, 1])), "the array has an inf, so the check is moot"
+
+    b = from_giotto(reduced, reduced_homology=True, infinity_values=math.inf)
+
+    assert b[0].meta.provenance["essential_bars"] == "lost_upstream"
+
+
+def test_from_giotto_checks_impossibility_per_sample_across_a_batch(
+    giotto_default_array: Any,
+) -> None:
+    """§11's predicate is about a diagram, and a batch is many diagrams.
+
+    One impossible sample is enough: the batch as a whole cannot be adapted,
+    because the diagram that sample becomes would carry
+    `essential_bars="faithful"` over bars whose essential class was
+    finitized."""
+    unreduced = giotto_default_array(reduced=False, sample="batch")
+    assert unreduced.shape[0] == 2, "the batch capture is no longer two samples"
+
+    with pytest.raises(ValueError, match="reduced_homology"):
+        from_giotto(
+            unreduced,
+            reduced_homology=False,
+            infinity_values=math.inf,
+            # This capture is padded, and the default mode would warn about it
+            # -- noise this case is not about. `False` is §11.1's "keep the
+            # padding, without the warning" mode.
+            strip_padding=False,
+        )
 
 
 def test_from_giotto_derives_faithful_when_homology_is_not_reduced(
@@ -1979,7 +2107,7 @@ def test_from_giotto_preserves_row_order_among_the_rows_stripping_leaves() -> No
     )
 
     d = from_giotto(
-        arr, reduced_homology=False, infinity_values=math.inf, strip_padding=True
+        arr, reduced_homology=True, infinity_values=math.inf, strip_padding=True
     )[0]
 
     rows = [
@@ -2056,7 +2184,7 @@ def test_from_giotto_does_not_warn_when_there_is_no_padding() -> None:
 
     with warnings.catch_warnings():
         warnings.simplefilter("error")
-        b = from_giotto(arr, reduced_homology=False, infinity_values=math.inf)
+        b = from_giotto(arr, reduced_homology=True, infinity_values=math.inf)
 
     assert len(b) == 1
 
@@ -2700,7 +2828,7 @@ def test_from_giotto_aggregates_its_one_clamp_warning_over_the_whole_batch() -> 
 
     with pytest.warns(UserWarning, match="I6") as record:
         b = from_giotto(
-            arr, reduced_homology=False, infinity_values=math.inf, strip_padding=False
+            arr, reduced_homology=True, infinity_values=math.inf, strip_padding=False
         )
 
     messages = [str(w.message) for w in record if "I6" in str(w.message)]
@@ -2777,7 +2905,7 @@ def test_from_giotto_does_not_strip_a_row_the_clamp_made_trivial(
         warnings.simplefilter("always")
         d = from_giotto(
             arr,
-            reduced_homology=False,
+            reduced_homology=True,
             infinity_values=math.inf,
             strip_padding=strip_padding,
         )[0]
@@ -2810,7 +2938,7 @@ def test_the_giotto_padding_warning_counts_the_rows_before_the_clamp() -> None:
 
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always")
-        from_giotto(arr, reduced_homology=False, infinity_values=math.inf)
+        from_giotto(arr, reduced_homology=True, infinity_values=math.inf)
 
     trivial = [str(w.message) for w in record if "trivial" in str(w.message)]
     assert len(trivial) == 1
@@ -3301,7 +3429,7 @@ def test_the_adapters_d17_excludes_still_type_check_a_stated_field(
     with pytest.raises(TypeError, match="coeff_field"):
         from_giotto(
             np.array([[[0.0, 1.0, 0.0]]]),
-            reduced_homology=False,
+            reduced_homology=True,
             infinity_values=math.inf,
             coeff_field=field,
         )
@@ -3324,7 +3452,7 @@ def test_the_adapters_d17_excludes_still_type_check_a_stated_field(
             "from_giotto",
             lambda f: from_giotto(
                 np.array([[[0.0, 1.0, 0.0]]]),
-                reduced_homology=False,
+                reduced_homology=True,
                 infinity_values=math.inf,
                 coeff_field=f,
             )[0],
@@ -3798,7 +3926,7 @@ def test_from_giotto_strips_one_sample_empty_and_leaves_another_with_bars() -> N
     )
 
     b = from_giotto(
-        arr, reduced_homology=False, infinity_values=math.inf, strip_padding=True
+        arr, reduced_homology=True, infinity_values=math.inf, strip_padding=True
     )
 
     assert len(b) == 2
@@ -4024,7 +4152,21 @@ def test_a_columns_argument_is_still_refused_on_its_own_terms_first() -> None:
 
 
 def _one_bar_calls(birth: float, death: float, degree: int = 0) -> dict[str, Any]:
-    """The same single bar, spelled the way each backend spells it."""
+    """The same single bar, spelled the way each backend spells it.
+
+    **`from_giotto`'s arm declares `reduced_homology=True`, and alone among
+    the five it has to.** The bar is degree 0 with a finite death, and §11's
+    impossibility check refuses exactly that under `reduced_homology=False`:
+    non-reduced H0 of a nonempty space carries a class that never dies, so a
+    diagram whose only H0 death is finite contradicts the declaration
+    (`N11-9`). Under `True` the essential class was dropped upstream by
+    design, which is an ordinary and truthful description of this array.
+
+    The flag is incidental to every caller of this helper -- they test I4, I5,
+    I6 and the clamp -- so it is set to the value that leaves the array valid
+    rather than to the one that makes the helper refuse itself. §11's check is
+    tested directly, against real giotto output, by the
+    `test_from_giotto_*_impossible_*` cases above."""
     block = np.array([[birth, death]])
     blocks = [np.empty((0, 2))] * degree + [block]
     return {
@@ -4034,7 +4176,7 @@ def _one_bar_calls(birth: float, death: float, degree: int = 0) -> dict[str, Any
         "from_array": lambda: from_array(block, dim=degree),
         "from_giotto": lambda: from_giotto(
             np.array([[[birth, death, float(degree)]]]),
-            reduced_homology=False,
+            reduced_homology=True,
             infinity_values=math.inf,
         ),
     }
