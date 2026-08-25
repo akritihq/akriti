@@ -11,6 +11,7 @@ from __future__ import annotations
 import importlib
 import io
 import json
+import re
 import struct
 import subprocess
 import sys
@@ -30,7 +31,10 @@ import akriti.diagrams as diagrams
 
 FORMAT = "akriti.diagrams.akd"
 SPEC = "RFC-0001"
-SPEC_VERSION = "0.3.0"
+SPEC_VERSION = "1.0.0"
+
+_ROOT = Path(__file__).resolve().parents[1]
+_RFC_PATH = _ROOT / "rfcs/0001-persistence-diagram-interchange.md"
 
 
 def make_diagram(
@@ -1298,7 +1302,7 @@ def test_deep_metadata_recursion_is_normalized_to_value_error(tmp_path: Path) ->
     deeply_nested = '{"x":' * depth + "0" + "}" * depth
     metadata = (
         '{"format":"akriti.diagrams.akd","format_version":0,'
-        '"spec":"RFC-0001","spec_version":"0.3.0","kind":"diagram",'
+        '"spec":"RFC-0001","spec_version":"1.0.0","kind":"diagram",'
         '"meta":{"filtration":null,"backend":null,"backend_version":null,'
         '"coeff_field":null,"params":{"deep":'
         + deeply_nested
@@ -1525,13 +1529,13 @@ def test_duplicate_json_object_keys_are_rejected(tmp_path: Path, location: str) 
         )
         metadata = (
             '{"format":"akriti.diagrams.akd","format_version":0,"kind":"diagram",'
-            f'"meta":{duplicate_meta},"spec":"RFC-0001","spec_version":"0.3.0"}}'
+            f'"meta":{duplicate_meta},"spec":"RFC-0001","spec_version":"1.0.0"}}'
         )
     else:
         metadata = (
             '{"format":"akriti.diagrams.akd","format_version":0,"kind":"diagram",'
             f'"meta":{meta_text},"meta":{meta_text},"spec":"RFC-0001",'
-            '"spec_version":"0.3.0"}'
+            '"spec_version":"1.0.0"}'
         )
     path = write_bytes(
         tmp_path / f"duplicate-{location}.akd",
@@ -2151,3 +2155,47 @@ def test_a_value_that_cannot_convert_reports_the_original_failure() -> None:
 
     with pytest.raises(RuntimeError, match="original failure"):
         io_module._to_numpy(np, NeverConverts())
+
+
+def test_spec_version_agrees_with_the_rfc_header() -> None:
+    """``_SPEC_VERSION`` tracks RFC-0001's Version row, and nothing else does.
+
+    §10.2 defines ``spec_version`` as which revision of the specification the
+    writer implemented, and the header's Version row names *itself* as what
+    §10.2 writes into every file. They are one fact recorded twice, so they can
+    disagree -- and they have, twice. ``_SPEC_VERSION`` sat at ``0.1.0`` across
+    three document revisions until changelog entry 65 noticed; the revision
+    that opened the comment window moved the header to ``1.0.0`` and left the
+    writer at ``0.3.0``.
+
+    Neither drift was caught, and the reason both times is that the pins in
+    this module move *with* ``io.py`` rather than against the document: they
+    agree with each other while the file on disk claims conformance to a
+    revision the specification does not describe. This asserts the comparison
+    that was missing, against the document itself.
+    """
+    header = _RFC_PATH.read_text(encoding="utf-8")
+
+    row = re.search(r"^\|\s*\*\*Version\*\*\s*\|\s*(\d+\.\d+\.\d+)", header, re.M)
+    assert row is not None, "RFC-0001's header has no Version row to compare against"
+    documented = row.group(1)
+
+    assert documented == _io_module()._SPEC_VERSION
+    assert documented == SPEC_VERSION
+
+
+def test_the_rfc_example_metadata_block_carries_the_documented_version() -> None:
+    """§10.2's illustrative ``meta.json`` is a literal, and drifts like one.
+
+    A reader copies that block; if it names a revision the writer never emits,
+    the document contradicts itself in the one place readers reach for first.
+    """
+    header = _RFC_PATH.read_text(encoding="utf-8")
+
+    row = re.search(r"^\|\s*\*\*Version\*\*\s*\|\s*(\d+\.\d+\.\d+)", header, re.M)
+    assert row is not None
+    documented = row.group(1)
+
+    examples = re.findall(r'"spec_version":\s*"(\d+\.\d+\.\d+)"', header)
+    assert examples, "§10.2's example block no longer names spec_version"
+    assert set(examples) == {documented}
