@@ -19,8 +19,8 @@ in the plan's order.
 | 4 | Tier 2 decisions | `rfc/0001/decisions-d23-d26` | D23 settled, D24 opened, `F5`/`F8` as clauses |
 | 5 | Tier 3, then 4 and 5 | `rfc/0001/tier3-gaps`, `rfc/0001/tier4-5-editorial` | done |
 | 6 | Structural | `rfc/0001/normative-index`, `rfc/0001/internal-reference-sweep` | done |
-| 7 | Version and changelog | `rfc/0001/version-and-changelog` | 0.4.0, entries 66-74. **`rfc/publish-for-comment` NOT rebased** -- blocked on D24 |
-| 8 | Proof | -- | pytest 1198 passed / 6 skipped, Ruff check and format, mypy clean |
+| 7 | Version and changelog | `rfc/0001/version-and-changelog` | 1.1.0, entries 68-76, renumbered behind main's 66-67. Rebased onto published `main` (#34); D24 settled in §12.2 |
+| 8 | Proof | -- | pytest 1199 passed / 6 skipped / 1 failed, Ruff check and format, mypy clean. The failure is `test_smoke.py::test_runtime_and_distribution_versions_agree`, inherited from main: the venv's editable install still reports `0.0.1.dev0` against the released `0.1.0` |
 
 
 | # | Phase | Branch(es) | State |
@@ -94,12 +94,13 @@ Small and deliberately not mixed into an RFC-only branch:
 
 ## What is left
 
-- **`rfc/publish-for-comment` is not rebased**, and this is deliberate. The
-  plan's own ordering constraint says `F6` and `F21` settle before it merges,
-  because that commit reproduces §10.2's bump-rule text verbatim. They are
-  now D24 and with the lead. `origin/rfc/publish-for-comment` is one commit
-  and still rebases cleanly onto `main` apart from its changelog entry, which
-  becomes 72 rather than 66.
+- **`rfc/publish-for-comment` has landed**, as #34 on `origin/main`, and this
+  branch is rebased onto it -- 20 commits ahead, nothing behind. The plan's
+  ordering constraint said `F6` and `F21` settle before it merges, because
+  that commit reproduces §10.2's bump-rule text verbatim. It is discharged
+  from the other side instead: the text is inherited rather than reproduced,
+  and D24 settled in favour of keeping the rule, so the publication diff would
+  not have moved either way.
 - **Nothing is pushed.** Every branch is local.
 - The dependency-closure check was not re-run in a clean environment: it
   exits 1 in the developer venv on the *unmodified* baseline tool too, gudhi
@@ -140,8 +141,9 @@ Four corrections, on the owner's reading:
   glued to the paragraph above it. The index now covers §1-§11 only.
 - **Changelog entries rewritten to length.** They were 181-289 words against
   a house median of 52 across entries 1-65; they are now 52-120, and nine
-  entries rather than six, renumbered 66-74. `rfc/publish-for-comment`'s own
-  entry becomes 75 when it rebases.
+  entries rather than six, renumbered 68-76 -- behind, not ahead of,
+  `rfc/publish-for-comment`'s own 66 and 67, which landed on `main` as #34
+  before this branch was rebased onto it.
 - **The document no longer refers to a review of it.** A reader cannot
   resolve a pointer to a document that is not this one.
 - **Nor to components it does not affect.** The §1 gloss table answered the

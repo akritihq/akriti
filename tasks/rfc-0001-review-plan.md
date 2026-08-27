@@ -26,7 +26,8 @@ the review's own numbering so the two documents cross-reference cleanly.
 - Findings that change a BCP 14 clause move `spec_version`'s minor per
   §10.2, and `io.py`'s `_SPEC_VERSION` plus the four `spec_version` pins in
   the I/O tests follow. Expect one bump for the whole pass, not one per
-  finding: `0.4.0` since Tier 1 precedes publication.
+  finding: `1.1.0`, this pass now following publication rather than
+  preceding it.
 - Where the implementation is already correct and the RFC is wrong, the RFC
   moves. That is the case for `F3`, `F5`, `F8` and `F26`, and it is worth
   noting as a pattern: the spec has drifted behind working code in four
@@ -288,15 +289,17 @@ which branch and what the measurements changed about the findings.
 - [x] Tier 1 corrections
 - [x] `F25` in code, test first
 - [x] Tier 2 decisions taken and recorded -- `F1` settled as D23, `F5` and
-      `F8` as clauses, `F6`/`F21` **opened as D24 and left with the lead**
+      `F8` as clauses, `F6`/`F21` **opened as D24 and since settled**
 - [x] Tier 3 editing pass
 - [x] Tier 4 and Tier 5
 - [x] Normative-requirements index (`F23`) -- generated, with a standing test
 - [x] Internal-reference sweep (`F24`)
-- [x] Version bump to `0.4.0` and changelog entries 66-71
-- [ ] `rfc/publish-for-comment` rebased -- **blocked on D24**, per this plan's
-      own ordering constraint: that commit reproduces the bump-rule text
-      verbatim, so settling `F6`/`F21` changes the publication diff
+- [x] Version bump to `1.1.0` and changelog entries 68-73
+- [x] Publication reconciled in the other direction: `rfc/publish-for-comment`
+      landed on `main` as #34 and this branch was rebased onto it, so the
+      bump-rule text is inherited rather than reproduced and the ordering
+      constraint no longer binds. `D24` is since settled, and settled in
+      favour of the inherited rule
 - [x] Full proof run
 
 Two findings turned out to be wrong as written, and both were caught by
@@ -311,10 +314,15 @@ measuring rather than by reading:
   document's first commit, so the preamble and §9.2 were never in conflict.
   What was true, and worse, is that the shim is nowhere in the document.
 
-Three items are open and named as such rather than closed quietly:
+Two items are open and named as such rather than closed quietly:
 
-- **D24** (`F6`, `F21`) is with the lead, and blocks the publication rebase.
 - **`F22`'s rename** of `d.essential` to `essential_mask` is not taken here:
   it is a public API change and pre-M1 is the last cheap moment for it.
 - **`F9`'s clamp threshold** is stated as an unfixed gap with its cost named.
   Fixing it is `O4`.
+
+**D24** (`F6`, `F21`) was the third of these and is now settled, in §12.2 and
+in changelog entry 75: §10.2's bump rule stands, requirement 4's guarantee is
+scoped to one `spec_version` with `bars.npz` named as the comparison that
+survives revisions, and Appendix C's generated clause set is what makes the
+keyword condition mechanical enough to keep.
