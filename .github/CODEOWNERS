@@ -6,30 +6,40 @@
 # individual handles as PIs and developers join; team handles work today and do
 # not need updating when membership changes.
 #
+# Every path below names the developers alongside the lead. That is a
+# mechanical fix rather than a change of judgement: GitHub forbids approving
+# your own pull request, so a path owned by the lead alone is a path the lead
+# cannot merge a change to. Since the lead authors most changes to these paths,
+# each one waited on a volunteer to click — #24, #33, #34, #37 and #38 all
+# stalled that way, none of them on a question. Naming both makes a developer's
+# approval the ordinary route rather than a favour, and takes nothing away:
+# the lead still reviews everything he reviewed before, and branch protection
+# still requires an approval, green CI, and no force-pushes.
+#
 # Last matching pattern wins, so order matters: general first, specific last.
 
 # Default: the lead reviews anything not otherwise claimed.
-*                       @sushovan4
+*                       @sushovan4 @akritihq/developers
 
 # Specifications. Changing a published contract is a project-level decision,
 # not a code review.
-/rfcs/                  @sushovan4
+/rfcs/                  @sushovan4 @akritihq/developers
 
 # Correctness-critical statistical core. Every function here traces to an
 # equation in Papers I-IV, and someone has to defend it to a referee.
 # See CLAUDE.md, "AI assistance -- three tiers".
-/src/akriti/core/       @sushovan4
-/src/akriti/castle/     @sushovan4
+/src/akriti/core/       @sushovan4 @akritihq/developers
+/src/akriti/castle/     @sushovan4 @akritihq/developers
 
 # Licensing and supply chain. A change here can silently widen the default
 # install closure -- the exact failure DEPENDENCIES.md exists to prevent.
-/pyproject.toml         @sushovan4
-/DEPENDENCIES.md        @sushovan4
-/tools/                 @sushovan4
-/SECURITY.md            @sushovan4
+/pyproject.toml         @sushovan4 @akritihq/developers
+/DEPENDENCIES.md        @sushovan4 @akritihq/developers
+/tools/                 @sushovan4 @akritihq/developers
+/SECURITY.md            @sushovan4 @akritihq/developers
 
 # Release and CI configuration.
-/.github/               @sushovan4
+/.github/               @sushovan4 @akritihq/developers
 
 # The interchange layer and packaging are the students' to own. Both of them
 # review here: they review each other's PRs, and Majhi reviews both.
