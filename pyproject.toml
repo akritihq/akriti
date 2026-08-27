@@ -111,7 +111,7 @@ io = ["akriti[numpy]"]
 torch = ["torch>=2.0", "array-api-compat>=1.15.0"]
 
 # Apache-2.0 Parquet escape hatch (RFC-0001 §10.3).
-parquet = ["pyarrow>=25.0.0"]
+parquet = ["pyarrow>=25.0.1"]
 
 # Domain integration.
 bio = ["anndata>=0.10"]
@@ -167,7 +167,7 @@ testpaths = ["tests"]
 addopts = "-ra --strict-markers --strict-config"
 markers = [
     "backend: requires an optional persistence backend to be installed",
-    "parquet: requires pyarrow>=25.0.0 to be installed",
+    "parquet: requires pyarrow>=25.0.1 to be installed",
     "rips: requires the Ripser optional backend",
     "alpha: requires the GUDHI optional backend",
     "distances: requires the persim optional backend",
