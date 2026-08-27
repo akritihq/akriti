@@ -2,12 +2,12 @@
 
 | Field | Value |
 |---|---|
-| **Status** | Draft — not yet open for public comment |
-| **Version** | 0.3.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
+| **Status** | Open for public comment — opened 2026-08-23, closes 2026-10-16 (#31) |
+| **Version** | 1.0.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
 | **Authors** | Sushovan Majhi, A. D. Silberman, Edward Bae |
 | **Created** | 2026-07-29 |
-| **Last Edited** | 2026-08-20 |
-| **Target** | M0 (2026-08-01) drafted — met, initial draft 2026-07-29 · published for comment 2026-08-23, ahead of M1 |
+| **Last Edited** | 2026-08-23 |
+| **Target** | M0 (2026-08-01) drafted — met, initial draft 2026-07-29 · published for comment 2026-08-23 — met · M1 follows |
 | **Implements** | `akriti.diagrams` |
 
 Key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, **MAY** are to be
@@ -2017,6 +2017,29 @@ published, without invoking this library at all: the same
 audit-without-our-library spirit as requirement 5. §11.2 tests it directly,
 as its own case, separate from the round-trip and invariant tests.
 
+**That guarantee is scoped to one `spec_version`, and the scope is a
+consequence rather than a concession.** `meta.json` carries `spec_version`,
+which §10.2 defines as the revision the *writer* implemented and which
+therefore moves on every revision of this document, editorial passes
+included. A fixture committed under one revision and regenerated under a
+later one differs in exactly that field and in nothing else, so the
+byte-comparison above holds **between writers implementing the same
+`format_version` and the same `spec_version`**, and a checksum mismatch
+across a spec bump is the field doing its job rather than a determinism
+failure. A regeneration check that must survive spec revisions compares
+`bars.npz`, which carries no version stamp at all and is where every bar
+lives.
+
+Three alternatives were weighed and rejected. **Dropping `spec_version`**
+buys cross-revision checksums at the cost of the audit trail requirement 3
+exists for. **Redefining it as the revision that last moved
+`format_version`** would make it deterministic across time, but it would
+then duplicate `format_version` and stop answering the question §10.2 says
+it answers. **Excluding it from the compared bytes** asks a reader to know
+which bytes to skip, which is requirement 5's inspectability traded away for
+requirement 4's convenience. Naming the scope costs nothing and misleads
+nobody.
+
 **Requirement 4 is an implementation obligation on `save()`, and the format
 choice does not discharge it.** An `.akd` is a zip holding a member that is
 itself a zip, and neither layer is deterministic on its own: the payload varies
@@ -2110,7 +2133,7 @@ message byte for byte:
   "format": "akriti.diagrams.akd",
   "format_version": 0,
   "spec": "RFC-0001",
-  "spec_version": "0.3.0",
+  "spec_version": "1.0.0",
   "kind": "diagram",
   "meta": { "filtration": "rips", "backend": "ripser", "...": "..." }
 }
@@ -2121,7 +2144,7 @@ message byte for byte:
 | `format` | `str` | Exactly `"akriti.diagrams.akd"`. This is requirement 3's self-identification, and it MUST be a fixed string rather than anything derived, so a reader can recognise the file without parsing the rest |
 | `format_version` | `int` | The version of *this layout*, currently `0`. Incremented whenever a change would make an older `load` misread a newer file. The one version key `load` is allowed to branch on |
 | `spec` | `str` | Which specification defines the file: `"RFC-0001"`. Separate from `format` so that a format defined by some later RFC is distinguishable from a later revision of this one |
-| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"0.3.0"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. **A revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor; a revision that alters none MUST increment the patch.** The major is `0` while the Status row reads Draft and becomes `1` at the revision published for comment. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
+| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"1.0.0"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. **A revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor; a revision that alters none MUST increment the patch.** The major is `0` while the Status row reads Draft and becomes `1` at the revision published for comment. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
 | `kind` | `str` | `"diagram"` or `"batch"`. Nothing else is valid |
 | `meta` | object | Present iff `kind == "diagram"`: one `DiagramMeta` as a JSON object, its own keys being the field names of §8's dataclass |
 | `metas` | array | Present iff `kind == "batch"`: the per-diagram `DiagramMeta` objects, in batch order |
@@ -3281,7 +3304,7 @@ once, against a wrong default forever.
 
 ## Appendix C — Changelog
 
-*Author's note: this is a draft change log, kept for the comment window. Remove this appendix before publication, replacing it with a Post-History pointer to PR #10 and the commit range it covers. Entries 13, 14, 16, 18, 34, 51 and 52 refer to a separate history document; it was retired at entry 56 and is readable at `cff895e`.*
+*Author's note: this change log is kept **through** the comment window and removed when the window closes, replaced then by a Post-History pointer to PR #10 and the commit range it covers. An earlier version of this note said "remove before publication", which contradicted its own first clause: publication *opens* the window rather than ending it, and a reviewer arriving at a document this size is the reader who most needs to know which parts moved last — D19 through D22 and the `spec_version` rule are all a fortnight old. Entries 13, 14, 16, 18, 34, 51 and 52 refer to a separate history document; it was retired at entry 56 and is readable at `cff895e`.*
 
 Full narrative: history document.
 
@@ -3351,3 +3374,5 @@ Full narrative: history document.
 - **2026-08-20 (63)** — **Opens and settles D20**: `from_gudhi` accepts GUDHI's sklearn-compatible form, with `homology_dimensions` required alongside it. Decided on measurement rather than API taste. That form's shape is identical to Ripser's `Rips().fit_transform(X)` and to persim's input, so it cannot identify itself — and it is not the same object, Ripser's index being the homological degree while GUDHI's is a position in the caller's `homology_dimensions` list, which the return value does not carry: `[2, 0]` returns H2 then H0, and `[1]` a length-one list holding H1. Reading index as degree would mislabel every diagram computed with a reordered or non-contiguous list, silently and plausibly. The missing fact is therefore required from the caller, on §5.1's `reduced_homology` precedent. A separate adapter and a `format=` argument are both rejected in the row: neither supplies the degrees. `coeff_field` is unaffected — `RipsPersistence` also defaults to 11 — and the row records the planned `compute_persistence()` at $\mathbb{Z}/2$ as the condition to reopen against.
 - **2026-08-20 (64)** — **Opens D22 and leaves it open**, the first row §12.1 has carried since D18 closed. `load` has no resource-budget contract: §10 says what it MUST validate for correctness and nothing about cost, so a well-formed but enormous `.akd` is unbounded even though the loader already refuses an NPY header inconsistent with its member's declared size. The row states the prior question — whether `load` is meant to be safe against a file from a stranger — and the three coherent answers, with the lead's lean toward caller-supplied budgets. It is published unresolved deliberately: a format's threat model is what a comment window is for, and the projects best placed to answer are the ones being asked to read this. Raised by Edward Bae. **§8 also gains a Unicode clause**: metadata strings MUST be sequences of Unicode scalar values, enforced at construction over the scalar fields, mapping keys and nested values. §8's existing rule reasons about types and an unpaired surrogate is an ordinary `str` with no UTF-8 encoding, so the type admitted diagrams §10.2 could not write, failing at `save()` rather than where the metadata was built.
 - **2026-08-20 (65)** — **The document becomes 0.3.0**, and the minor rather than the patch moves because §10.2's own rule says so: a revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor. Entries 58-64 add several — D20's three, D21's two, and §8's Unicode clause — so 0.2.2 would have been this document breaking a rule it states. Entry 57 correctly took the patch, having altered none. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow, all having been written against `0.1.0` on a branch that predated the rule as well as the number. The note recording that the condition began binding at `0.2.0` stays as it is: that is history, not a current version.
+- **2026-08-23 (66)** — **Published for public comment; the document becomes 1.0.0.** The Status row opens the window, dated to its close on 2026-10-16 and pointing at #31, and the Target row records M0's publication commitment met. The major moves on entry 55's rule, which sets it to `1` at the revision published for comment; no BCP 14 clause is added, removed or altered by this pass, so nothing else in it is normative. Appendix C's author's note is corrected: it had said both that the log was kept for the comment window and that it should be removed before publication, which cannot both hold when publication is what opens the window. It is kept through the window and removed at its close. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow the header, as they did at entry 65; an earlier revision of this entry moved the document to `1.0.0` and left the writer emitting `0.3.0`, so a file written by the reference implementation would have claimed conformance to a revision this document had stopped describing. That is the second such drift -- entry 65 records the first, three revisions wide -- and both survived because the pins move *with* the writer rather than against the header. Two tests in `tests/test_rfc0001_io.py` now compare both against the Version row itself, and §10.2's illustrative `meta.json` against it as well.
+- **2026-08-23 (67)** — §10.1 requirement 4's rationale claimed more than the requirement delivers, reported as #35 against the revision being published. It said a regenerated fixture reproduces "the file previously committed or published" — a claim across time — while `meta.json` carries `spec_version`, which moves on every revision including editorial ones, so the checksum breaks on any spec bump and would have broken on this one. The normative clause was always correct and is untouched; the rationale now states the scope, names `bars.npz` as the version-free comparison for checks that must survive revisions, and records the three alternatives rejected. No BCP 14 clause added, removed or altered.
