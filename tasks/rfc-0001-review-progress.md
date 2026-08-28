@@ -101,7 +101,6 @@ Small and deliberately not mixed into an RFC-only branch:
   from the other side instead: the text is inherited rather than reproduced,
   and D24 settled in favour of keeping the rule, so the publication diff would
   not have moved either way.
-- **Nothing is pushed.** Every branch is local.
 - The dependency-closure check was not re-run in a clean environment: it
   exits 1 in the developer venv on the *unmodified* baseline tool too, gudhi
   and hopcroftkarp being installed there, and CI builds `.venv-closure`
