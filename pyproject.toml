@@ -139,7 +139,7 @@ test = [
     "akriti[numpy]",
 ]
 lint = [
-    "ruff>=0.16.3",
+    "ruff>=0.16.4",
     "mypy>=2.3.1",
 ]
 dev = ["akriti[test,lint,rips,alpha,distances]"]
