@@ -217,3 +217,8 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Working documents. The record lives in commits, PRs and issues; a fourth
+# copy in-tree is a fourth place for the truth to go stale — which it did,
+# producing a wrong claim in a PR description that survived review (#43, #46).
+tasks/
