@@ -47,7 +47,8 @@ permissions:
 
 # Never cancel a release in flight. A run interrupted partway through the
 # upload leaves a half-published version, and PyPI does not allow replacing a
-# file that has landed. Serialise releases instead of cancelling them.
+# file that has landed. Serialise re-runs of the same tag instead of
+# cancelling them. (Different tags get independent groups.)
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
@@ -140,6 +141,15 @@ jobs:
           /tmp/closure/bin/python tools/check_license_closure.py --profile default
           /tmp/closure/bin/python -c "from akriti.diagrams import PersistenceDiagram, DiagramBatch"
 
+      # The sdist gets `twine check` (metadata rendering) but no install
+      # gate. Mirror the wheel smoke test so both published artifacts are
+      # proven installable before reaching PyPI.
+      - name: Sdist installs and imports
+        run: |
+          python -m venv /tmp/sdist-check
+          /tmp/sdist-check/bin/pip install --quiet dist/*.tar.gz
+          /tmp/sdist-check/bin/python -c "from akriti.diagrams import PersistenceDiagram, DiagramBatch"
+
       # The suite against the wheel a user would install, rather than against
       # the source tree CI already covers. This catches what an import smoke
       # test cannot: a subpackage or data file missing from the built wheel.
@@ -163,6 +173,10 @@ jobs:
         with:
           name: dist
           path: dist/
+          # Artifacts persist across re-run attempts. Without this,
+          # "Re-run all jobs" fails at upload because the name already
+          # exists; only "Re-run failed jobs" would work.
+          overwrite: true
 
   publish:
     needs: build
