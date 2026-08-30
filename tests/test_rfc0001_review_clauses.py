@@ -1,8 +1,8 @@
 """Tests for the normative clauses RFC-0001 gained in the review pass.
 
 Scope: the changes branch ``rfc/0001/review`` made to
-``rfcs/0001-persistence-diagram-interchange.md`` -- Appendix D entries 66-74,
-which carried the document from 0.2.2 to 0.4.0.
+``rfcs/0001-persistence-diagram-interchange.md`` -- Appendix D entries 68-76,
+which carried the document from 1.0.0 to 1.1.0.
 
 These tests were written from the specification alone. No file under ``src/``
 was read while writing them: every assertion below is derived from a quoted
@@ -50,7 +50,7 @@ RFC_PATH = (
 
 #: The document version the review pass landed (header row, and the value
 #: §10.2 requires ``save`` to write as ``spec_version``).
-SPEC_VERSION = "0.4.0"
+SPEC_VERSION = "1.1.0"
 
 
 def diagram(
@@ -121,7 +121,7 @@ def rewrite_meta_json(src: Path, dst: Path, meta: dict[str, Any]) -> None:
 # --------------------------------------------------------------------------
 # §2 -- the diagonal clause, rewritten so that trivial bars are ordinary bars
 #
-# Entry 66: "§2's diagonal clause forbade the trivial bars §4, §11.1 and §11.2
+# Entry 68: "§2's diagonal clause forbade the trivial bars §4, §11.1 and §11.2
 # all depend on; it now names the diagonal-as-a-multiset."
 #
 #   "A bar with `birth == death` is **trivial**: it has zero persistence."
@@ -279,7 +279,7 @@ def test_n3_1_10_batch_copies_the_metas_sequence() -> None:
 # --------------------------------------------------------------------------
 # §3.1 -- N3.1-11, N3.1-12: I8's copy rule reaches ``params`` and ``provenance``
 #
-# Entry 70: "I8's copy rule binds `params` and `provenance`, not only the
+# Entry 72: "I8's copy rule binds `params` and `provenance`, not only the
 # arrays and `metas`."
 #
 #   N3.1-12: "Unlike the array case this is enforceable -- the mappings hold
@@ -348,7 +348,7 @@ def test_n3_1_12_nested_mapping_exposed_read_only() -> None:
 # --------------------------------------------------------------------------
 # §3.2 -- the general ``meta`` propagation rule for derived diagrams
 #
-# Entry 66: "§3.2 gains a general `meta` propagation rule for derived diagrams
+# Entry 68: "§3.2 gains a general `meta` propagation rule for derived diagrams
 # and with it the requirement that `d.finite` record its drop."
 #
 #   "**Every derived diagram carries `meta` through unchanged, except where the
@@ -521,7 +521,7 @@ def test_s3_2_finite_is_idempotent_without_a_false_second_claim() -> None:
 # --------------------------------------------------------------------------
 # §3.2 -- ``d.essential`` and ``d.finite`` are not complements
 #
-# Entry 72: "§3.2 states that `d.essential` and `d.finite` are not
+# Entry 74: "§3.2 states that `d.essential` and `d.finite` are not
 # complements."
 #
 #   "`d.essential` is a **mask** over bars, shape `(n_bars,)`; `d.finite` is a
@@ -594,7 +594,7 @@ def test_n3_2_4_essential_bars_is_a_claim_about_its_own_diagram() -> None:
 # --------------------------------------------------------------------------
 # §4.2 -- the four rules now governing ``DiagramBatch.__getitem__``
 #
-# Entry 66: "§4.2's `__getitem__` sketch read `offsets[i]` without
+# Entry 68: "§4.2's `__getitem__` sketch read `offsets[i]` without
 # normalising, so `i = -1` returned an **empty** diagram carrying the last
 # diagram's metadata; four rules now govern indexing, and §4 gains `__iter__`."
 #
@@ -785,7 +785,7 @@ def test_s4_3_dimensions_comprehension_from_the_document_runs() -> None:
 # §8.1 -- per-element packing, and signed-zero normalisation before either
 #         byte path
 #
-# Entry 71: "§8.1's per-element packing, with signed-zero normalisation placed
+# Entry 73: "§8.1's per-element packing, with signed-zero normalisation placed
 # before either byte path".
 #
 #   "**Every other namespace MUST pack element by element as `>d` for `births`
@@ -873,7 +873,7 @@ def test_s8_1_hash_is_stable_across_calls() -> None:
 # --------------------------------------------------------------------------
 # §10.1 -- ``save`` MUST refuse a non-host-resident array
 #
-# Entry 71: "`save()` MUST refuse a non-host-resident array by name."
+# Entry 73: "`save()` MUST refuse a non-host-resident array by name."
 #
 #   "So `save` MUST raise `ValueError` naming the device and the remedy -- the
 #    caller's own `.cpu()`, `jax.device_get`, or `xp.from_dlpack` -- rather
@@ -930,12 +930,12 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
-# §10.2 -- the document is 0.4.0, and ``save`` writes that
+# §10.2 -- the document is 1.1.0, and ``save`` writes that
 #
-# Entry 74: "the document becomes 0.4.0 ... `io.py`'s `_SPEC_VERSION` and the
+# Entry 76: "the document becomes 1.1.0 ... `io.py`'s `_SPEC_VERSION` and the
 # four `spec_version` pins in the I/O tests follow."
 #
-#   "`spec_version` | `str` | ... `"0.4.0"` at time of writing."
+#   "`spec_version` | `str` | ... `"1.1.0"` at time of writing."
 # --------------------------------------------------------------------------
 
 
@@ -960,7 +960,7 @@ def test_s10_2_schema_table_carries_the_same_version() -> None:
 
 
 def test_s10_2_no_stale_version_survives_the_bump() -> None:
-    """The three places entry 74 had to move together, and the one that would
+    """The three places entry 76 had to move together, and the one that would
     silently disagree if only two were edited.
     """
     text = rfc_text()
@@ -1012,7 +1012,7 @@ def test_s10_2_archive_holds_exactly_two_named_entries_in_order(
 # --------------------------------------------------------------------------
 # §3.1 -- N3.1-3: the clamp has one target and one record
 #
-# Entry 71: "`clamped_rows` gets a target and a recording obligation".
+# Entry 73: "`clamped_rows` gets a target and a recording obligation".
 #
 #   "An adapter that repairs such a row MUST set `death := birth`, ... and it
 #    MUST record the count in `provenance["clamped_rows"]` (§8) -- including
@@ -1188,7 +1188,7 @@ def test_s9_1_essential_bars_cost_their_birth_difference() -> None:
 # --------------------------------------------------------------------------
 # §10.3 -- `to_csv()` has no reader half
 #
-# Entry 71: "§10.3 states that `to_csv()` has no reader half."
+# Entry 73: "§10.3 states that `to_csv()` has no reader half."
 #
 #   "**It has no reader half, and this document does not add one.** ... The
 #    caller supplies the parse ... **§11.2's round-trip case for this pair is
@@ -1246,7 +1246,7 @@ def test_s10_3_round_trip_is_to_csv_then_a_caller_side_parse() -> None:
 # --------------------------------------------------------------------------
 # §11.2 -- N11.2-9: the determinism mechanism is asserted, not slept for
 #
-# Entry 72: "§11.2's determinism case asserting the pinned `ZipInfo` fields
+# Entry 74: "§11.2's determinism case asserting the pinned `ZipInfo` fields
 # rather than sleeping 2.5 s per case."
 #
 #   "The mechanism MUST be asserted directly -- every member's
@@ -1304,7 +1304,7 @@ def test_n11_2_10_two_writes_agree_byte_for_byte(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 # §11 -- the `reduced_homology=False` check becomes three-termed
 #
-# Entry 67: "§11's `reduced_homology=False` check refused three ordinary calls.
+# Entry 69: "§11's `reduced_homology=False` check refused three ordinary calls.
 # "All H0 deaths are finite" is a reduction over an empty selection, so it
 # holds vacuously wherever `homology_dimensions` excludes 0".
 #
@@ -1341,7 +1341,7 @@ def test_s11_all_three_terms_hold_so_the_declaration_is_refused() -> None:
 
 
 def test_s11_term_two_fails_when_homology_dimensions_excludes_zero() -> None:
-    """The regression entry 67 names: a non-empty diagram whose H0 sub-diagram
+    """The regression entry 69 names: a non-empty diagram whose H0 sub-diagram
     is absent makes "all H0 deaths are finite" vacuously true.
     """
     arr = giotto_array([[0.5, 1.5, 1.0], [0.6, 1.6, 2.0]])
@@ -1415,7 +1415,7 @@ def test_s11_batch_length_is_the_leading_axis(n_samples: int) -> None:
 # --------------------------------------------------------------------------
 # §11 -- `from_gudhi` takes one sample where `fit_transform` returns many
 #
-# Entry 71: "§11 says `from_gudhi` takes one sample where `fit_transform`
+# Entry 73: "§11 says `from_gudhi` takes one sample where `fit_transform`
 # returns many."
 #
 # D20's measured mapping: index position in `homology_dimensions` is not the
@@ -1537,7 +1537,7 @@ def test_s4_3_batch_essential_is_a_mask_one_level_up() -> None:
 # --------------------------------------------------------------------------
 # Appendix C -- the generated normative-requirements index
 #
-# Entry 73: "**New Appendix C, the normative-requirements index** ... It is
+# Entry 75: "**New Appendix C, the normative-requirements index** ... It is
 # **generated** ... It is placed **before** the changelog".
 #
 # These check the document's own internal consistency, without invoking the
@@ -1634,8 +1634,8 @@ def test_appendix_c_ids_are_unique() -> None:
 # --------------------------------------------------------------------------
 # §12 -- the header loses the clause contradicting the same sentence
 #
-# Entry 66: "§12's header loses a clause contradicting the same sentence."
-# Entry 69 opened D24 and left it open, so §12.1 now carries two rows.
+# Entry 68: "§12's header loses a clause contradicting the same sentence."
+# Entry 71 opened D24; entry 75 closed it, so §12.1 now carries one row.
 # --------------------------------------------------------------------------
 
 
@@ -1648,7 +1648,7 @@ def test_s12_header_no_longer_says_the_open_section_is_empty() -> None:
     assert "are open" in header or "is open" in header
 
 
-def test_s12_open_decisions_are_d22_and_d24() -> None:
+def test_s12_open_decisions_are_d22() -> None:
     text = rfc_text()
     open_section = text.split("### 12.1 Open")[1].split("### 12.2")[0]
     open_ids = {
@@ -1656,4 +1656,4 @@ def test_s12_open_decisions_are_d22_and_d24() -> None:
         for line in open_section.splitlines()
         if line.startswith("| **D")
     }
-    assert open_ids == {"D22", "D24"}
+    assert open_ids == {"D22"}
