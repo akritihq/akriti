@@ -6,24 +6,51 @@
 # short-lived OIDC token per run and PyPI verifies it. A leaked repository
 # secret cannot publish because there is no secret to leak.
 #
-# Setup, once, at https://pypi.org/manage/project/akriti/settings/publishing/
-#   Owner            akritihq
-#   Repository       akriti
-#   Workflow         release.yml
-#   Environment      pypi
+# ---------------------------------------------------------------------------
+# SETUP, ONCE -- both halves, in this order. Neither is something this file
+# can do for you.
 #
-# The `pypi` environment should also exist in repository settings, with
-# whatever reviewers you want standing between a tag and a publish.
+# 1. GitHub: Settings -> Environments -> New environment, named `pypi`, with
+#    whatever required reviewers you want standing between a tag and a
+#    publish.
+#
+#    Do this FIRST, and by hand. Naming an environment below does NOT create
+#    a gate: GitHub creates a referenced-but-undefined environment on the fly,
+#    with no protection rules and no reviewers, and runs the job anyway. The
+#    reviewer gate exists only once somebody creates it in settings. As of
+#    this commit the repository has no `pypi` environment.
+#
+# 2. PyPI: https://pypi.org/manage/project/akriti/settings/publishing/
+#      Owner            akritihq
+#      Repository       akriti
+#      Workflow         release.yml
+#      Environment      pypi
+#
+#    The environment name must match step 1 exactly, or OIDC auth fails.
+# ---------------------------------------------------------------------------
 
 name: Release
 
 on:
   release:
     types: [published]
+
+  # A rehearsal, not a publish path. `publish` is gated on the event name, so
+  # a manual run builds, runs every gate, uploads the artifacts to the run --
+  # and stops before PyPI. It previously reached `publish` with the tag check
+  # skipped, which made a button press on any branch a production release of
+  # whatever that branch happened to contain.
   workflow_dispatch:
 
 permissions:
   contents: read
+
+# Never cancel a release in flight. A run interrupted partway through the
+# upload leaves a half-published version, and PyPI does not allow replacing a
+# file that has landed. Serialise releases instead of cancelling them.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   # Rebuild from the tagged commit rather than trusting an artifact from
@@ -31,63 +58,138 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-python@v7
+      # Actions are pinned by commit SHA here, unlike ci.yml's floating major
+      # tags, and the trailing comment records which tag each SHA was. This
+      # workflow's output goes to an index that does not permit replacement,
+      # and `publish` re-verifies nothing about what it downloads, so
+      # everything the build step touches is inside the trust boundary of what
+      # users eventually install. ci.yml can publish nothing and does not need
+      # this.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - run: pip install build twine
+
+      # Pinned for the same reason: these two build the artifact. Bump
+      # deliberately, not incidentally.
+      - run: pip install build==1.6.0 twine==7.0.0
       - run: python -m build
       - run: twine check dist/*
+
+      # Later steps glob `dist/*.whl` and `dist/*.tar.gz`. A second artifact
+      # would let them verify one file while publishing another, so establish
+      # up front that there is exactly one of each.
+      - name: Exactly one sdist and one wheel
+        run: |
+          python - <<'PY'
+          import pathlib
+          import sys
+
+          for pattern in ("*.tar.gz", "*.whl"):
+              found = sorted(p.name for p in pathlib.Path("dist").glob(pattern))
+              if len(found) != 1:
+                  sys.exit(f"::error::expected exactly one {pattern} in dist/, found {found}")
+              print(f"{pattern}: {found[0]}")
+          PY
 
       # The version in the artifact must match the tag that triggered this.
       # Without it, a mistagged release publishes the wrong version silently,
       # and PyPI will not let it be replaced afterwards.
+      #
+      # Compared as PEP 440 versions rather than as strings. `git tag v1.0.0-rc1`
+      # builds `akriti-1.0.0rc1.tar.gz` -- the same version, spelled the way
+      # PEP 440 normalises it -- and a string comparison rejects that
+      # perfectly correct release. The filename is parsed rather than pattern
+      # matched, for the same reason.
       - name: Version must match the tag
         if: github.event_name == 'release'
         run: |
-          tag="${GITHUB_REF_NAME#v}"
-          built=$(ls dist/*.tar.gz | sed -E 's/.*akriti-(.+)\.tar\.gz/\1/')
-          echo "tag=$tag built=$built"
-          if [ "$tag" != "$built" ]; then
-            echo "::error::tag $tag does not match built version $built"
-            exit 1
-          fi
+          python - <<'PY'
+          import os
+          import pathlib
+          import sys
+
+          from packaging.utils import parse_sdist_filename
+          from packaging.version import InvalidVersion, Version
+
+          raw = os.environ["GITHUB_REF_NAME"]
+          sdist = next(iter(pathlib.Path("dist").glob("*.tar.gz")))
+          _, built = parse_sdist_filename(sdist.name)
+          try:
+              tagged = Version(raw.removeprefix("v"))
+          except InvalidVersion:
+              sys.exit(f"::error::tag {raw!r} is not a PEP 440 version")
+          print(f"tag={tagged} built={built}")
+          if tagged != built:
+              sys.exit(f"::error::tag {tagged} does not match built version {built}")
+          PY
 
       # The claim RFC-0001 section 10.1 requirement 2 makes, checked against the
       # artifact that is about to be published rather than the source tree.
+      #
+      # Delegated to the audited checker instead of an inline reimplementation.
+      # That tool normalises distribution names and ignores `pkg-resources`,
+      # which some environments inject; a hand-rolled copy here had neither and
+      # would have drifted from the rule it was paraphrasing. It imports
+      # nothing outside the standard library, so it runs inside the empty
+      # closure it is auditing.
       - name: Default install closure must be empty
         run: |
           python -m venv /tmp/closure
           /tmp/closure/bin/pip install --quiet dist/*.whl
-          found=$(/tmp/closure/bin/python - <<'PY'
-          import importlib.metadata as md
-          ignore = {"pip", "setuptools", "wheel", "akriti"}
-          print(",".join(sorted(
-              d.metadata["Name"] for d in md.distributions()
-              if d.metadata["Name"] not in ignore
-          )))
-          PY
-          )
-          if [ -n "$found" ]; then
-            echo "::error::default install pulled in: $found"
-            exit 1
-          fi
+          /tmp/closure/bin/python tools/check_license_closure.py --profile default
           /tmp/closure/bin/python -c "from akriti.diagrams import PersistenceDiagram, DiagramBatch"
 
-      - uses: actions/upload-artifact@v7
+      # The suite against the wheel a user would install, rather than against
+      # the source tree CI already covers. This catches what an import smoke
+      # test cannot: a subpackage or data file missing from the built wheel.
+      #
+      # MUST stay after the closure gate. The `test` extra pulls numpy and
+      # others into /tmp/closure, and running this first would leave that gate
+      # passing on an environment nobody ships.
+      #
+      # Installed as a PEP 508 direct reference so the local file is the only
+      # candidate for the name `akriti`. Plain `dist/*.whl[test]` would leave
+      # pip free to satisfy the extra's self-reference (`akriti[numpy]`) from
+      # PyPI, which already serves this project -- the suite would then quietly
+      # test the published release instead of the artifact in dist/.
+      - name: Test suite against the built wheel
+        run: |
+          wheel=$(ls "$PWD"/dist/*.whl)
+          /tmp/closure/bin/pip install --quiet "akriti[test] @ file://${wheel}"
+          /tmp/closure/bin/python -m pytest -m "not backend"
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: dist
           path: dist/
 
   publish:
     needs: build
+    # The gate that makes `workflow_dispatch` safe to keep. Without it, a
+    # manual run publishes the selected branch to PyPI having skipped the tag
+    # check above, since that check has nothing to compare against outside a
+    # release.
+    if: github.event_name == 'release'
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
       id-token: write        # mint the OIDC token; nothing else
     steps:
-      - uses: actions/download-artifact@v7
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: dist
           path: dist/
-      - uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # v1.14.2
+        with:
+          # An upload that fails between the sdist and the wheel otherwise
+          # wedges the version permanently: PyPI refuses to re-accept the file
+          # that already landed, so every rerun 400s and the release can never
+          # be completed. Skipping files already present makes a rerun the fix.
+          #
+          # The cost is that a rerun against an already-published version
+          # succeeds while uploading nothing. That is bounded by the tag gate
+          # above -- reaching here with an already-published version requires
+          # re-publishing an existing release -- and it is the cheaper of the
+          # two failure modes, since the other one is unrecoverable.
+          skip-existing: true
