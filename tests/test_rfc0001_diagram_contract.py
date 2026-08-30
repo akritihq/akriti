@@ -539,6 +539,164 @@ def test_no_essential_bars_returns_the_diagram_untouched() -> None:
     assert "essential_bars" not in finite.finitize(at="drop").meta.provenance
 
 
+# -- §3.2 `meta` propagation through the derived diagrams -----------------
+
+
+def test_finite_records_the_drop_it_performs() -> None:
+    """§3.2, §5: `d.finite` and `d.finitize(at="drop")` are the same result.
+
+    They remove the same bars, so the regression is a diagram whose
+    `essential_bars` survives `d.finite` still saying `"faithful"` about an
+    essential set that is no longer there. Identical bars MUST NOT carry
+    contradictory provenance.
+    """
+    faithful = bars(
+        [0, 0],
+        [0.0, 0.25],
+        [np.inf, 0.75],
+        meta=DiagramMeta(
+            provenance={
+                "essential_bars": "faithful",
+                "essential_bars_source": "faithful",
+            }
+        ),
+    )
+    finite = faithful.finite
+    assert finite.n_bars == 1
+    assert finite.meta.provenance["essential_bars"] == "finitized_dropped"
+    assert finite.meta.provenance["essential_bars_dropped"] == 1
+
+    dropped = faithful.finitize(at="drop")
+    assert finite == dropped
+    assert finite.same_provenance(dropped)
+
+
+def test_finite_leaves_the_adapter_source_alone() -> None:
+    """§8: `essential_bars_source` has one writer and it is the adapter.
+
+    `finite` is a second finitizing writer of `essential_bars` (§3.2); it
+    inherits `finitize`'s prohibition on touching the key beside it.
+    """
+    lost = bars(
+        [0, 1],
+        [0.0, 0.5],
+        [0.75, np.inf],
+        meta=DiagramMeta(
+            provenance={
+                "essential_bars": "lost_upstream",
+                "essential_bars_source": "lost_upstream",
+            }
+        ),
+    )
+    finite = lost.finite
+    assert finite.meta.provenance["essential_bars"] == "finitized_dropped"
+    assert finite.meta.provenance["essential_bars_source"] == "lost_upstream"
+
+
+def test_finite_clears_a_stale_substituted_death() -> None:
+    """§8's iff, reached through `finite` rather than through `finitize`.
+
+    A diagram carrying a completed substitution record that still has an
+    essential bar is what `load` hands back after a finitize, a save, and a
+    concatenation. Dropping that bar MUST clear the death it recorded.
+    """
+    reloaded = bars(
+        [0, 0],
+        [0.0, 0.25],
+        [np.inf, 0.75],
+        meta=DiagramMeta(
+            provenance={
+                "essential_bars": "finitized_at",
+                "essential_bars_finitized_at": 2.0,
+            }
+        ),
+    )
+    finite = reloaded.finite
+    assert finite.meta.provenance["essential_bars"] == "finitized_dropped"
+    assert finite.meta.provenance["essential_bars_dropped"] == 1
+    assert "essential_bars_finitized_at" not in finite.meta.provenance
+
+
+def test_finite_records_nothing_when_there_is_nothing_to_drop() -> None:
+    """§3.2, §5: no essential bar means no cardinality change to record.
+
+    The mirror of `finitize`'s return-unchanged rule. Writing
+    `"finitized_dropped"` with a count of zero would assert a change that did
+    not happen, and would overwrite a `"lost_upstream"` that did.
+    """
+    already = bars(
+        [0],
+        [0.0],
+        [1.0],
+        meta=DiagramMeta(
+            provenance={
+                "essential_bars": "lost_upstream",
+                "essential_bars_source": "lost_upstream",
+            }
+        ),
+    )
+    finite = already.finite
+    assert finite.n_bars == 1
+    assert finite.meta.provenance["essential_bars"] == "lost_upstream"
+    assert "essential_bars_dropped" not in finite.meta.provenance
+
+
+def test_finite_of_finite_is_stable(essential: PersistenceDiagram) -> None:
+    """§5's return-unchanged rule, applied to the record `finite` just wrote.
+
+    The second call has no essential bar to drop, so the count stays at what
+    the first call removed rather than being reset to zero.
+    """
+    once = essential.finite
+    twice = once.finite
+    assert twice.meta.provenance["essential_bars"] == "finitized_dropped"
+    assert twice.meta.provenance["essential_bars_dropped"] == 1
+
+
+def test_finite_then_finitize_drop_is_a_no_op(essential: PersistenceDiagram) -> None:
+    """§5: the composition that used to launder `"faithful"` past both calls.
+
+    `d.finite` stripped the essential set and `finitize(at="drop")` then hit
+    the return-unchanged rule, so the pair preserved a claim neither of them
+    could still support.
+    """
+    finite = essential.finite
+    assert finite.finitize(at="drop").meta.provenance["essential_bars"] == (
+        "finitized_dropped"
+    )
+
+
+def test_dim_carries_meta_through_unchanged() -> None:
+    """§3.2: a degree restriction is not a finitization.
+
+    Every essential bar of degree `k` survives `d.dim(k)`, so the claim
+    `essential_bars` makes about the result is the claim it made about the
+    source, restricted. It is not rewritten -- the vocabulary is
+    whole-diagram, and the residual imprecision runs towards caution.
+    """
+    diagram = bars(
+        [0, 1],
+        [0.0, 0.5],
+        [np.inf, 0.75],
+        meta=DiagramMeta(
+            provenance={
+                "essential_bars": "faithful",
+                "essential_bars_source": "faithful",
+            }
+        ),
+    )
+    assert diagram.dim(1).meta is diagram.meta
+    assert diagram.dim(0).meta is diagram.meta
+    assert diagram.dim(7).meta is diagram.meta
+
+
+def test_canonical_carries_meta_through_unchanged(
+    essential: PersistenceDiagram,
+) -> None:
+    """§7: a permutation adds and removes no bar, so there is nothing to say."""
+    assert essential.canonical().meta is essential.meta
+
+
 # -- §5 `at` is validated in full, before the data is consulted -----------
 
 

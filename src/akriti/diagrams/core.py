@@ -1038,13 +1038,25 @@ class PersistenceDiagram:
     def finite(self) -> PersistenceDiagram:
         """This diagram with its essential bars removed. §3.2.
 
-        Not a finitization: bars are dropped, nothing is substituted, and
-        nothing is recorded in `meta.provenance`. Use `finitize` (§5) when the
-        loss has to be on the record.
+        Bar for bar the result of `finitize(at="drop")` (§5), so it records
+        the same drop: `provenance["essential_bars"] = "finitized_dropped"`
+        and `essential_bars_dropped`, the count removed. Identical bars must
+        not carry contradictory provenance -- a diagram whose essential set
+        was stripped while `essential_bars` still says `"faithful"` is §9's
+        clean-plausible-wrong shape arrived at through an accessor, and the
+        two readers §8 anticipates split along exactly that line.
+
+        A diagram with no essential bar is returned with `meta` untouched, on
+        §5's terms: nothing was dropped, and recording a drop of zero bars
+        would assert a cardinality change that did not happen and overwrite
+        whatever `essential_bars` already said.
+
+        `essential_bars_source` is the adapter's and is never touched here
+        (§8), the same prohibition `finitize` carries.
 
         Eager-only (§3.3): boolean-mask selection.
         """
-        return self._masked(~self.essential)
+        return self._dropping_essential(self.essential)
 
     @property
     def persistence(self) -> Array:
@@ -1066,9 +1078,16 @@ class PersistenceDiagram:
     def _masked(self, mask: Array) -> PersistenceDiagram:
         """Select bars by boolean mask, carrying `meta` through unchanged.
 
-        The shared implementation behind `dim`, `finite`, and
-        `finitize(at="drop")`. A subset of a valid diagram is valid, so this
-        skips revalidation (see `_unchecked`).
+        The shared implementation behind `dim` and `_dropping_essential`. A
+        subset of a valid diagram is valid, so this skips revalidation (see
+        `_unchecked`).
+
+        `meta` carries through unchanged. That is correct on its own only for
+        `dim`, which restricts the degree rather than deleting within it:
+        every essential bar of degree `k` survives, so what `essential_bars`
+        claims about the result is what it claimed about the source (§3.2).
+        The paths that drop the bars that key describes go through
+        `_dropping_essential`, which rewrites it.
 
         Eager-only (§3.3).
         """
@@ -1077,6 +1096,40 @@ class PersistenceDiagram:
             births=self.births[mask],
             deaths=self.deaths[mask],
             meta=self.meta,
+        )
+
+    def _dropping_essential(self, essential: Array) -> PersistenceDiagram:
+        """Remove the masked bars and record the cardinality change. §3.2, §5.
+
+        Shared by `finite` and `finitize(at="drop")`, which produce the same
+        diagram and differ only in how the caller asked for it. `essential`
+        is a parameter rather than a second read of the property because
+        `finitize` has already computed it.
+
+        Eager-only (§3.3).
+        """
+        kept = self._masked(~essential)
+        dropped = self.n_bars - kept.n_bars
+        if dropped == 0:
+            # No essential bar, so §5's return-unchanged rule applies: there
+            # is nothing to record, and recording it anyway would assert a
+            # change that did not happen.
+            return kept
+
+        provenance = dict(self.meta.provenance)
+        provenance["essential_bars"] = "finitized_dropped"
+        provenance["essential_bars_dropped"] = dropped
+        # §8: each qualifier is present iff `essential_bars` holds the one
+        # value it qualifies, so a drop over an already-substituted diagram
+        # MUST clear the substituted death rather than leave it describing a
+        # bar that is no longer here. The mirror of the pop in `finitize`'s
+        # substitution branch.
+        provenance.pop("essential_bars_finitized_at", None)
+        return PersistenceDiagram._unchecked(
+            dims=kept.dims,
+            births=kept.births,
+            deaths=kept.deaths,
+            meta=replace(self.meta, provenance=provenance),
         )
 
     # -- §7 ordering ---------------------------------------------------------
@@ -1400,7 +1453,10 @@ class PersistenceDiagram:
         `provenance["essential_bars_finitized_at"]`, the substituted death.
         `at="drop"` removes essential bars entirely -- a cardinality change,
         not a substitution -- and records `"finitized_dropped"` plus
-        `provenance["essential_bars_dropped"]`, the count.
+        `provenance["essential_bars_dropped"]`, the count. That mode is the
+        `finite` accessor (§3.2) reached through an argument, and the two
+        share one implementation so they cannot disagree about what they
+        recorded.
 
         A diagram with **no essential bars is returned unchanged, provenance
         included** (§5): nothing was substituted and nothing dropped, so
@@ -1487,24 +1543,14 @@ class PersistenceDiagram:
         if not bool(xp.any(essential)):
             return self
 
-        provenance = dict(self.meta.provenance)
-
         if mode == "drop":
-            kept = self._masked(~essential)
-            provenance["essential_bars"] = "finitized_dropped"
-            provenance["essential_bars_dropped"] = self.n_bars - kept.n_bars
-            # §8: each qualifier is present iff `essential_bars` holds the one
-            # value it qualifies, so a drop over an already-substituted
-            # diagram MUST clear the substituted death rather than leave it
-            # describing a bar that is no longer here. The mirror of the pop
-            # in the substitution branch below.
-            provenance.pop("essential_bars_finitized_at", None)
-            return PersistenceDiagram._unchecked(
-                dims=kept.dims,
-                births=kept.births,
-                deaths=kept.deaths,
-                meta=replace(self.meta, provenance=provenance),
-            )
+            # Shared with `finite` (§3.2), which reaches the same diagram
+            # without an argument. The `essential.any()` check above means
+            # something is always dropped here, so the no-op branch inside is
+            # unreachable from this caller.
+            return self._dropping_essential(essential)
+
+        provenance = dict(self.meta.provenance)
 
         if substitute is not None:
             value = substitute
