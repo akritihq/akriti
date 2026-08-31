@@ -136,9 +136,9 @@ jax.config.update("jax_explicit_x64_dtypes", "allow")  # preferred
 jax.config.update("jax_enable_x64", True)  # heavier alternative
 ```
 
-akriti will not set either for you. Both are process-global with no public
-scoped form, so a library setting one would silently change the numerics of
-unrelated JAX code in your program. See RFC-0001 §3.3 and D23.
+akriti will not set either for you. Both are process-global, so a library
+setting one would silently change the numerics of unrelated JAX code in your
+program. See RFC-0001 §3.3 and D23.
 
 ## The research behind it
 

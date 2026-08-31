@@ -11,9 +11,9 @@ JAX is not in the default test environment and does not enter the dependency
 closure to satisfy this; the module skips where it is absent. Appendix A.11
 carries the measurement and `rfcs/evidence/jax_x64.py` reproduces it.
 
-**Ordering matters and is why the two halves cannot share a process.** Neither
-flag has a public scoped form (A.11), so a test that flipped one would leak
-the change into every later test in the session. Each half therefore runs in a
+**Ordering matters and is why the two halves cannot share a process.** Both
+flags are process-global (§3.3), so a test that flipped one would leak the
+change into every later test in the session. Each half therefore runs in a
 subprocess with the configuration set from the environment, which is also the
 only way a caller can set it before importing JAX.
 """
@@ -100,7 +100,7 @@ def test_this_library_never_sets_either_flag() -> None:
 
     A grep rather than a behavioural assertion, deliberately: the prohibition
     is on the source, and a runtime check would pass on a library that set the
-    flag and then restored it -- which is the thing that has no scoped form.
+    flag and then restored it -- which is the thing being prohibited.
     """
     from pathlib import Path
 
