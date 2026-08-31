@@ -125,3 +125,27 @@ def giotto_default_array(giotto_output: dict[str, Any]) -> Any:
         return _array(giotto_output["samples_default_infinity"][key][sample])
 
     return get
+
+
+@pytest.fixture
+def giotto_no_h0_array(giotto_output: dict[str, Any]) -> Any:
+    """The `homology_dimensions=(1, 2)` capture: non-empty, and no H0 row. §11.
+
+    The **negative control** for §11's impossibility check, and the reason
+    that check is three-termed rather than two-termed. "Every degree-0 death
+    is finite" is a reduction over an empty selection, so it holds vacuously
+    of a diagram that has no degree-0 row at all -- and asking giotto for
+    `homology_dimensions` that excludes 0 is an ordinary request, not a
+    perverse one. A check scoped only to "non-empty" would refuse this array,
+    which is a valid `reduced_homology=False` call that must be accepted.
+
+    Appendix A.10 measures the case. `giotto_array` cannot stand in for it:
+    that capture is `homology_dimensions=(0, 1)`, so every sample in it has H0
+    rows and the vacuous case is untestable against it.
+    """
+
+    def get(*, reduced: bool = False, sample: str = "single") -> np.ndarray:
+        key = f"reduced_{str(reduced).lower()}"
+        return _array(giotto_output["samples_no_h0"][key][sample])
+
+    return get

@@ -159,10 +159,22 @@ def test_torch_from_giotto_strips_padding_and_keeps_the_namespace() -> None:
 
     `strip_padding=True` is the mode that actually removes rows, so it is the
     one that exercises the mask. It also warns about nothing, which keeps this
-    a test about the namespace."""
+    a test about the namespace.
+
+    **Sample 0's H0 bar is essential, and must stay that way.** This fixture
+    declares `reduced_homology=False` with `infinity_values=inf`, and §11's
+    `N11-11` refuses that pair on a sample whose degree-0 deaths are all
+    finite: non-reduced H0 of a nonempty space carries a class that never
+    dies, so the two declarations cannot both be true. An earlier revision
+    gave the bar a death of `1.0` and was written before that clause existed;
+    it made this test raise `ValueError` from `_reject_impossible_reduced_homology`
+    rather than measure anything. Shortening the death back is not a
+    simplification, it is a return to an impossible diagram -- change
+    `reduced_homology` instead if this ever needs a finite-death H0 row.
+    """
     values = torch.tensor(
         [
-            [[0.0, 1.0, 0.0], [0.5, 0.5, 0.0]],
+            [[0.0, float("inf"), 0.0], [0.5, 0.5, 0.0]],
             [[0.0, float("inf"), 1.0], [2.0, 2.0, 1.0]],
         ],
         dtype=torch.float64,

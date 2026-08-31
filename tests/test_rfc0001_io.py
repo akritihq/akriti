@@ -345,6 +345,30 @@ def strict_diagram() -> Any:
     )
 
 
+def strict_off_host_diagram() -> Any:
+    """`strict_diagram()`'s twin, on a device that is not the host.
+
+    `array_api_strict` ships fake devices for exactly this purpose: an array on
+    `Device("device1")` is a conforming array-API array whose conversion to
+    NumPy raises the way a CUDA tensor's does, so §10.1's residency clause can
+    be exercised here with no GPU present and no optional backend installed.
+    The `torch` case runs the same refusal against real device memory.
+    """
+    xps = pytest.importorskip("array_api_strict")
+    device = xps.Device("device1")
+    return diagrams.PersistenceDiagram(
+        dims=xps.asarray([1, 0], dtype=xps.int32, device=device),
+        births=xps.asarray([2.0, 0.0], dtype=xps.float64, device=device),
+        deaths=xps.asarray([3.0, np.inf], dtype=xps.float64, device=device),
+        meta=diagrams.DiagramMeta(
+            filtration="rips",
+            backend="strict-fixture",
+            params={"namespace": "array_api_strict"},
+            description="off-host namespace",
+        ),
+    )
+
+
 @composite
 def json_value_strategy(draw: Any) -> Any:
     scalar = st.one_of(
@@ -563,6 +587,12 @@ def test_array_api_strict_diagram_and_batch_save_load_at_numpy_boundary(
     assert loaded_batch.same_provenance(batch)
 
 
+# Marked, so the `optional / torch` row selects it. Without the marker this
+# test ran nowhere: the default `test` job installs no torch and skips it,
+# and the torch row selects on `-m torch` and never saw it. It is the only
+# test in the suite that importorskip-ed a backend without the matching
+# marker -- checked across every test module, not just this one.
+@pytest.mark.torch
 def test_torch_autograd_diagram_saves_at_numpy_boundary(tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")
     with warnings.catch_warnings():
@@ -597,6 +627,93 @@ def test_torch_autograd_diagram_saves_at_numpy_boundary(tmp_path: Path) -> None:
     assert loaded.same_provenance(diagram)
     assert diagram.births.requires_grad is birth_requires_grad
     assert diagram.deaths.requires_grad is death_requires_grad
+
+
+def test_a_device_resident_diagram_is_refused_before_the_destination_is_opened(
+    tmp_path: Path,
+) -> None:
+    """§10.1 requirement 1: `save` MUST raise `ValueError` naming the device
+    and the remedy, and MUST make that check *before it opens the
+    destination*, so a failed save leaves no partial file.
+
+    The second half is what this test exists to pin. The ordering holds today
+    for a reason `save` does not state: `_canonical_arrays` runs while the
+    arguments to the `zipfile.ZipFile(...)` call are still being evaluated, so
+    the refusal lands with the path untouched. A refactor that moved the
+    conversion inside the `with` block -- or that opened the archive first to
+    fail fast on an unwritable path -- would leave a truncated `.akd` behind
+    and still pass every other test in this file. The assertion is on the
+    whole directory rather than on the one path, so a partial write catches
+    under any name, a temporary or lock file included.
+    """
+    diagram = strict_off_host_diagram()
+    path = tmp_path / "off-host.akd"
+
+    with pytest.raises(ValueError, match="host-resident") as caught:
+        call_save(diagram, path)
+
+    message = str(caught.value)
+    assert "device1" in message, "the refusal must name the device"
+    assert "host" in message
+    assert ".cpu()" in message
+    assert "jax.device_get" in message
+    assert "from_dlpack" in message
+    assert not path.exists()
+    assert list(tmp_path.iterdir()) == [], "a refused save touched the destination"
+
+
+@pytest.mark.torch
+def test_a_cuda_diagram_is_refused_rather_than_moved_off_the_device(
+    tmp_path: Path,
+) -> None:
+    """§10.1 requirement 1 against real device memory: a CUDA-resident diagram
+    is refused, the caller's tensors stay where the caller put them, and the
+    caller's own `.cpu()` is what makes the save go through.
+
+    CUDA specifically, rather than whichever accelerator torch offers: §6.1
+    stores births and deaths as `float64`, which MPS does not support, so a
+    diagram cannot exist on that device to be refused in the first place.
+    """
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("array_api_compat")
+    if not torch.cuda.is_available():
+        pytest.skip("no CUDA device is available to place a diagram on")
+    device = torch.device("cuda", 0)
+    diagram = diagrams.PersistenceDiagram(
+        dims=torch.tensor([1, 0], dtype=torch.int32, device=device),
+        births=torch.tensor([2.0, 0.0], dtype=torch.float64, device=device),
+        deaths=torch.tensor([3.0, float("inf")], dtype=torch.float64, device=device),
+        meta=diagrams.DiagramMeta(
+            filtration="rips",
+            backend="torch-fixture",
+            description="cuda residency",
+        ),
+    )
+    path = tmp_path / "cuda.akd"
+
+    with pytest.raises(ValueError, match="host-resident") as caught:
+        call_save(diagram, path)
+
+    message = str(caught.value)
+    assert "cuda" in message, "the refusal must name the device"
+    assert ".cpu()" in message
+    assert "jax.device_get" in message
+    assert "from_dlpack" in message
+    assert not path.exists()
+    assert list(tmp_path.iterdir()) == [], "a refused save touched the destination"
+    assert diagram.births.device.type == "cuda", "save moved the caller's tensors"
+
+    moved = diagrams.PersistenceDiagram(
+        dims=diagram.dims.cpu(),
+        births=diagram.births.cpu(),
+        deaths=diagram.deaths.cpu(),
+        meta=diagram.meta,
+    )
+    call_save(moved, path)
+    loaded = call_load(path)
+    assert loaded.xp is np
+    np.testing.assert_array_equal(loaded.births, np.asarray([0.0, 2.0]))
+    np.testing.assert_array_equal(loaded.deaths, np.asarray([np.inf, 3.0]))
 
 
 @pytest.mark.parametrize(
@@ -2104,16 +2221,22 @@ def test_an_unexpected_error_from_the_archive_is_propagated(
         call_load(path)
 
 
-def test_a_tensor_like_value_is_converted_through_detach_and_cpu() -> None:
+def test_a_tensor_like_value_is_converted_through_detach_alone() -> None:
     """§3.3's namespace rule reaches the I/O boundary: `save` converts with
     `np.asarray`, and a torch tensor that requires grad refuses that call.
 
-    The fallback tries `detach()` and then `cpu()` -- torch's own spelling for
-    "give me something NumPy can see" -- rather than special-casing torch by
-    name, so it works for any backend using the same protocol and imports
-    nothing. Exercised with a stub because torch is not in the default test
-    environment by design; `test_rfc0001_torch_live.py` runs the real thing."""
+    The fallback tries `detach()` -- torch's own spelling for "give me
+    something NumPy can see" -- rather than special-casing torch by name, so it
+    works for any backend using the same protocol and imports nothing.
+    It does **not** try `cpu()`, and the stub's unused `cpu()` is here to pin
+    that: §10.1 requirement 1 makes a cross-device transfer the owner's to ask
+    for, so an array that will not convert is refused rather than moved.
+    Detaching survives that clause because it is not a transfer -- the clause
+    is about residency, and the document says nothing about autograd. Exercised
+    with a stub because torch is not in the default test environment by design;
+    `test_rfc0001_torch_live.py` runs the real thing."""
     io_module = _io_module()
+    moved: list[str] = []
 
     class NeedsDetach:
         """Refuses `np.asarray` until detached, the way a grad tensor does."""
@@ -2131,12 +2254,96 @@ def test_a_tensor_like_value_is_converted_through_detach_and_cpu() -> None:
             return NeedsDetach(self._values, detached=True)
 
         def cpu(self) -> NeedsDetach:
+            moved.append("cpu")
             return self
 
     converted = io_module._to_numpy(np, NeedsDetach([1.0, 2.0, 3.0]))
 
     assert isinstance(converted, np.ndarray)
     assert converted.tolist() == [1.0, 2.0, 3.0]
+    assert moved == [], "save transferred an array the caller did not move"
+
+
+def test_an_off_host_array_is_refused_before_a_conversion_is_attempted() -> None:
+    """§10.1 requirement 1: `save` MUST *require* host residency rather than
+    attempt the conversion and translate whatever comes back.
+
+    The distinction is load-bearing rather than stylistic, and JAX is why. A
+    CUDA tensor makes `np.asarray` raise, so a caught-and-translated failure
+    would look equivalent there; a GPU-resident JAX array instead satisfies
+    `np.asarray` by copying itself to the host first, which is precisely the
+    "several seconds of unasked-for work" the clause rules out. Both stubs
+    below convert successfully, so a `save` that reached for the conversion
+    before reading the device would write a file and this test would fail.
+
+    Two stubs because the two backends the clause names spell a device
+    differently -- torch exposes `device.type`, JAX `device.platform` -- and
+    neither is installed in the default test environment by design.
+    """
+    io_module = _io_module()
+    attempts: list[str] = []
+
+    class TorchLikeDevice:
+        type = "cuda"
+
+        def __str__(self) -> str:
+            return "cuda:0"
+
+    class JaxLikeDevice:
+        platform = "gpu"
+
+        def __str__(self) -> str:
+            return "cuda(id=0)"
+
+    class OnDevice:
+        """Converts happily; the refusal must not depend on it failing."""
+
+        def __init__(self, device: Any) -> None:
+            self.device = device
+
+        def __array__(self, *args: Any, **kwargs: Any) -> Any:
+            attempts.append(str(self.device))
+            return np.asarray([1.0, 2.0], *args, **kwargs)
+
+    for device in (TorchLikeDevice(), JaxLikeDevice()):
+        with pytest.raises(ValueError, match="host-resident") as caught:
+            io_module._to_numpy(np, OnDevice(device))
+        message = str(caught.value)
+        assert str(device) in message, "the refusal must name the device"
+        assert ".cpu()" in message
+        assert "jax.device_get" in message
+        assert "from_dlpack" in message
+
+    assert attempts == [], "save attempted the transfer instead of refusing it"
+
+
+def test_a_host_resident_array_is_not_refused_for_reporting_a_device() -> None:
+    """The other side of the residency check. Every array-API array carries a
+    `device`, NumPy's own included (`'cpu'` since 2.0), so a check that read
+    the attribute and refused on sight would refuse every save in this file.
+
+    The unrecognised case is the one worth stating: the standard gives no
+    portable way to ask whether a device object *is* the host, so a device
+    shaped like nothing this module knows is a "cannot tell" and MUST NOT be
+    refused on its own -- `array_api_strict`'s `CPU_DEVICE` is exactly that
+    shape, and §3.3 requires that namespace to reach `save`.
+    """
+    io_module = _io_module()
+
+    class UnknownDevice:
+        def __str__(self) -> str:
+            return "some-accelerator-shaped-object"
+
+    class OnDevice:
+        def __init__(self, device: Any) -> None:
+            self.device = device
+
+        def __array__(self, *args: Any, **kwargs: Any) -> Any:
+            return np.asarray([1.0, 2.0], *args, **kwargs)
+
+    for device in ("cpu", UnknownDevice()):
+        converted = io_module._to_numpy(np, OnDevice(device))
+        assert converted.tolist() == [1.0, 2.0]
 
 
 def test_a_value_that_cannot_convert_reports_the_original_failure() -> None:

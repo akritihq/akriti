@@ -110,7 +110,24 @@ def test_to_arrays_preserves_exact_duplicate_rows() -> None:
     np.testing.assert_array_equal(result[1], [[0.5, 1.5], [0.5, 1.5]])
 
 
-def test_to_csv_single_is_lf_header_round_trip_safe_and_warns_once() -> None:
+def test_to_csv_single_round_trips_via_caller_side_parse_and_warns_once() -> None:
+    """`to_csv` -> a caller-side parse -> `from_array`, per §10.3.
+
+    There is no `from_csv`, and §10.3 declines to add one. The middle step is
+    therefore the caller's own parse -- here `csv.reader` plus NumPy, standing
+    in for the `numpy.genfromtxt` / `pandas.read_csv` / R `read.csv` the
+    section names. Nothing below calls an akriti reader for CSV, because none
+    exists.
+
+    Turning `inf`-bearing text into a `float64` array is the step that needs
+    NumPy, so this case needs `akriti[numpy]` to run (§3.3) -- supplied here by
+    this module's top-level `import numpy as np`, which the `test` extra
+    resolves through `akriti[numpy]`.
+
+    Also pins the LF line terminator, the header row that carries the column
+    order back in through `from_array(columns=...)`, and the single
+    `DiagramMeta` loss warning.
+    """
     with warnings.catch_warnings(record=True) as record:
         warnings.simplefilter("always")
         text = to_csv(diagram())
