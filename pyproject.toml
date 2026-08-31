@@ -110,6 +110,39 @@ io = ["akriti[numpy]"]
 # does not yet expose __array_namespace__ (D18).
 torch = ["torch>=2.0", "array-api-compat>=1.15.0"]
 
+# JAX, for callers who bring JAX arrays. Deliberately NOT parallel to the torch
+# row above: jax.Array exposes __array_namespace__ natively, so it takes
+# `namespace_of`'s first branch and needs no array-api-compat fallback. Adding
+# one here would imply a gap that does not exist.
+#
+# Convenience only, on the `numpy` row's pattern rather than the `torch` one --
+# nothing in `diagrams/` imports jax, and RFC-0001 §3.3 forbids it doing so.
+#
+# The floor is the release that added the lever, not the release A.11 measured.
+# `jax_explicit_x64_dtypes='allow'` is the narrow lever §3.3 names, and below
+# the version that introduced it this extra would install a JAX that cannot
+# build a diagram at all. That version is 0.8.0 (2025-10-15): the flag was added
+# by jax-ml/jax commit 9b6df1dc on 2025-09-25, is absent from `jax/_src/config.py`
+# at tag jax-v0.7.2 and present at jax-v0.8.0. Checked against the source at both
+# tags rather than the changelog, which does not mention the flag in any release
+# section. A.11 measured 0.11.1, which is evidence the lever *works*, not
+# evidence of where it starts. See D23.
+#
+# Lowering the floor changes no default install: on Python 3.12 the resolve is
+# still jax 0.11.1. What it changes is Python 3.11, which this package supports
+# and jax 0.11.1 does not (it requires Python >=3.12), so at the old floor this
+# extra had no solution there; it now resolves to jax 0.10.2. Python 3.10 has no
+# solution under either floor -- 0.8.0 already requires >=3.11. See
+# DEPENDENCIES.md for the resolves this is read off.
+#
+# This extra MUST NOT be added to `test` or `dev`. §3.3's `N3.3-15` requires
+# the 64-bit constraint to be exercised by a test that *skips* where JAX is
+# absent, and states that JAX "does not enter the dependency closure to satisfy
+# this". An opt-in extra is how CI installs it for one isolated matrix row; a
+# test dependency would put it in every contributor's environment and break the
+# clause. torch is excluded from `dev` for the adjacent size reason.
+jax = ["jax>=0.8.0"]
+
 # Apache-2.0 Parquet escape hatch (RFC-0001 §10.3).
 parquet = ["pyarrow>=25.0.0"]
 
