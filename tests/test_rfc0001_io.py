@@ -587,6 +587,12 @@ def test_array_api_strict_diagram_and_batch_save_load_at_numpy_boundary(
     assert loaded_batch.same_provenance(batch)
 
 
+# Marked, so the `optional / torch` row selects it. Without the marker this
+# test ran nowhere: the default `test` job installs no torch and skips it,
+# and the torch row selects on `-m torch` and never saw it. It is the only
+# test in the suite that importorskip-ed a backend without the matching
+# marker -- checked across every test module, not just this one.
+@pytest.mark.torch
 def test_torch_autograd_diagram_saves_at_numpy_boundary(tmp_path: Path) -> None:
     torch = pytest.importorskip("torch")
     with warnings.catch_warnings():

@@ -86,7 +86,7 @@ jobs:
           - name: alpha
             extra: alpha
             marker: alpha
-            imports: import gudhi
+            imports: import gudhi, gudhi.sklearn.rips_persistence
           - name: distances
             extra: distances
             marker: distances
@@ -111,6 +111,23 @@ jobs:
           cache: pip
       - name: Install isolated optional row
         run: pip install -e ".[test,${{ matrix.extra }}]"
+      # `gudhi.sklearn.*` is the interface D20 rests on, and `pip install
+      # gudhi` does not pull scikit-learn -- the wheel imports it lazily, so
+      # the dependency is real but undeclared upstream. Installed here rather
+      # than added to the `alpha` extra, which is a user-facing install and
+      # must not grow a dependency only the test suite needs.
+      #
+      # `test_live_gudhi_sklearn_position_is_not_the_degree` is a measurement,
+      # not a nicety: it is what establishes that a block's list position is an
+      # index into the caller's `homology_dimensions` rather than the
+      # homological degree. Left uninstalled, that test raises
+      # ModuleNotFoundError rather than skipping, which is how this was found.
+      # An `importorskip` here would be the wrong repair for the same reason
+      # `--require-giotto` exists below: a measurement that quietly does not
+      # run is worse than one that fails.
+      - name: Install scikit-learn for GUDHI's sklearn interface
+        if: matrix.name == 'alpha'
+        run: pip install "scikit-learn>=1.8"
       - name: Verify installed optional imports
         run: python -c "${{ matrix.imports }}"
       - name: Test selected optional path
