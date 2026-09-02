@@ -48,9 +48,12 @@ RFC_PATH = (
     / ("0001-persistence-diagram-interchange.md")
 )
 
-#: The document version the review pass landed (header row, and the value
-#: §10.2 requires ``save`` to write as ``spec_version``).
-SPEC_VERSION = "1.1.0"
+#: The document version (header row, and the value §10.2 requires ``save``
+#: to write as ``spec_version``). The review pass landed 1.1.0; #48 moved
+#: the patch. This literal is the independent witness the tests below
+#: compare the document and ``io.py`` against, so it moves by hand with
+#: every bump -- see the note on entry 76 about the pins that follow.
+SPEC_VERSION = "1.1.1"
 
 
 def diagram(
@@ -930,12 +933,12 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
-# §10.2 -- the document is 1.1.0, and ``save`` writes that
+# §10.2 -- the document is 1.1.1, and ``save`` writes that
 #
 # Entry 76: "the document becomes 1.1.0 ... `io.py`'s `_SPEC_VERSION` and the
 # four `spec_version` pins in the I/O tests follow."
 #
-#   "`spec_version` | `str` | ... `"1.1.0"` at time of writing."
+#   "`spec_version` | `str` | ... `"1.1.1"` at time of writing."
 # --------------------------------------------------------------------------
 
 
