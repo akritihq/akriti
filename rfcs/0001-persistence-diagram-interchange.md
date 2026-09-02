@@ -3186,6 +3186,14 @@ disagree, neither figure is reported.
 Input: 40 points sampled uniformly on the unit circle with Gaussian noise
 `σ = 0.05`, `numpy` default_rng seed 0.
 
+**Every diagram measured anywhere in this appendix comes from a point cloud in
+$\mathbb{R}^2$ under a Vietoris–Rips filtration.** No cubical, lower-star or
+superlevel measurement appears here, so nothing below constrains what those
+filtrations produce — including whether their births and deaths are finite, and
+including which of the two is the larger. Where the document reasons from a
+figure in this appendix to a claim about diagrams in general, that is the gap to
+check first.
+
 ### A.1 Essential bars
 
 | Backend | H0 bars | Essential | H1 bars |
@@ -4139,4 +4147,4 @@ Full narrative: history document.
 - **2026-08-23 (74)** — **Over-claims, then the editorial line.** `b.canonical()`'s eager-only status is a property of routing rather than of the operation, `searchsorted` giving a traceable form (§3.3). D21's cost cell names the common giotto configuration rather than the rare deliberate one. §11.1 states why `strip_padding` may default-and-warn where §5.1 and D21 refuse to. §3.2 states that `d.essential` and `d.finite` are not complements. Seven smaller corrections, including B8 gaining explicit permission for derived caches and §11.2's determinism case asserting the pinned `ZipInfo` fields rather than sleeping 2.5 s per case.
 - **2026-08-23 (75)** — **New Appendix C, the normative-requirements index, and the internal references swept.** A document this size cannot be checked for consistency by reading, and its failure mode — a rule argued in one section and not propagated to the places it binds — is two adjacent rows in a table. It is **generated** (`tools/normative_index.py`, with a test that fails when body and index disagree) on D15's ground that a separately maintained index can only go stale. It is placed **before** the changelog, which its own note says is removed when the window closes, so that removal leaves no gap in the lettering. **D24 closed** with the issue now less prevalent. §1 and §4 no longer name components this document does not affect.
 - **2026-08-24 (76)** — **A human read of entries 68-75, and the document becomes 1.1.0.** Cut commentary on the document's revisions and compress. I8's permission to skip the copy on an immutable backend becomes normative; the MUST confining the revalidation bypass goes. One bump to the minor for the whole pass. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow.
-- **2026-08-30 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly.
+- **2026-08-30 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly. Appendix A's preamble gains the scope of what it measured: every diagram in it is a point cloud in $\mathbb{R}^2$ under Rips, so no figure there says anything about cubical or lower-star values. #44 was found from outside because that limit was not written down; stating it is what makes the next one findable from inside.
