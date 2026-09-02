@@ -110,15 +110,65 @@ io = ["akriti[numpy]"]
 # does not yet expose __array_namespace__ (D18).
 torch = ["torch>=2.0", "array-api-compat>=1.15.0"]
 
+# JAX, for callers who bring JAX arrays. Deliberately NOT parallel to the torch
+# row above: jax.Array exposes __array_namespace__ natively, so it takes
+# `namespace_of`'s first branch and needs no array-api-compat fallback. Adding
+# one here would imply a gap that does not exist.
+#
+# Convenience only, on the `numpy` row's pattern rather than the `torch` one --
+# nothing in `diagrams/` imports jax, and RFC-0001 §3.3 forbids it doing so.
+#
+# The floor is the release that added the lever, not the release A.11 measured.
+# `jax_explicit_x64_dtypes='allow'` is the narrow lever §3.3 names, and below
+# the version that introduced it this extra would install a JAX that cannot
+# build a diagram at all. That version is 0.8.0 (2025-10-15): the flag was added
+# by jax-ml/jax commit 9b6df1dc on 2025-09-25, is absent from `jax/_src/config.py`
+# at tag jax-v0.7.2 and present at jax-v0.8.0. Checked against the source at both
+# tags rather than the changelog, which does not mention the flag in any release
+# section. A.11 measured 0.11.1, which is evidence the lever *works*, not
+# evidence of where it starts. See D23.
+#
+# Lowering the floor changes no default install: on Python 3.12 the resolve is
+# still jax 0.11.1. What it changes is Python 3.11, which this package supports
+# and jax 0.11.1 does not (it requires Python >=3.12), so at the old floor this
+# extra had no solution there; it now resolves to jax 0.10.2. Python 3.10 has no
+# solution under either floor -- 0.8.0 already requires >=3.11. See
+# DEPENDENCIES.md for the resolves this is read off.
+#
+# This extra MUST NOT be added to `test` or `dev`. §3.3's `N3.3-15` requires
+# the 64-bit constraint to be exercised by a test that *skips* where JAX is
+# absent, and states that JAX "does not enter the dependency closure to satisfy
+# this". An opt-in extra is how CI installs it for one isolated matrix row; a
+# test dependency would put it in every contributor's environment and break the
+# clause. torch is excluded from `dev` for the adjacent size reason.
+jax = ["jax>=0.8.0"]
+
 # Apache-2.0 Parquet escape hatch (RFC-0001 §10.3).
 parquet = ["pyarrow>=25.0.0"]
 
 # Domain integration.
 bio = ["anndata>=0.10"]
 
-# giotto-tda is AGPLv3 and MUST NOT enter any user-facing extra. It is present
-# for compat-shim fixtures only, and it does not currently run on scikit-learn
-# >= 1.8 (RFC-0001 §9.2), so CI uses committed fixture arrays instead.
+# giotto-tda is AGPLv3 and MUST NOT enter any user-facing extra, nor the
+# default closure. It appears in no extra in this file, this one included.
+# Two consequences follow from RFC-0001 §9.2, and they are different things
+# that an earlier version of this note ran together:
+#
+#   - The test suite never imports giotto. `from_giotto` is tested against
+#     committed fixture arrays -- captured from a real giotto call and stored
+#     in `tests/fixtures/giotto_output.json` -- which is what §9.2 requires and
+#     what §11.2 counts as real backend output. So `pip install akriti[test]`
+#     needs no giotto anywhere, on any platform.
+#
+#   - CI's `rfc-evidence` job *does* install giotto, because the appendix
+#     measurements it reproduces include giotto's own rows (A.1, A.5) and a
+#     silently skipped row is not a measurement. It installs `giotto-tda==0.6.2`
+#     with `--no-deps` alongside a modern scikit-learn, because giotto-tda
+#     0.6.2 pins `scikit-learn==1.3.2` exactly and that cannot coexist with the
+#     `numpy>=2.0` floor above (D6); `probe_backends.patch_giotto()` then shims
+#     the `check_array` keyword scikit-learn renamed in 1.6 and removed in 1.8.
+#     §9.2 still holds -- giotto-tda unaided does not run on current
+#     scikit-learn -- and that install is declared in the CI job, never here.
 test = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",

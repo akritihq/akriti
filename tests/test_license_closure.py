@@ -453,6 +453,7 @@ def test_profile_choice_help_preserves_declared_order(
         "numpy",
         "io",
         "torch",
+        "jax",
         "bio",
         "test",
         "lint",

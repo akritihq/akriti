@@ -69,6 +69,30 @@ MAX_EDGE = 4.0
 INFINITY_VALUES = np.inf
 DEFAULT_INFINITY_VALUES = None
 
+# RFC-0001 §11's impossibility check is three-termed, and this is the capture
+# that makes the third term testable.
+#
+# The check refuses a diagram declared `reduced_homology=False` and
+# `infinity_values=inf` that carries at least one degree-0 row all of whose
+# deaths are finite. "All H0 deaths are finite" is a reduction over an empty
+# selection, so it is **vacuously true of a diagram with no H0 rows at all** --
+# and `homology_dimensions` excluding 0 is an ordinary giotto request rather
+# than a perverse one. A two-termed check scoped only to non-empty diagrams
+# refuses such a call, which is the false positive Appendix A.10 measured and
+# the reason the clause gained its middle term.
+#
+# `HOMOLOGY_DIMENSIONS` above cannot supply this control: it is `(0, 1)`, so
+# every sample it captures has H0 rows and the vacuous case is untestable
+# against it. Hence a third section, captured in the same run and the same
+# environment, over the same clouds and the same cutoff, differing in the one
+# argument -- exactly the controlled-pair discipline the two `infinity_values`
+# sections already follow.
+#
+# `(1, 2)` rather than `(1,)` so the array carries more than one degree and a
+# test cannot pass by accident on a single-column shape. A.10 measures it at
+# `(1, 5, 3)`: non-empty, correct, and holding no degree-0 row.
+NO_H0_HOMOLOGY_DIMENSIONS = (1, 2)
+
 
 def circle(n: int = 40, noise: float = 0.05, seed: int = 0) -> np.ndarray:
     """40 points on a noisy unit circle, at **evenly spaced** angles.
@@ -132,26 +156,32 @@ def main() -> int:
             "'samples' was captured with infinity_values=inf, the one setting "
             "from_giotto accepts; 'samples_default_infinity' with giotto's "
             "own default of None, whose finite sentinel the adapter refuses. "
-            "essential_bars='faithful' may be asserted over the first only."
+            "essential_bars='faithful' may be asserted over the first only. "
+            "'samples_no_h0' was captured with homology_dimensions=(1, 2), "
+            "which returns a non-empty array carrying no degree-0 row: the "
+            "negative control for §11's three-termed impossibility check "
+            "(A.10)."
         ),
         "versions": versions,
         "homology_dimensions": list(HOMOLOGY_DIMENSIONS),
         "clouds": {"circle40": _array(ring), "blob40": _array(blob)},
         "samples": {},
         "samples_default_infinity": {},
+        "samples_no_h0": {},
     }
 
     # Both `infinity_values` settings, into the two top-level keys the module
     # comment describes. The loop is shared rather than written twice so the
     # two captures differ in exactly the one argument and nothing else: same
     # clouds, same cutoff, same homology dimensions, same call ordering.
-    for section, infinity_values in (
-        ("samples", INFINITY_VALUES),
-        ("samples_default_infinity", DEFAULT_INFINITY_VALUES),
+    for section, infinity_values, homology_dimensions in (
+        ("samples", INFINITY_VALUES, HOMOLOGY_DIMENSIONS),
+        ("samples_default_infinity", DEFAULT_INFINITY_VALUES, HOMOLOGY_DIMENSIONS),
+        ("samples_no_h0", INFINITY_VALUES, NO_H0_HOMOLOGY_DIMENSIONS),
     ):
         for reduced in (True, False):
             vr = VietorisRipsPersistence(
-                homology_dimensions=HOMOLOGY_DIMENSIONS,
+                homology_dimensions=homology_dimensions,
                 max_edge_length=MAX_EDGE,
                 reduced_homology=reduced,
                 infinity_values=infinity_values,
@@ -160,7 +190,7 @@ def main() -> int:
             data[section][key] = {
                 "call": (
                     "VietorisRipsPersistence(homology_dimensions="
-                    f"{HOMOLOGY_DIMENSIONS}, max_edge_length={MAX_EDGE}, "
+                    f"{homology_dimensions}, max_edge_length={MAX_EDGE}, "
                     f"reduced_homology={reduced}, "
                     f"infinity_values={infinity_values}).fit_transform(X)"
                 ),
