@@ -23,17 +23,17 @@ established engines rather than reimplementing them.
 ## Status
 
 > **Early development.** The API is unstable and much of what is described below
-> is not written yet. `akriti` on PyPI is currently a `0.0.0` placeholder holding
-> the name. Star the repository to follow progress, or watch
-> [akriti.io](https://akriti.io).
+> is not written yet. `akriti 0.1.0` is on PyPI as of 2026-08-27 — one working
+> module, `akriti.diagrams`, and nothing else. Star the repository to follow
+> progress, or watch [akriti.io](https://akriti.io).
 
 We would rather be accurate than impressive, so:
 
 | Module | What it is | State |
 |---|---|---|
 | `akriti.diagrams` | One persistence-diagram type, with adapters for GUDHI, Ripser, giotto-tda, persim and plain arrays — specified by [RFC-0001](rfcs/0001-persistence-diagram-interchange.md) | **building** |
-| `akriti.castle` | Two-sample test, sample-size calculator, per-region significance map, robustness certificate, reporting card | **building** |
-| `akriti.core` | Landmark embeddings (PLACE / PALACE), closed-form selectors, certificate radii | **building** |
+| `akriti.castle` | Two-sample test, sample-size calculator, per-region significance map, robustness certificate, reporting card | planned — scaffold in review |
+| `akriti.core` | Landmark embeddings (PLACE / PALACE), closed-form selectors, certificate radii | planned — `core/distances.py` is specified by RFC-0001 §9.1 and not yet written |
 | `akriti.compute` | Diagrams from point clouds, images, time series and graphs — delegated, with defended defaults | planned |
 | `akriti.vectorise` | Persistence images, landscapes, Betti curves, landmark embeddings, plus a maintained benchmark | planned |
 | `akriti.compat` | Compatibility layer for giotto-tda pipelines | planned |
