@@ -817,8 +817,9 @@ def probe_explicit_x64(*, x64: bool) -> None:
         )
         if lever == "explicit":
             silent = [
-                cell for cell in cells if cell.split(":")[0] != "api"
-                and cell.split(":")[2] != "0"
+                cell
+                for cell in cells
+                if cell.split(":")[0] != "api" and cell.split(":")[2] != "0"
             ]
             _require(
                 not silent,
