@@ -1,4 +1,4 @@
-"""Appendix D tracks the body it indexes. RFC-0001 §12.2 D15's reasoning.
+"""Appendix C tracks the body it indexes. RFC-0001 §12.2 D15's reasoning.
 
 An index maintained separately from the text it indexes is a cached answer to
 an always-computable question, and the only thing it can do is go stale. So it
@@ -41,7 +41,7 @@ def index() -> ModuleType:
     return _load()
 
 
-def test_appendix_d_is_current(index: ModuleType) -> None:
+def test_appendix_c_is_current(index: ModuleType) -> None:
     """The generated index and the committed one agree.
 
     Regenerate with `python tools/normative_index.py --write` after any change
