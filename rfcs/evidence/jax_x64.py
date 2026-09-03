@@ -297,11 +297,21 @@ else:
     print(repr(""))
 """
 
-# `jax_enable_x64` is explicitly removed from JAX's context-manager flags
-# (`jax/_src/config.py`: `config._contextmanager_flags.remove('jax_enable_x64')`),
-# so it has no scoped form. `jax_explicit_x64_dtypes` was never removed and
-# does. The State object carrying it is private, which is the whole finding
-# here: the scoped lever exists and is not public API.
+# The narrow flag's scoped form is private: `jax._src.config` carries it and
+# `jax.config` does not expose it. X.7e measures the other flag's, which IS
+# public -- so this probe asserts the narrow half only.
+#
+# An earlier revision reasoned the other half from source instead of measuring
+# it: `jax_enable_x64` is removed from `config._contextmanager_flags`, and the
+# comment inferred that it therefore has no scoped form. The premise is true
+# and the inference does not follow. `_contextmanager_flags` is read in one
+# place, `Config.read`, where it raises "For flags with a corresponding
+# contextmanager, read their value via e.g. `config.<name>`" -- it governs an
+# error message on the legacy `FLAGS.<name>` path. It neither creates nor
+# removes the context manager, which is the `State` object `bool_state`
+# returns and `jax/__init__.py` exports. X.7e exists because that is the one
+# claim in this appendix that was reasoned rather than measured, and it is the
+# one that was wrong.
 EXPLICIT_SCOPED_PROGRAM = """
 import jax.numpy as jnp
 from jax._src import config
@@ -313,6 +323,85 @@ after = jnp.asarray([0.0, 1.0], dtype=jnp.float64).dtype
 import jax
 
 print(outside, inside, after, hasattr(jax.config, "explicit_x64_dtypes"))
+"""
+
+# X.7e -- the heavier flag's scoped form, measured on X.7d's pattern. This is
+# the API-surface claim, and the thread runs inside the scope to establish that
+# the context manager is thread-local rather than process-global.
+ENABLE_X64_SCOPED_PROGRAM = """
+import threading
+
+import jax
+import jax.numpy as jnp
+
+public = hasattr(jax, "enable_x64")
+outside = jnp.asarray([0.0, 1.0], dtype=jnp.float64).dtype
+box = {}
+with jax.enable_x64(True):
+    inside = jnp.asarray([0.0, 1.0], dtype=jnp.float64).dtype
+
+    def other() -> None:
+        box["dtype"] = jnp.asarray([0.0, 1.0], dtype=jnp.float64).dtype
+
+    thread = threading.Thread(target=other)
+    thread.start()
+    thread.join()
+after = jnp.asarray([0.0, 1.0], dtype=jnp.float64).dtype
+
+print(public, outside, inside, box["dtype"], after, jax.config.jax_enable_x64)
+"""
+
+# X.7f -- containment. The finding is not that a scope cannot produce an x64
+# array; it is that the array is not protected once the scope exits. Warning
+# counts are printed but deliberately NOT asserted: they are a JAX
+# implementation detail and would make this probe fail on an upstream change
+# that leaves the finding intact. What is asserted is the dtype degradation,
+# and that under the narrow lever it happens with no warning at all.
+CONTAINMENT_PROGRAM = """
+import warnings
+
+import jax
+import jax.numpy as jnp
+from jax._src import config
+
+
+def under(lever):
+    if lever == "enable":
+        ctx = jax.enable_x64(True)
+    else:
+        ctx = config.explicit_x64_dtypes("allow")
+    with ctx:
+        x = jnp.asarray([1.0, 1.0 + 2.0 ** -40], dtype=jnp.float64)
+
+    survived = str(x.dtype)
+    exact = "exact" if bool(x[1] != x[0]) else "lost"
+
+    cells = []
+    operations = (
+        ("add", lambda: x + x),
+        ("sort", lambda: jnp.sort(x)),
+        ("mul", lambda: x * 2.0),
+        ("sum", lambda: jnp.sum(x)),
+        ("mean", lambda: x.mean()),
+        ("center", lambda: x - x.mean()),
+    )
+    for label, operation in operations:
+        with warnings.catch_warnings(record=True) as caught:
+            warnings.simplefilter("always")
+            dtype = operation().dtype
+        cells.append("%s:%s:%d" % (label, dtype, len(caught)))
+
+    xp = x.__array_namespace__()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        api = "api:%s:%s:%d" % (xp.sum(x).dtype, xp.max(x).dtype, len(caught))
+    cells.append(api)
+
+    return "%s %s %s %s" % (lever, survived, exact, " ".join(cells))
+
+
+print(under("enable"))
+print(under("explicit"))
 """
 
 
@@ -674,15 +763,81 @@ def probe_explicit_x64(*, x64: bool) -> None:
         "jax.config now exposes explicit_x64_dtypes publicly -- the scoped lever "
         "has become public API and this probe's caveat can be dropped",
     )
+    fields = _subprocess_probe(ENABLE_X64_SCOPED_PROGRAM).split()
+    e_public, e_outside, e_inside, e_thread, e_after, e_config = fields
+    print("\n  7e. the OTHER flag's scoped form -- `jax.enable_x64`:")
+    print(f"      exposed on the `jax` top level (public API)? -> {e_public}")
+    print(f"      outside the context            -> {e_outside}")
+    print(f"      inside  the context            -> {e_inside}")
+    print(f"      inside, on a different thread  -> {e_thread}")
+    print(f"      after   the context            -> {e_after}")
+    print(f"      jax.config.jax_enable_x64 after -> {e_config}")
+    _require(
+        e_public == "True",
+        "X.7",
+        "jax.enable_x64 is no longer exported -- A.11's fourth bullet and D23 "
+        "both rest on this being public, so both need re-reading",
+    )
+    _require(
+        e_outside == "float32" and e_inside == "float64" and e_after == "float32",
+        "X.7",
+        f"scoped behaviour changed: {e_outside}/{e_inside}/{e_after}",
+    )
+    _require(
+        e_thread == "float32" and e_config == "False",
+        "X.7",
+        "jax.enable_x64 is no longer thread-local, or no longer restores on "
+        f"exit: other thread saw {e_thread}, config left at {e_config}",
+    )
+    print("      => PUBLIC, thread-local, restores on exit. A.11's earlier claim")
+    print("         that neither flag has a public scoped form was false here.")
+
+    print("\n  7f. containment -- a scope creates an x64 array, does not protect it:")
+    for line in _subprocess_probe(CONTAINMENT_PROGRAM).strip().split("\n"):
+        lever, survived, exact, *cells = line.split()
+        print(f"      built under {lever}: survives as {survived}, {exact} to 2**-40")
+        for cell in cells:
+            print(f"        {cell.replace(':', '  ')}")
+        _require(
+            survived == "float64" and exact == "exact",
+            "X.7",
+            f"the array no longer survives the scope under {lever}: "
+            f"{survived}, {exact}",
+        )
+        degraded = {
+            name: dtype
+            for name, dtype, _ in (cell.split(":") for cell in cells if ":" in cell)
+            if name in {"mul", "sum", "mean", "center"}
+        }
+        _require(
+            set(degraded.values()) == {"float32"},
+            "X.7",
+            f"operations outside the scope no longer truncate under {lever}: "
+            f"{degraded} -- D23's replaced reopen condition has fired",
+        )
+        if lever == "explicit":
+            silent = [
+                cell for cell in cells if cell.split(":")[0] != "api"
+                and cell.split(":")[2] != "0"
+            ]
+            _require(
+                not silent,
+                "X.7",
+                "the narrow lever now warns on truncation outside the scope: "
+                f"{silent} -- A.11 says every one of these is silent",
+            )
+            print("      => Under the NARROW lever every truncation above is silent.")
+
     if not x64:
         print("\n  => F1 AS STATED IS FALSE. A JAX-backed diagram CAN exist with")
         print("     jax_enable_x64 = False. `jax_explicit_x64_dtypes = 'allow'`")
         print("     honours I2's float64 and B7's int64, arithmetic stays 64-bit,")
         print("     and it does NOT change the process-wide default dtype the way")
         print("     jax_enable_x64 does (X.6b) -- so it is the narrower and safer")
-        print("     of the two levers. Its scoped form is private API, and the")
-        print("     namespace still under-reports its own dtypes (X.4) even while")
-        print("     producing them.")
+        print("     of the two levers. Its scoped form is private API; the other")
+        print("     flag's is public and does not help (7e, 7f); and the namespace")
+        print("     still under-reports its own dtypes (X.4) even while producing")
+        print("     them.")
 
 
 def probe_akriti(jnp: Any, *, x64: bool) -> None:
