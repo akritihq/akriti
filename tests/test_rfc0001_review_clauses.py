@@ -1652,8 +1652,8 @@ def test_s12_open_decisions_are_d22() -> None:
     text = rfc_text()
     open_section = text.split("### 12.1 Open")[1].split("### 12.2")[0]
     open_ids = {
-        line.split("**")[1]
+        line.split("**")[1].rstrip(".")
         for line in open_section.splitlines()
-        if line.startswith("| **D")
+        if line.startswith("**D")
     }
     assert open_ids == {"D22"}
