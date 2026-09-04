@@ -3,10 +3,10 @@
 | Field | Value |
 |---|---|
 | **Status** | Open for public comment — opened 2026-08-23, closes 2026-10-16 (#31) |
-| **Version** | 1.1.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
+| **Version** | 1.2.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
 | **Authors** | Sushovan Majhi, A. D. Silberman, Edward Bae |
 | **Created** | 2026-07-29 |
-| **Last Edited** | 2026-08-24 |
+| **Last Edited** | 2026-09-03 |
 | **Target** | M0 (2026-08-01) drafted — met, initial draft 2026-07-29 · published for comment 2026-08-23 — met · M1 follows |
 | **Implements** | `akriti.diagrams` |
 
@@ -516,12 +516,30 @@ Either of two caller-set flags lifts it, and they are not equivalent:
 - `jax_enable_x64=True` additionally changes every default dtype in the
   process.
 
-**`core.py`, `adapters.py` and `io.py` MUST NOT set either flag.** Both are
-process-global, neither has a public scoped form, and setting one would
-silently change the numerics of unrelated JAX code in the caller's program —
-a library reaching outside its own call to make its own invariant hold. The
-failure a caller sees is I2's ordinary `ValueError`, which names the dtype it
-got; §3.3 is where it is explained, and the error MUST point here.
+**`core.py`, `adapters.py` and `io.py` MUST NOT set either flag, and MUST NOT
+set one inside a scope either.** The reason is not that the flags cannot be
+scoped — `jax.enable_x64` is a public, thread-local context manager that
+restores on exit (A.11), so that ground was measurably wrong and this clause
+no longer rests on it. The reason is that **a scope cannot outlive the object
+it builds, and a diagram is a long-lived object whose arrays the caller
+operates on later.** An array created inside such a scope keeps `float64` and
+keeps its precision, and every subsequent operation on it truncates to
+`float32` — silently, under the narrow lever this section tells callers to
+prefer. A library that set the flag around its own construction would hand
+back a diagram whose arrays degrade on first use, and hand it back with no
+error at the point of the mistake. Setting a flag process-wide is the same
+objection without the scope. The failure a caller sees when they set nothing
+is I2's ordinary `ValueError`, which names the dtype it got; §3.3 is where it
+is explained, and the error MUST point here.
+
+**The narrow lever requires `jax >= 0.8.0`, and this document states the bound
+because §3.3 is where a reader looks for it.** `jax_explicit_x64_dtypes` is
+absent from `jax/_src/config.py` at tag `jax-v0.7.2` and present at
+`jax-v0.8.0` (released 2025-10-15); JAX's changelog names it in no release
+section, so the tags are the record. Below that release the configuration this
+section tells a caller to set does not exist, and a reader following §3.3 on
+jax 0.7.2 gets I2's `ValueError` with no way to act on the remedy the error
+points them at. `akriti[jax]` carries the same floor.
 
 **The constraint MUST be exercised rather than asserted**, on D16's pattern
 and for §9's reason: a support claim no test runs is a claim that rots
@@ -2462,7 +2480,7 @@ message byte for byte:
   "format": "akriti.diagrams.akd",
   "format_version": 0,
   "spec": "RFC-0001",
-  "spec_version": "1.1.0",
+  "spec_version": "1.2.0",
   "kind": "diagram",
   "meta": { "filtration": "rips", "backend": "ripser", "...": "..." }
 }
@@ -2473,7 +2491,7 @@ message byte for byte:
 | `format` | `str` | Exactly `"akriti.diagrams.akd"`. This is requirement 3's self-identification, and it MUST be a fixed string rather than anything derived, so a reader can recognise the file without parsing the rest |
 | `format_version` | `int` | The version of *this layout*, currently `0`. Incremented whenever a change would make an older `load` misread a newer file. The one version key `load` is allowed to branch on |
 | `spec` | `str` | Which specification defines the file: `"RFC-0001"`. Separate from `format` so that a format defined by some later RFC is distinguishable from a later revision of this one |
-| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"1.1.0"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. **A revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor; a revision that alters none MUST increment the patch.** The major is `0` while the Status row reads Draft and becomes `1` at the revision published for comment. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
+| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"1.2.0"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. **A revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor; a revision that alters none MUST increment the patch.** The major is `0` while the Status row reads Draft and becomes `1` at the revision published for comment. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
 | `kind` | `str` | `"diagram"` or `"batch"`. Nothing else is valid |
 | `meta` | object | Present iff `kind == "diagram"`: one `DiagramMeta` as a JSON object, its own keys being the field names of §8's dataclass |
 | `metas` | array | Present iff `kind == "batch"`: the per-diagram `DiagramMeta` objects, in batch order |
@@ -3109,7 +3127,7 @@ document would rather put to its reviewers than settle by itself.
 | **D19** | §9.1 requires `core/distances.py` to compute the essential part of the bottleneck distance itself. §9's delegation rule forbids that outright — Akriti delegates computation and owns inference — and §6.3 restates it from the other side. Is this an exception, or does the requirement go? | **An exception, named and bounded here so it is not read as drift.** Delegating the whole distance means delegating to a known-wrong answer: persim drops essential bars and returns a finite number for diagrams that are infinitely far apart (§9.1, A.4). What §9.1 requires instead is not a persistence computation but a one-dimensional matching on birth values whose optimum is a sort, and **the exception is bounded to exactly that** — §9.1 carries the per-pair costs, and the finite part is still persim's. §6.3's rule is unaffected in both directions: `allclose` implements no distance, and `core/distances.py` MUST NOT be built on it. **Reopen when persim handles `inf` correctly** — the issue D5 requires us to file is the same one that would close this row — or if any second formula is ever proposed for `core/` on this row's precedent, which is the drift this row exists to make visible. |
 | **D20** | GUDHI's sklearn-compatible interface (`RipsPersistence` and its siblings) returns, per sample, a list of `(n,2)` blocks, and its maintainers recommend it over `SimplexTree` for Rips. §11 did not accept it. Does `from_gudhi` gain it as a third form, does it get its own adapter, or does `from_gudhi` take an explicit `format=`? | **A third form on `from_gudhi`, with `homology_dimensions` required alongside it.** What decides it is measurement rather than API taste. The shape is *identical* to Ripser's `Rips().fit_transform(X)` and to persim's input, so it cannot identify itself; and it is **not the same object**, because Ripser's index is the homological degree while GUDHI's is a position in the `homology_dimensions` list the caller passed and the return value does not carry. Measured: `[2, 0]` returns H2 then H0, and `[1]` returns a length-one list holding H1. An adapter reading index as degree would mislabel every diagram computed with a reordered or non-contiguous list — silently, plausibly, and wrongly, which is §9's category self-inflicted. So the fact the array lacks is required from the caller, on §5.1's `reduced_homology` precedent and for the identical reason. **A separate `from_gudhi_sklearn` is rejected** because it buys a name and solves nothing: it would still need `homology_dimensions`, the degrees being absent from the object rather than ambiguous about which adapter reads it. **`format=` is rejected** as the same argument wearing a worse hat — it makes the caller state which entry point produced the bars without stating the thing that is actually missing. **`coeff_field` needs no special handling**: `RipsPersistence`'s `homology_coeff_field` defaults to 11, as `SimplexTree.persistence()` does, so both current GUDHI Python entry points agree and §11's recording rule resolves identically either way (§9.3, A.5). **The condition to reopen against** is the planned `compute_persistence()`, which its maintainers expect to default to $\mathbb{Z}/2$: on the release that ships it, GUDHI's entry points stop agreeing on the coefficient field and this row's last paragraph stops being true. |
 | **D21** | §11 requires `infinity_values` on `from_giotto` as a keyword-only argument admitting only `inf`, with `None` and any finite value each raising `ValueError`. That obligation entered through entry 55's reconciliation pass as §12.3's R5 — a *defect* row — while behaving like a new requirement: it adds a mandatory argument to a public signature and narrows what the adapter accepts. Does the requirement stand, and where is it recorded? | **The requirement stands, the record moves here, and §11 gains a check it did not have.** R5 describes a gap rather than a falsehood — the implementation enforced this before the document described it — and §12.3 is for places this document stated something *false*. A requirement whose only record is a defect row cannot be found by a reader looking where requirements live. **The mechanism, measured rather than reasoned.** `infinity_values=None` does not name a value but a rule: use the transformer's cutoff. Under giotto's own `max_edge_length=inf` that rule yields `inf`, which is what §5 requires, so a caller who configures nothing is safe. The hazard needs a **finite** cutoff — deliberate, and the ordinary choice on real data, as A.1's own GUDHI call makes — with `infinity_values` left at its default. **Half the requirement is verifiable, and §11 now verifies it.** Non-reduced H0 of a nonempty space carries a class that never dies, so a diagram declared `reduced_homology=False, infinity_values=inf` with no non-finite H0 death is impossible rather than merely suspicious, and the adapter MUST refuse it. Measured at 24 of 24 across four topologically distinct clouds and three cutoffs, degenerate inputs included. Under `reduced_homology=True` the essential class is dropped by design, nothing is checkable, and the declaration is taken on trust — the asymmetry is stated rather than smoothed over. **What decides required-over-warned** is the remaining half: `max_edge_length` never reaches the adapter and the substituted death is an ordinary float, so where the check does not apply there is no condition to warn *on*, and the choice is between requiring and accepting a diagram whose `essential_bars = "faithful"` may be false. **Three alternatives were weighed.** *Strike it* leaves that live for any caller who truncates. *Default and warn once* is what §5.1 rejected for `reduced_homology` on measured evidence — §9.1's own evidence script suppressed a warning and reached a wrong conclusion until a reviewer caught it — and here there is additionally nothing to test before warning. *Accept any value and record it in `params`* mistakes the argument's kind: it constrains admissibility rather than describing the computation. **The accepted cost** is twofold: the rare deliberate `99.0`, whose refusal is obviously right, and the **most common giotto configuration**: a caller who configured nothing at all has `infinity_values=None`, which this requirement refuses outright even though, under giotto's default `max_edge_length=inf`, the rule resolves to `inf` and is safe. So the refusal lands hardest on the caller who did nothing wrong, and the remedy is not one line at the call site: `infinity_values` is a constructor argument on the *transformer*, so the fix reaches back into how the object that produced the array was built, which may be several functions away or inside a pipeline the caller does not own. The trade may still be correct — the adapter cannot see `max_edge_length` and so cannot tell the safe default from the dangerous one — but it is a trade against the common case. **Detectability is settled rather than open.** On a truncated filtration (`max_edge_length=1.5`, `reduced_homology=False`) the substitution lands on the cutoff exactly — one H0 and one H1 bar there, finite bars identical to the `inf` run, next-highest H0 death `0.501902` — so it is invisible in the values and visible only in the *absence* the check tests for. **The condition to reopen against** is reach: if `from_giotto` ever receives the transformer rather than its output array, `max_edge_length` becomes visible, the `reduced_homology=True` half becomes checkable too, and the requirement could soften to a check in both branches. |
-| **D23** | §3.3 promises that a diagram built from JAX arrays stays JAX-backed, and uses JAX as its worked example throughout. JAX defaults to 64-bit dtypes disabled, under which I2's `float64` and B7's `int64` are both truncated. On what terms is JAX supported? | **Under a caller-set 64-bit configuration this document MUST NOT set, stated as a supported-backend constraint on D16's pattern (§3.3).** What decides the shape is measurement (A.11), which corrects the premise the question was raised on: JAX carries a *second*, narrower lever, `jax_explicit_x64_dtypes='allow'`, under which an explicitly requested `float64` and `int64` are both honoured with `jax_enable_x64` still off and the process's default float dtype still `float32`. So a JAX-backed diagram is constructible, and both types construct and operate; what was true is that a *default* JAX install cannot build one. The narrow flag is the one this document names, changing only what akriti asks for. **Setting either flag ourselves is rejected on what was measured rather than on taste**: both are process-global, `jax_enable_x64` has no scoped form at all and the narrow one's is private API, so a library cannot set either without changing the numerics of unrelated JAX code in the caller's program. **Requiring x64 unconditionally is rejected** as the heavier of two flags where the lighter suffices. **Reopen if** JAX makes `dtypes()` agree with what `allow` mode actually produces, which A.11 asserts is still broken and the probe will catch, or if a scoped form of either flag becomes public API. |
+| **D23** | §3.3 promises that a diagram built from JAX arrays stays JAX-backed, and uses JAX as its worked example throughout. JAX defaults to 64-bit dtypes disabled, under which I2's `float64` and B7's `int64` are both truncated. On what terms is JAX supported? | **Under a caller-set 64-bit configuration this document MUST NOT set, stated as a supported-backend constraint on D16's pattern (§3.3).** What decides the shape is measurement (A.11), which corrects the premise the question was raised on: JAX carries a *second*, narrower lever, `jax_explicit_x64_dtypes='allow'`, under which an explicitly requested `float64` and `int64` are both honoured with `jax_enable_x64` still off and the process's default float dtype still `float32`. So a JAX-backed diagram is constructible, and both types construct and operate; what was true is that a *default* JAX install cannot build one. The narrow flag is the one this document names, changing only what akriti asks for. **Setting either flag ourselves is rejected on what was measured rather than on taste**, though not on the ground this entry first gave. That ground — that neither flag has a public scoped form — was false at the version A.11 measured: `jax.enable_x64` is public, thread-local and restores on exit. The prohibition stands on a stronger fact, which is that scoping was never what was missing: **a scope cannot outlive the object it builds**, and an x64 array created inside one truncates on every operation after it, silently under the narrow lever (A.11). Setting a flag process-wide is the same objection without the scope. **Requiring x64 unconditionally is rejected** as the heavier of two flags where the lighter suffices. **Reopen if** JAX makes `dtypes()` agree with what `allow` mode actually produces, which A.11 asserts is still broken and the probe will catch, or if an operation on an x64 array created under either flag stops truncating once the flag is no longer in effect. The second condition **replaces** "if a scoped form of either flag becomes public API", which has already fired and was the wrong condition to have written: a public scoped form arrived and did not help, because containment rather than scoping is what the prohibition needs. |
 | **D24** | §10.2's bump rule fires on *any* clause carrying a BCP 14 keyword being added, removed or altered, so an editorial rewording of a MUST is a minor bump; it took the document from 0.1.0 to 0.3.0 in three weeks. Should the condition be semantic change to a requirement instead? Further, §10.1's requirement 4's promise of byte-identicality across spec bumps is directly contradicted by `spec_version`. What should be done there? | Scope the guarantee to one `spec_version` and name `bars.npz` as the comparison for checks that must survive revisions. **Keep the rule**: with requirement 4 resolved, and with Appendix C's mechanical generation, this is less of an issue. One considered and rejected alternative: **Bump on semantic change**: minor when a revision changes what a conforming implementation must do, patch otherwise, so an editorial rewording of a MUST stops moving the number, at the cost of replacing an objective rule with a subjective one. **Dropping `spec_version`, and excluding it from the compared bytes, are not live**: §10.1 records both as weighed and rejected. **Reopen if** further issues with `spec_version` emerge. |
 
 ### 12.3 Reconciled
@@ -3592,10 +3610,46 @@ calls for — `xp = arr.__array_namespace__()`, then
   produces `float64` while `dtypes()` still omits it, so code trusting that
   introspection would reject a namespace that works. The script asserts this
   stays broken, so the probe fails when JAX fixes it.
-- **Neither flag has a public scoped form.** `jax_enable_x64` has none at all;
-  the narrow flag's is private (`jax._src.config`). That is what makes §3.3's
-  prohibition on setting either a statement about what is possible rather
-  than a preference.
+- **The scoped forms differ, and neither one helps.** `jax_enable_x64` has a
+  **public** scoped form: `jax.enable_x64`, exported from `jax/__init__.py`
+  since jax 0.8.0 and present at the version measured here, thread-local, and
+  restoring on exit. The narrow flag's is private (`jax._src.config`). An
+  earlier revision of this appendix asserted that neither had a public scoped
+  form and §3.3 rested its prohibition on that; the claim was false at this
+  same `jax 0.11.1`, and entry 79 records the correction.
+- **A scope can create an x64 array but cannot protect it, which is why the
+  scoped form does not help.** The array survives the block with its dtype and
+  its precision — `1 + 2^-40` held exactly, still `float64` — and then ordinary
+  operations on it truncate. Measured 2026-08-30 by @ADSilberman, same
+  `jax 0.11.1`, CPython 3.14.6, CPU; reproduced by X.7e.
+
+  | operation, applied outside the scope | built under `enable_x64` | built under `explicit_x64_dtypes` |
+  |---|---|---|
+  | `x + x` | `float64` | `float64` |
+  | `jnp.sort(x)` | `float64` | `float64` |
+  | `x * 2.0` | `float32`, 1 warning | `float32`, **silent** |
+  | `jnp.sum(x)` | `float32`, 2 warnings | `float32`, **silent** |
+  | `x.mean()` | `float32`, 4 warnings | `float32`, **silent** |
+  | `x - x.mean()` | `float32`, 1 warning | `float32`, **silent** |
+
+  Two things make this decisive rather than awkward. **Under the narrow lever —
+  the one §3.3 tells callers to prefer — every truncation is silent**, which is
+  this appendix's own "silent where an existing 64-bit array is merely
+  converted" arriving on the path a caller actually takes. And it is not a
+  `jnp.*` artefact: the array-API path §3.3 mandates truncates too, `xp.sum(x)`
+  and `xp.max(x)` both returning `float32`.
+- **Under a scope this type becomes self-inconsistent**, which is the form the
+  problem takes here rather than in general. A `PersistenceDiagram` built inside
+  `jax.enable_x64(True)` holds `float64` arrays after the block, and handing
+  them back to the constructor does not reach I2 — it dies earlier and less
+  usefully:
+
+  ```
+  TypeError: lax.eq requires arguments to have the same dtypes, got float64, float32.
+  ```
+
+  That is akriti emitting a diagram akriti cannot accept, with a message from
+  `lax` naming neither the flag nor §3.3.
 
 ---
 
@@ -3858,8 +3912,8 @@ either is a quotation of an obligation rather than one.
 | `N3.3-9` | §3.3 | **MUST** | The row-sequence adapter fallback MUST instead name `akriti[numpy]`, the extra for the namespace it needs. |
 | `N3.3-10` | §3.3 | **MUST NOT** | Adapters preserve the input namespace. `from_*` MUST NOT force-convert to NumPy. |
 | `N3.3-11` | §3.3 | **MUST NOT** | JAX is supported only in a 64-bit configuration the caller sets, and this document MUST NOT set it (D23). JAX's defaults supply neither dtype the diagram type requires: an explicitly requested `float64` is truncated to `float32` with a `UserWarning`, so I2 rejects the bars, and an explicitly requested `int64` is truncated to `int32`, so B7 would reject `offsets` if I2 had not already raised. |
-| `N3.3-12` | §3.3 | **MUST NOT** | `core.py`, `adapters.py` and `io.py` MUST NOT set either flag. Both are process-global, neither has a public scoped form, and setting one would silently change the numerics of unrelated JAX code in the caller's program — a library reaching outside its own call to make its own invariant hold. |
-| `N3.3-13` | §3.3 | **MUST** | The failure a caller sees is I2's ordinary `ValueError`, which names the dtype it got; §3.3 is where it is explained, and the error MUST point here. |
+| `N3.3-12` | §3.3 | **MUST NOT** | `core.py`, `adapters.py` and `io.py` MUST NOT set either flag, and MUST NOT set one inside a scope either. The reason is not that the flags cannot be scoped — `jax.enable_x64` is a public, thread-local context manager that restores on exit (A.11), so that ground was measurably wrong and this clause no longer rests on it. |
+| `N3.3-13` | §3.3 | **MUST** | The failure a caller sees when they set nothing is I2's ordinary `ValueError`, which names the dtype it got; §3.3 is where it is explained, and the error MUST point here. |
 | `N3.3-14` | §3.3 | **MUST** | The constraint MUST be exercised rather than asserted, on D16's pattern and for §9's reason: a support claim no test runs is a claim that rots silently. |
 | `N3.3-15` | §3.3 | **MUST** | A `@pytest.mark.backend` test MUST construct a diagram and a batch under `jax_explicit_x64_dtypes='allow'` and assert that the default configuration refuses them, skipping where JAX is absent — JAX is not in the default test environment and does not enter the dependency closure to satisfy this. |
 | `N3.3-16` | §3.3 | **MUST** | Namespace resolution MUST go through exactly one function, and its answer MUST depend on the input and never on the environment. `d.xp`, I7, B5 and §4.2's `from_diagrams` check are all defined over what that one function returns: |
@@ -4125,4 +4179,4 @@ Full narrative: history document.
 - **2026-08-23 (74)** — **Over-claims, then the editorial line.** `b.canonical()`'s eager-only status is a property of routing rather than of the operation, `searchsorted` giving a traceable form (§3.3). D21's cost cell names the common giotto configuration rather than the rare deliberate one. §11.1 states why `strip_padding` may default-and-warn where §5.1 and D21 refuse to. §3.2 states that `d.essential` and `d.finite` are not complements. Seven smaller corrections, including B8 gaining explicit permission for derived caches and §11.2's determinism case asserting the pinned `ZipInfo` fields rather than sleeping 2.5 s per case.
 - **2026-08-23 (75)** — **New Appendix C, the normative-requirements index, and the internal references swept.** A document this size cannot be checked for consistency by reading, and its failure mode — a rule argued in one section and not propagated to the places it binds — is two adjacent rows in a table. It is **generated** (`tools/normative_index.py`, with a test that fails when body and index disagree) on D15's ground that a separately maintained index can only go stale. It is placed **before** the changelog, which its own note says is removed when the window closes, so that removal leaves no gap in the lettering. **D24 closed** with the issue now less prevalent. §1 and §4 no longer name components this document does not affect.
 - **2026-08-24 (76)** — **A human read of entries 68-75, and the document becomes 1.1.0.** Cut commentary on the document's revisions and compress. I8's permission to skip the copy on an immutable backend becomes normative; the MUST confining the revalidation bypass goes. One bump to the minor for the whole pass. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow.
-
+- **2026-09-03 (77)** — **A false claim in Appendix A, and the reason behind D23 replaced. The document becomes 1.2.0.** A.11's fourth bullet said neither 64-bit flag has a public scoped form; `jax.enable_x64` is public, thread-local and restores on exit, and it was public at the `jax 0.11.1` A.11 itself measured. **Entry 71 is wrong where it repeats that claim** and is left standing as the record of what that pass concluded; this entry is the correction. §3.3's and D23's prohibition survives on a ground that does not depend on JAX's config API: **a scope cannot outlive the object it builds**, and an x64 array created inside one truncates on every later operation — silently under the narrow lever this document tells callers to prefer. D23's reopen condition is **replaced** rather than narrowed, the old one having already fired without helping. §3.3 states the `jax >= 0.8.0` floor for `jax_explicit_x64_dtypes`, absent at tag `jax-v0.7.2` and present at `jax-v0.8.0`, which the document promised a caller could set and never bounded. A.11 gains the containment measurements and the self-inconsistent-constructor case; `rfcs/evidence/jax_x64.py` gains X.7e, so the API-surface claim is measured rather than reasoned from `_contextmanager_flags`. **The bump is a minor, not a patch**: §3.3's `MUST NOT` is reworded, which D24 says is a minor by §10.2's rule whatever the wording did. Reported by @ADSilberman (#50).
