@@ -17,8 +17,10 @@
 #    Do this FIRST, and by hand. Naming an environment below does NOT create
 #    a gate: GitHub creates a referenced-but-undefined environment on the fly,
 #    with no protection rules and no reviewers, and runs the job anyway. The
-#    reviewer gate exists only once somebody creates it in settings. As of
-#    this commit the repository has no `pypi` environment.
+#    reviewer gate exists only once somebody creates it in settings. It was
+#    created on 2026-08-30 with required reviewers and a `v*` tag rule, so
+#    only a release tag can reach it. Both halves are settings, not code:
+#    nothing in this file will notice if either is removed later.
 #
 # 2. PyPI: https://pypi.org/manage/project/akriti/settings/publishing/
 #      Owner            akritihq
@@ -75,7 +77,11 @@ jobs:
       # deliberately, not incidentally.
       - run: pip install build==1.6.0 twine==7.0.0
       - run: python -m build
-      - run: twine check dist/*
+      # `--strict` because a warning here is permanent. A long_description
+      # that fails to render is reported as a warning, exits 0, and lands on
+      # PyPI -- which does not allow the rendered description of a published
+      # version to be corrected. Fail on it now rather than ship it forever.
+      - run: twine check --strict dist/*
 
       # Later steps glob `dist/*.whl` and `dist/*.tar.gz`. A second artifact
       # would let them verify one file while publishing another, so establish
