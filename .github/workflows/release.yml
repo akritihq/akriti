@@ -38,10 +38,13 @@ on:
     types: [published]
 
   # A rehearsal, not a publish path. `publish` is gated on the event name, so
-  # a manual run builds, runs every gate, uploads the artifacts to the run --
-  # and stops before PyPI. It previously reached `publish` with the tag check
-  # skipped, which made a button press on any branch a production release of
-  # whatever that branch happened to contain.
+  # a manual run builds, runs the gates, uploads the artifacts to the run --
+  # and stops before PyPI. The one gate it cannot run is the tag comparison,
+  # which has no tag to compare against outside a release; everything else,
+  # including the closure gate and the suite against the wheel, runs in full.
+  # It previously reached `publish` with the tag check skipped, which made a
+  # button press on any branch a production release of whatever that branch
+  # happened to contain.
   workflow_dispatch:
 
 permissions:
@@ -60,6 +63,10 @@ jobs:
   # another workflow run: what is published must come from what was tagged.
   build:
     runs-on: ubuntu-latest
+    # The concurrency group above never cancels, so a job that hangs holds the
+    # release for the six-hour runner default and the only way out is a manual
+    # cancel. This job takes a few minutes; 20 is headroom, not a deadline.
+    timeout-minutes: 20
     steps:
       # Actions are pinned by commit SHA here, unlike ci.yml's floating major
       # tags, and the trailing comment records which tag each SHA was. This
