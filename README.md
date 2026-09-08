@@ -144,13 +144,15 @@ program. See RFC-0001 §3.3 and D23.
 
 | | |
 |---|---|
-| **CASTLE** (Paper IV) | A practitioner's toolkit for topological two-sample testing, sample-size calculation and robustness certification · *in preparation* |
-| **Paper III** | A statistical-inference pipeline for persistence-landmark kernels: CLT, Berry–Esseen and functional limits · *in preparation* |
+| **Paper III** | Statistical inference for persistence diagrams via landmark embeddings · *finalised; arXiv shortly* |
 | **PLACE** (Paper I) | A closed-form persistence-landmark pipeline for certified point-cloud and graph classification · [arXiv:2605.02836](https://arxiv.org/abs/2605.02836) · *TMLR 2026* |
 | **PALACE** (Paper II) | Adaptive landmark embeddings for persistence diagrams · [arXiv:2605.04046](https://arxiv.org/abs/2605.04046) · *JMLR, under review* |
 
-CASTLE is the practitioner-facing product; the others are the machinery that
-makes its guarantees possible.
+CASTLE is the practitioner-facing product and is **code rather than a paper**:
+`akriti.castle` ships the two-sample test, the sample-size calculator, the
+per-region map and the robustness certificate, and the inference underneath them
+is Paper III's. The papers above are the machinery that makes its guarantees
+possible.
 
 ## Contributing
 
