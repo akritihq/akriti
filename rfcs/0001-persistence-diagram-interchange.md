@@ -74,12 +74,6 @@ every invariant, accessor and adapter in this document would have to say what
 it means for each. A parallel type again, not a column. §11 states what
 `from_gudhi` can and cannot do about it.
 
-**Note: Three modules implement this document**: `diagrams/core.py`
-(§3 through §8), `diagrams/adapters.py` (§10.3 and §11's five `from_*` adapters),
-and `diagrams/io.py` (§10's `save`/`load`). §9.1 additionally places one
-requirement on `core/distances.py`, the caller that would otherwise reach persim
-directly.
-
 **Non-goal: zigzag persistence**, and named because a reader should not have to
 infer it. A zigzag module's arrows do not all point the same way, so its
 intervals are not intervals of a filtration and there is no filtration value a
@@ -89,10 +83,30 @@ that gives those numbers meaning. Dionysus provides zigzag persistence; a caller
 holding its output has an object this type cannot represent, and should learn
 that here rather than from a rejected construction.
 
-Raised by @corybrunson (tdaverse) during the comment window, on the grounds that
-excluding something silently is worse than excluding it explicitly — a reader
-checking whether their case is covered is answered by absence only after they
-have spent the afternoon.
+**What decides a non-goal, so the next one is not argued from scratch.** This
+type stores two filtration values and a homological degree per bar, and nothing
+else. A construction is out of scope when its intervals are not intervals of one
+totally ordered filtration, or when what a bar *means* cannot be recovered from
+the coordinates without a field this type does not carry. Multiparameter fails
+the first: there is no single order. Zigzag fails the first: the arrows do not
+align. Extended persistence fails the second: the four families are not
+recoverable from two numbers. Each is a parallel type rather than a column here.
+
+**`death < birth` decides nothing on its own**, and it is worth saying so
+because two of the cases in this section produce it and only one is excluded.
+What decides is whether an exact, invertible, recorded transform carries the
+object into this type. Superlevel persistence has one — negation, which is exact
+in float64 and involutive — so it is a convention this document normalises
+rather than a construction it refuses. Extended persistence has none: no
+function of `(birth, death)` recovers which of the four families a bar came
+from. A future case producing reversed bars is decided by that test, not by the
+sign.
+
+**Note: Three modules implement this document**: `diagrams/core.py`
+(§3 through §8), `diagrams/adapters.py` (§10.3 and §11's five `from_*` adapters),
+and `diagrams/io.py` (§10's `save`/`load`). §9.1 additionally places one
+requirement on `core/distances.py`, the caller that would otherwise reach persim
+directly.
 
 ---
 
@@ -4147,4 +4161,4 @@ Full narrative: history document.
 - **2026-08-23 (74)** — **Over-claims, then the editorial line.** `b.canonical()`'s eager-only status is a property of routing rather than of the operation, `searchsorted` giving a traceable form (§3.3). D21's cost cell names the common giotto configuration rather than the rare deliberate one. §11.1 states why `strip_padding` may default-and-warn where §5.1 and D21 refuse to. §3.2 states that `d.essential` and `d.finite` are not complements. Seven smaller corrections, including B8 gaining explicit permission for derived caches and §11.2's determinism case asserting the pinned `ZipInfo` fields rather than sleeping 2.5 s per case.
 - **2026-08-23 (75)** — **New Appendix C, the normative-requirements index, and the internal references swept.** A document this size cannot be checked for consistency by reading, and its failure mode — a rule argued in one section and not propagated to the places it binds — is two adjacent rows in a table. It is **generated** (`tools/normative_index.py`, with a test that fails when body and index disagree) on D15's ground that a separately maintained index can only go stale. It is placed **before** the changelog, which its own note says is removed when the window closes, so that removal leaves no gap in the lettering. **D24 closed** with the issue now less prevalent. §1 and §4 no longer name components this document does not affect.
 - **2026-08-24 (76)** — **A human read of entries 68-75, and the document becomes 1.1.0.** Cut commentary on the document's revisions and compress. I8's permission to skip the copy on an immutable backend becomes normative; the MUST confining the revalidation bypass goes. One bump to the minor for the whole pass. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow.
-- **2026-08-30 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly. Appendix A's preamble gains the scope of what it measured: every diagram in it is a point cloud in $\mathbb{R}^2$ under Rips, so no figure there says anything about cubical or lower-star values. #44 was found from outside because that limit was not written down; stating it is what makes the next one findable from inside.
+- **2026-08-30 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly. §1 also gains the test that decides a non-goal — not one order, or a meaning the coordinates cannot carry — so the next case is applied rather than argued, and states that `death < birth` decides nothing by itself: superlevel has an exact invertible transform into this type and extended persistence has none, which is the difference the sign hides. Attribution for a raised issue lives here rather than in §1, on @ADSilberman's point that the normative text should carry the argument and the changelog the provenance. Appendix A's preamble gains the scope of what it measured: every diagram in it is a point cloud in $\mathbb{R}^2$ under Rips, so no figure there says anything about cubical or lower-star values. #44 was found from outside because that limit was not written down; stating it is what makes the next one findable from inside.
