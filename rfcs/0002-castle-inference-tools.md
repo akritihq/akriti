@@ -9,7 +9,7 @@
 | **Last Edited** | 2026-09-08 |
 | **Target** | Tool 1 signature frozen 2026-09-14 (D1); Tool 1 live for AMS 2026-10-03 |
 | **Implements** | `akriti.castle` |
-| **Rests on** | Paper III, arXiv version. Results are cited by label; numbers are not quoted because they move with every edit |
+| **Rests on** | Paper III — [arXiv:2609.07691](https://arxiv.org/abs/2609.07691), posted 2026-09-07. Results are cited by label rather than by number, numbers moving with every revision; the labels are `\label`s in the source |
 
 Key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, **MAY** are to be
 interpreted as described in BCP 14 (RFC 2119, RFC 8174) when, and only when,
@@ -29,8 +29,8 @@ and that note's own header now reads "Not maintained". A shipping module whose
 specification lives in an abandoned document is the failure RFC-0001 was written
 to prevent for `diagrams/`.
 
-**This revision is written against Paper III's arXiv version rather than against
-the note.** That changed the specification in both directions: §9 lists claims
+**This revision is written against Paper III as posted (arXiv:2609.07691)
+rather than against the note.** That changed the specification in both directions: §9 lists claims
 that did not survive, and §3.7 and §4.2 record two results the note treated as
 lost that are in the paper and are usable.
 
