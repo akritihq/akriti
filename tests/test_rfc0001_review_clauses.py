@@ -48,13 +48,20 @@ RFC_PATH = (
     / ("0001-persistence-diagram-interchange.md")
 )
 
-#: The document version (header row, and the value §10.2 requires ``save``
-#: to write as ``spec_version``). The review pass landed 1.1.0; #48 moved
-#: the patch and #44 the minor. This literal is the independent witness
-#: the tests below compare the document and ``io.py`` against, so it moves
-#: by hand with every bump -- see the note on entry 76 about the pins that
-#: follow.
-SPEC_VERSION = "1.2.0"
+#: The document version -- the header row and the two literals in §10.2 that
+#: quote it. The review pass landed 1.1.0; #48 moved the patch and #44 the
+#: minor. This literal is the independent witness the document is compared
+#: against, so it moves by hand with every bump.
+DOCUMENT_SPEC_VERSION = "1.2.0"
+
+#: What ``save`` writes, which §10.2 defines as the revision *the writer
+#: implemented* rather than the revision of the document. Entry 76's rule --
+#: the pins follow the document -- held only while the two moved together,
+#: and entry 78 corrects it: RFC-0001 is at 1.2.0 and ``core.py`` still
+#: enforces 1.1.1's I4 and I5, so stamping the document version into a file
+#: would claim a conformance nothing implements.
+#: ``tests/test_rfc0001_io.py`` is where the gap is required to be declared.
+IMPLEMENTED_SPEC_VERSION = "1.1.1"
 
 
 def diagram(
@@ -934,10 +941,10 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
-# §10.2 -- the document is 1.2.0, and ``save`` writes that
+# §10.2 -- the document is 1.2.0, and ``save`` writes what it implements
 #
-# Entry 76: "the document becomes 1.1.0 ... `io.py`'s `_SPEC_VERSION` and the
-# four `spec_version` pins in the I/O tests follow."
+# Entry 78: "`io.py`'s `_SPEC_VERSION` does *not* follow ... §10.2 defines
+# `spec_version` as which revision *the writer implemented*."
 #
 #   "`spec_version` | `str` | ... `"1.2.0"` at time of writing."
 # --------------------------------------------------------------------------
@@ -950,17 +957,17 @@ def rfc_text() -> str:
 def test_s10_2_header_version_row_is_the_review_version() -> None:
     for line in rfc_text().splitlines():
         if line.startswith("| **Version** |"):
-            assert line.split("|")[2].strip().startswith(SPEC_VERSION)
+            assert line.split("|")[2].strip().startswith(DOCUMENT_SPEC_VERSION)
             return
     pytest.fail("the RFC header has no Version row")
 
 
 def test_s10_2_schema_example_carries_the_same_version() -> None:
-    assert f'"spec_version": "{SPEC_VERSION}"' in rfc_text()
+    assert f'"spec_version": "{DOCUMENT_SPEC_VERSION}"' in rfc_text()
 
 
 def test_s10_2_schema_table_carries_the_same_version() -> None:
-    assert f'`"{SPEC_VERSION}"` at time of writing' in rfc_text()
+    assert f'`"{DOCUMENT_SPEC_VERSION}"` at time of writing' in rfc_text()
 
 
 def test_s10_2_no_stale_version_survives_the_bump() -> None:
@@ -972,17 +979,17 @@ def test_s10_2_no_stale_version_survives_the_bump() -> None:
     assert '`"0.3.0"` at time of writing' not in text
 
 
-def test_s10_2_save_writes_the_document_version(tmp_path: Path) -> None:
-    """The implementation half of the same bump."""
+def test_s10_2_save_writes_the_implemented_version(tmp_path: Path) -> None:
+    """The implementation half, which is not the document half (entry 78)."""
     path = tmp_path / "version.akd"
     save(sample(), path)
-    assert read_meta_json(path)["spec_version"] == SPEC_VERSION
+    assert read_meta_json(path)["spec_version"] == IMPLEMENTED_SPEC_VERSION
 
 
 def test_s10_2_save_writes_the_version_for_a_batch(tmp_path: Path) -> None:
     path = tmp_path / "version-batch.akd"
     save(three_diagrams(), path)
-    assert read_meta_json(path)["spec_version"] == SPEC_VERSION
+    assert read_meta_json(path)["spec_version"] == IMPLEMENTED_SPEC_VERSION
 
 
 def test_s10_2_load_does_not_branch_on_spec_version(tmp_path: Path) -> None:

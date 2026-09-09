@@ -31,7 +31,13 @@ import akriti.diagrams as diagrams
 
 FORMAT = "akriti.diagrams.akd"
 SPEC = "RFC-0001"
-SPEC_VERSION = "1.2.0"
+#: What this writer stamps into a file -- §10.2's ``spec_version`` is the
+#: revision the *writer implemented*, not the revision of the document. The
+#: two are separate pins because they are separate facts, and RFC-0001 is
+#: ahead: it is at 1.2.0 and ``core.py`` still enforces 1.1.1's I4 and I5.
+SPEC_VERSION = "1.1.1"
+#: The revision of the document on disk, moved by hand with the header row.
+DOCUMENT_SPEC_VERSION = "1.2.0"
 
 _ROOT = Path(__file__).resolve().parents[1]
 _RFC_PATH = _ROOT / "rfcs/0001-persistence-diagram-interchange.md"
@@ -1419,7 +1425,7 @@ def test_deep_metadata_recursion_is_normalized_to_value_error(tmp_path: Path) ->
     deeply_nested = '{"x":' * depth + "0" + "}" * depth
     metadata = (
         '{"format":"akriti.diagrams.akd","format_version":0,'
-        '"spec":"RFC-0001","spec_version":"1.2.0","kind":"diagram",'
+        '"spec":"RFC-0001","spec_version":"1.1.1","kind":"diagram",'
         '"meta":{"filtration":null,"backend":null,"backend_version":null,'
         '"coeff_field":null,"params":{"deep":'
         + deeply_nested
@@ -1646,13 +1652,13 @@ def test_duplicate_json_object_keys_are_rejected(tmp_path: Path, location: str) 
         )
         metadata = (
             '{"format":"akriti.diagrams.akd","format_version":0,"kind":"diagram",'
-            f'"meta":{duplicate_meta},"spec":"RFC-0001","spec_version":"1.2.0"}}'
+            f'"meta":{duplicate_meta},"spec":"RFC-0001","spec_version":"1.1.1"}}'
         )
     else:
         metadata = (
             '{"format":"akriti.diagrams.akd","format_version":0,"kind":"diagram",'
             f'"meta":{meta_text},"meta":{meta_text},"spec":"RFC-0001",'
-            '"spec_version":"1.2.0"}'
+            '"spec_version":"1.1.1"}'
         )
     path = write_bytes(
         tmp_path / f"duplicate-{location}.akd",
@@ -2364,31 +2370,72 @@ def test_a_value_that_cannot_convert_reports_the_original_failure() -> None:
         io_module._to_numpy(np, NeverConverts())
 
 
-def test_spec_version_agrees_with_the_rfc_header() -> None:
-    """``_SPEC_VERSION`` tracks RFC-0001's Version row, and nothing else does.
-
-    §10.2 defines ``spec_version`` as which revision of the specification the
-    writer implemented, and the header's Version row names *itself* as what
-    §10.2 writes into every file. They are one fact recorded twice, so they can
-    disagree -- and they have, twice. ``_SPEC_VERSION`` sat at ``0.1.0`` across
-    three document revisions until changelog entry 65 noticed; the revision
-    that opened the comment window moved the header to ``1.0.0`` and left the
-    writer at ``0.3.0``.
-
-    Neither drift was caught, and the reason both times is that the pins in
-    this module move *with* ``io.py`` rather than against the document: they
-    agree with each other while the file on disk claims conformance to a
-    revision the specification does not describe. This asserts the comparison
-    that was missing, against the document itself.
-    """
+def _documented_version() -> str:
+    """RFC-0001's own Version row, read from the document."""
     header = _RFC_PATH.read_text(encoding="utf-8")
-
     row = re.search(r"^\|\s*\*\*Version\*\*\s*\|\s*(\d+\.\d+\.\d+)", header, re.M)
     assert row is not None, "RFC-0001's header has no Version row to compare against"
-    documented = row.group(1)
+    return row.group(1)
 
-    assert documented == _io_module()._SPEC_VERSION
-    assert documented == SPEC_VERSION
+
+def test_the_document_version_pin_tracks_the_rfc_header() -> None:
+    """``DOCUMENT_SPEC_VERSION`` is the independent witness for the header row.
+
+    It moves by hand with every bump, so a document bump that forgets this
+    module is a failure here rather than a silently weaker assertion below.
+    """
+    assert _documented_version() == DOCUMENT_SPEC_VERSION
+
+
+def test_spec_version_is_what_this_writer_implements() -> None:
+    """``_SPEC_VERSION`` tracks the *implementation*, and may lag the document.
+
+    §10.2 defines ``spec_version`` as which revision of the specification the
+    writer implemented. That is not the revision of the document, and the two
+    can drift in either direction.
+
+    Drift **downward** -- the writer behind the document without anyone
+    intending it -- is what this test was originally written for, and it has
+    happened twice: ``_SPEC_VERSION`` sat at ``0.1.0`` across three document
+    revisions until changelog entry 65 noticed, and the revision that opened
+    the comment window moved the header to ``1.0.0`` and left the writer at
+    ``0.3.0``. Both times the pins in this module moved *with* ``io.py`` rather
+    than against the document, so they agreed with each other while the file on
+    disk claimed a conformance nothing had implemented.
+
+    Drift **upward** is the same defect with the signs reversed and is the one
+    RFC-0001 1.2.0 introduced: the document widened I4 and I5, added I10 and
+    normalised superlevel input at the adapter, ``core.py`` implements none of
+    it deliberately, and moving ``_SPEC_VERSION`` with the document stamped
+    ``1.2.0`` into every file a 1.1.1 writer produced.
+
+    So equality is not the rule. The rule is that any disagreement is
+    *acknowledged in tracked code*: while the two differ, ``_SPEC_VERSION_TRAILS``
+    must name the revision being trailed, and it must name the current one. That
+    turns "the implementation trails deliberately" from a claim in a commit
+    message into something a test can fail on, and it closes itself twice over --
+    a further document bump invalidates a stale acknowledgement, and the day the
+    checks land the pin moves and the acknowledgement must go.
+    """
+    documented = _documented_version()
+    io_module = _io_module()
+    implemented = io_module._SPEC_VERSION
+    trails = io_module._SPEC_VERSION_TRAILS
+
+    assert implemented == SPEC_VERSION
+
+    if implemented == documented:
+        assert trails is None, (
+            f"io.py implements RFC-0001 {implemented}, which is the document's "
+            f"own revision, so _SPEC_VERSION_TRAILS should be None rather than "
+            f"{trails!r} -- a stale acknowledgement of a gap that has closed"
+        )
+    else:
+        assert trails == documented, (
+            f"io.py implements RFC-0001 {implemented} while the document is at "
+            f"{documented}; a gap that wide is admissible only while it is "
+            f"acknowledged, and _SPEC_VERSION_TRAILS says {trails!r}"
+        )
 
 
 def test_the_rfc_example_metadata_block_carries_the_documented_version() -> None:

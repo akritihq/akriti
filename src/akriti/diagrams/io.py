@@ -22,7 +22,23 @@ from akriti.diagrams.core import (
 
 _FORMAT = "akriti.diagrams.akd"
 _SPEC = "RFC-0001"
-_SPEC_VERSION = "1.2.0"
+#: Which revision of RFC-0001 *this writer implements*, which is what §10.2
+#: defines ``spec_version`` to be -- not the revision of the document on disk.
+#: The two are equal whenever the implementation is caught up and must not be
+#: assumed to be: RFC-0001 is at 1.2.0, which widened I4 and I5, added I10 and
+#: normalised superlevel input at the adapter, and ``core.py`` still enforces
+#: 1.1.1's invariants. Stamping 1.2.0 into a file this writer produces would
+#: claim a conformance it does not have in the one field §10.2 keeps for audit.
+#: This moves when the checks do.
+_SPEC_VERSION = "1.1.1"
+
+#: The document revision this writer knowingly trails, or ``None`` once it is
+#: caught up. An acknowledgement rather than a note: ``test_rfc0001_io.py``
+#: requires it to name the *current* Version row, so a further bump to the
+#: document fails the suite until someone either re-acknowledges the gap or
+#: closes it by moving ``_SPEC_VERSION``. That is what keeps a deliberate lag
+#: distinguishable from the silent drift this pin has twice been caught in.
+_SPEC_VERSION_TRAILS: str | None = "1.2.0"
 _FORMAT_VERSION = 0
 _META_FIELDS = (
     "filtration",

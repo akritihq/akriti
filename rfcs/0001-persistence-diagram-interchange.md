@@ -117,8 +117,8 @@ A **persistence diagram** is a finite multiset of **bars**. A bar is a triple
 
 - `dimension` is a non-negative integer — the homological degree.
 - `birth`, `death` are **extended** real, with `birth <= death`. `death` MAY be
-  `+inf` and `birth` MAY be `-inf`, but no bar MAY carry the same infinity at
-  both ends.
+  `+inf` and `birth` MAY be `-inf`, but a bar MUST NOT carry the same infinity
+  at both ends.
 
 A bar with `death == +inf` is **essential**: the class it represents never dies.
 A bar with `birth == -inf` is **primordial**: it is present before the
@@ -244,11 +244,12 @@ test exhaustively:**
 (finite, finite)   (finite, +inf)   (-inf, finite)   (-inf, +inf)
 ```
 
-I6 and I10 together admit these and nothing else. A conforming implementation
-SHOULD test the surface exhaustively over a probe carrying both infinities and
-representative finite values rather than sampling it, and MUST NOT admit a
-`NaN` from any accessor anywhere on it — `d.persistence` on `(-inf, +inf)` is
-the case I10 exists to keep from returning one (§3.2).
+I6 and I10 together admit these and nothing else. An implementation MUST NOT
+admit a `NaN` from any accessor anywhere on that surface — `d.persistence` on
+`(-inf, +inf)` is the case I10 exists to keep from returning one (§3.2). The
+surface is small enough to enumerate rather than sample, and **§11.2 carries
+that requirement** rather than this section stating it a second time at a
+different strength.
 
 **The other six invariants were re-read against the same question and are
 clear, and that is recorded so it is not re-derived.** The finding behind #44
@@ -328,8 +329,23 @@ exceeds the clamp threshold, which is every non-trivial bar of a real
 superlevel diagram. What is not caught is a diagram *every* one of whose bars
 is inverted by less than that threshold: those are clamped to the diagonal and
 the diagram constructs. Such a diagram carries no bar of more than ULP-scale
-persistence in either convention, so nothing of consequence is lost, and
-`clamped_rows` equal to `n_bars` is the trace it leaves. This is the whole of
+persistence in either convention, so nothing of consequence is lost.
+
+**The trace it leaves is partial, and saying so is what keeps `clamped_rows`
+from being read as a detector it is not.** A bar inverted by a nonzero amount
+below the threshold is clamped and counted; a bar inverted by *exactly* zero —
+a trivial bar (§2) — already satisfies I6 and is not clamped at all. So a
+diagram of only trivial bars sits squarely in the residual and constructs with
+`clamped_rows` at `0`, and `clamped_rows == n_bars` is one possible signature
+rather than the signature. `clamped_rows` records float-noise repair, which is
+what §8 says it records and the only thing it can be trusted for.
+
+**The mirror direction has the same residual, on the same bar.** A *sublevel*
+diagram wrongly declared `"superlevel"` is negated and then fails I6 on every
+bar of strictly positive persistence, and on none if it has no such bar, the
+empty diagram included. So the mis-declaration is loud in both directions on
+every diagram either convention was worth computing, and silent in both on the
+diagrams where the two conventions are the same object. This is the whole of
 what the declaration's default costs, and §11 records it against the
 `reduced_homology` precedent, where the analogous failure is undetectable.
 
@@ -532,18 +548,32 @@ return-unchanged rule and carries the false claim through both calls.
 
 For the primordial bars it removes, `d.finite` MUST set
 `provenance["primordial_bars_dropped"]` (§8) to the count, **including `0`
-where it looked and found none** — the rule §11.1 states for `padding_removed`
-and §3.1 for `clamped_rows`, so the key's meaning does not change with the
-outcome. It is a separate key rather than a second `essential_bars` value
+where it looked and found none, whenever it writes `provenance` at all** — the
+rule §11.1 states for `padding_removed` and §3.1 for `clamped_rows`, so the
+key's meaning does not change with the outcome. The qualifier matters because
+there is one case where `d.finite` writes nothing, and the paragraph below
+states it: a diagram with neither kind of bar is returned untouched, so the
+key is absent rather than `0`. Absent means no `d.finite` ran; `0` means one
+ran and found nothing to drop. It is a separate key rather than a second `essential_bars` value
 because `essential_bars` answers one question about one set of bars for a
 diagram's whole life (§8), and a primordial drop is not an answer to it: a
 diagram can lose its primordial bars with its essential set entirely
 `"faithful"`, and both facts have to remain readable.
 
-A diagram with **no** essential bar and **no** primordial bar is returned with
+**Each key records only the drop it names, and the two are independent.** A
+diagram with **no** essential bar and **no** primordial bar is returned with
 `meta` untouched, on §5's terms — nothing was dropped, and a recorded drop of
-zero bars asserts a change that did not happen. Where either kind is present,
-`d.finite` records both keys, the zero included, because the operation ran.
+zero bars asserts a change that did not happen. Where primordial bars are
+present but no essential bar is, `d.finite` MUST write
+`primordial_bars_dropped` and MUST leave `essential_bars` and its qualifiers
+as it found them: §8 makes `essential_bars_dropped` present iff
+`essential_bars == "finitized_dropped"`, so writing that zero forces a
+finitization claim onto a diagram nothing was finitized in, overwrites the
+`"faithful"` or `"lost_upstream"` the adapter recorded, and carries the false
+claim onward through `d.finite.finitize(at="drop")` on §5's return-unchanged
+rule. Where essential bars are present, both key sets are written,
+`primordial_bars_dropped = 0` included — that key qualifies nothing (§8), so
+the zero records that the accessor looked and nothing more.
 
 **`d.source_coordinates()` returns arrays and MUST NOT return a diagram.** It
 is the documented inverse of §11's normalisation: `(dims, births, deaths)` in
@@ -647,7 +677,11 @@ The same applies to everything returning a Python `bool` or `str`: `==`,
 `allclose`, `same_provenance`, and `content_hash` are eager-only without
 being filtering operations. `n_bars` is the one exception worth naming — it
 reads `shape[0]`, a property of the shape rather than the values, and stays
-available.
+available. **`source_coordinates()` (§3.2) stays available too**, for a
+different reason worth stating rather than leaving to be inferred from this
+section's silence: it branches on a `provenance` string rather than on an
+array value, and negation is elementwise and shape-preserving, so nothing in
+it concretizes a traced array.
 
 **`DiagramBatch.__getitem__` is the second case that separates the two
 properties, and it is the one that propagates.** It is neither a filtering
@@ -1205,7 +1239,7 @@ b[i]                  # -> PersistenceDiagram, a zero-copy view (§4.2)
 iter(b)               # -> the diagrams in batch order (§4.2)
 b.essential           # -> bool mask, shape (total_bars,), deaths == +inf
 b.primordial          # -> bool mask, shape (total_bars,), births == -inf
-b.persistence         # -> deaths - births, shape (total_bars,), inf if either end is
+b.persistence         # -> deaths - births, shape (total_bars,), inf if either end is inf
 b.bar_counts          # -> int array, shape (len(b),), bar count per diagram
 b.xp                  # -> the shared array namespace, derived from dims
 ```
@@ -1260,7 +1294,7 @@ list:
   so its absence isn't mistaken for one. It's the constructor (§4.2), a read
   on nothing yet built, not a read on an existing batch.
 
-Two absences below are gaps, not placement choices, and are stated as
+Three absences below are gaps, not placement choices, and are stated as
 such rather than left for a reader to discover by searching:
 
 - **No batch-level `dim(k)` or `finite`.** Both would return a new
@@ -1271,7 +1305,13 @@ such rather than left for a reader to discover by searching:
   each `metas[i]` per segment, on §3.2's propagation rule, since how many
   bars it dropped differs per diagram. Straightforward generalizations;
   nobody has written them down yet.
-- **No batch-level `dimensions`.** Unlike the gap above, this one has no
+- **No batch-level `source_coordinates()`.** The diagram-level accessor
+  (§3.2) reads one `provenance` key; a batch counterpart would read
+  `metas[i]`'s per segment, which is exactly what §10.3 requires `to_csv()`
+  and `to_parquet()` to do without routing through an accessor. What is a
+  gap is the accessor, not the behaviour: §10.3 states the behaviour
+  normatively, so nothing is undefined while this stays unwritten.
+- **No batch-level `dimensions`.** Unlike the first gap above, this one has no
   single obvious generalization. The global union of degrees present
   anywhere in the batch, and the per-diagram list, already expressible as
   `[d.dimensions for d in b]` without any new accessor, are both defensible
@@ -1916,7 +1956,7 @@ document reads, and `save`/`load` still round-trip it like any other.
 | `essential_bars_dropped` | count of essential bars removed by `finitize(at="drop")` or `d.finite` (§3.2); present iff `essential_bars == "finitized_dropped"` |
 | `essential_bars_finitized_at` | the finite death `finitize` substituted for `inf` (§5), whichever mode computed it; present iff `essential_bars == "finitized_at"` |
 | `essential_bars_source` | `essential_bars` as the adapter recorded it — `"faithful"` or `"lost_upstream"`, never a `"finitized_*"` value. Written only by `from_*`, never by `finitize` (§5) |
-| `primordial_bars_dropped` | count of primordial bars removed by `d.finite` (§3.2); written by that accessor alone, including `0` where it removed none |
+| `primordial_bars_dropped` | count of primordial bars removed by `d.finite` (§3.2); written by that accessor alone, including `0` where it removed none — and absent from a diagram `d.finite` returned untouched, having found neither kind of bar (§3.2) |
 | `filtration_direction` | what the caller declared about the *source* filtration's orientation — `"sublevel"` or `"superlevel"`. Written by every `from_*` adapter (§11). Negation was applied on the way in iff the value is `"superlevel"` |
 | `coeff_field_source` | where `meta.coeff_field` came from — `"caller"` if the caller stated it, `"backend_default"` if the adapter recorded the backend's documented default (§9.3, §11) |
 | `source_dtype` | dtype of the input array |
@@ -2366,9 +2406,9 @@ by the old partition, is dropped there with the warning this section already
 documents, and the returned number is a finite distance between two diagrams
 that are infinitely far apart — §9.1's own defect, manufactured by us, in our
 own code, with no upstream issue to point at. The `NaN` hazard moves with it:
-this section's note that an implementation "MUST NOT reach that value by
-subtracting the deaths" applies verbatim to the births once two bars can both
-be born at $-\infty$, and the formula below **does** subtract them.
+the note below, that an implementation "MUST NOT reach that value by
+subtracting the two infinite coordinates", binds the births as well as the
+deaths once two bars can both be born at $-\infty$.
 
 **Pooling the degrees is the failure this clause exists to prevent.** persim
 receives an array of birth-death pairs and no degree column, so a single call on
@@ -2989,6 +3029,15 @@ every diagram admissible before §11's normalisation existed, so the default
 changes nothing for anyone not using it. Any other value MUST raise
 `ValueError`.
 
+**On a `DiagramBatch` the transform is per member.** `filtration_direction` is
+a `provenance` key on each `metas[i]` (§8), not a property of the batch, so
+`coordinates="source"` MUST negate the rows of segment `i` iff *that* member
+records `"superlevel"`, and a batch whose members disagree MUST be exported
+with each member in its own source convention rather than have one picked for
+the file. The `diagram_id` column is what keeps that readable. There is no
+batch-level `source_coordinates()` to route through (§4.3), which is why the
+rule is stated here rather than inherited.
+
 The default is `"source"` because these two are the human- and
 spreadsheet-facing surfaces §10.1 requirement 5 and D12 both lean on, and a
 column of negated intensities is not a human-readable rendering of an image's
@@ -3076,7 +3125,7 @@ header is a MUST on the writing side rather than a convenience.
 
 ## 11. Adapter contract
 
-Signature for all five, with eight deviations across four adapters:
+Signature for all five, with nine deviations across four adapters:
 
 ```python
 from_gudhi(obj, *, dim=None, homology_dimensions=None,
@@ -3274,10 +3323,11 @@ wrong answer rather than an error* (§5.1), and orientation does not meet it:
 under a superlevel filtration every non-trivial bar has `death < birth`, so a
 diagram handed in undeclared fails I6 at construction, and a *sublevel* diagram
 wrongly declared `"superlevel"` fails it too after negation. The mis-declaration
-is loud in both directions, and §3.1 requires I6's error to name this argument
-so the caller is sent to the right place. §3.1 states the one residual — a
-diagram every bar of which is inverted by less than the clamp threshold — and
-what it costs, which is nothing of consequence. Requiring the argument on four
+is loud in both directions on any diagram carrying a bar of more than ULP-scale
+persistence, and §3.1 requires I6's error to name this argument so the caller is
+sent to the right place. §3.1 states the residual both directions share — a
+diagram no bar of which separates the two conventions, the all-trivial and the
+empty one — and what it costs, which is nothing of consequence. Requiring the argument on four
 adapters would buy that residual at the price of friction on every caller who
 will never meet it, including the hand-built diagram §8 goes out of its way to
 keep valid.
@@ -3321,10 +3371,10 @@ of it. Declaring otherwise negates a second time and fails I6, which is the
 loud direction.
 
 Every adapter MUST: validate against §3.1; populate `backend`,
-`backend_version`, `provenance`, `provenance["filtration_direction"]`, and
-`filtration` where its own input form determines it (§8 — `from_ripser` is the
-one that does); preserve backend row order; and never finitize, sort, or
-deduplicate.
+`backend_version` and `provenance`, the last always including
+`provenance["filtration_direction"]` on the terms above; populate `filtration`
+where its own input form determines it (§8 — `from_ripser` is the one that
+does); preserve backend row order; and never finitize, sort, or deduplicate.
 
 Every adapter MUST also reject an input form not in the table below rather than
 attempt it. `from_gudhi` is where this bites, and the rejection it can perform
@@ -3471,8 +3521,11 @@ suite MUST include, at minimum:
   the same bars undeclared raise `ValueError` from I6 with a message naming the
   argument; sublevel bars declared `"superlevel"` raise the same way. A suite
   testing only the first proves the negation runs, not that its absence is
-  loud. `negate(negate(d))` bit-identical to `d` MUST be property-based over
-  the widened domain rather than checked on examples.
+  loud. That bit-identical round trip MUST be property-based over the widened
+  domain rather than checked on examples, and MUST be stated on the arrays
+  handed in and the arrays `source_coordinates()` gives back: double negation
+  is not an operation on a diagram, §3.2 ruling out a negated one because it
+  violates I6 by construction.
 - **`to_csv` in both conventions** (§10.3): the default `coordinates="source"`
   round-trips through a caller-side parse and
   `from_array(..., filtration_direction="superlevel")`, and
@@ -3639,7 +3692,7 @@ document would rather put to its reviewers than settle by itself.
 | **D21** | §11 requires `infinity_values` on `from_giotto` as a keyword-only argument admitting only `inf`, with `None` and any finite value each raising `ValueError`. That obligation entered through entry 55's reconciliation pass as §12.3's R5 — a *defect* row — while behaving like a new requirement: it adds a mandatory argument to a public signature and narrows what the adapter accepts. Does the requirement stand, and where is it recorded? | **The requirement stands, the record moves here, and §11 gains a check it did not have.** R5 describes a gap rather than a falsehood — the implementation enforced this before the document described it — and §12.3 is for places this document stated something *false*. A requirement whose only record is a defect row cannot be found by a reader looking where requirements live. **The mechanism, measured rather than reasoned.** `infinity_values=None` does not name a value but a rule: use the transformer's cutoff. Under giotto's own `max_edge_length=inf` that rule yields `inf`, which is what §5 requires, so a caller who configures nothing is safe. The hazard needs a **finite** cutoff — deliberate, and the ordinary choice on real data, as A.1's own GUDHI call makes — with `infinity_values` left at its default. **Half the requirement is verifiable, and §11 now verifies it.** Non-reduced H0 of a nonempty space carries a class that never dies, so a diagram declared `reduced_homology=False, infinity_values=inf` with no non-finite H0 death is impossible rather than merely suspicious, and the adapter MUST refuse it. Measured at 24 of 24 across four topologically distinct clouds and three cutoffs, degenerate inputs included. Under `reduced_homology=True` the essential class is dropped by design, nothing is checkable, and the declaration is taken on trust — the asymmetry is stated rather than smoothed over. **What decides required-over-warned** is the remaining half: `max_edge_length` never reaches the adapter and the substituted death is an ordinary float, so where the check does not apply there is no condition to warn *on*, and the choice is between requiring and accepting a diagram whose `essential_bars = "faithful"` may be false. **Three alternatives were weighed.** *Strike it* leaves that live for any caller who truncates. *Default and warn once* is what §5.1 rejected for `reduced_homology` on measured evidence — §9.1's own evidence script suppressed a warning and reached a wrong conclusion until a reviewer caught it — and here there is additionally nothing to test before warning. *Accept any value and record it in `params`* mistakes the argument's kind: it constrains admissibility rather than describing the computation. **The accepted cost** is twofold: the rare deliberate `99.0`, whose refusal is obviously right, and the **most common giotto configuration**: a caller who configured nothing at all has `infinity_values=None`, which this requirement refuses outright even though, under giotto's default `max_edge_length=inf`, the rule resolves to `inf` and is safe. So the refusal lands hardest on the caller who did nothing wrong, and the remedy is not one line at the call site: `infinity_values` is a constructor argument on the *transformer*, so the fix reaches back into how the object that produced the array was built, which may be several functions away or inside a pipeline the caller does not own. The trade may still be correct — the adapter cannot see `max_edge_length` and so cannot tell the safe default from the dangerous one — but it is a trade against the common case. **Detectability is settled rather than open.** On a truncated filtration (`max_edge_length=1.5`, `reduced_homology=False`) the substitution lands on the cutoff exactly — one H0 and one H1 bar there, finite bars identical to the `inf` run, next-highest H0 death `0.501902` — so it is invisible in the values and visible only in the *absence* the check tests for. **The condition to reopen against** is reach: if `from_giotto` ever receives the transformer rather than its output array, `max_edge_length` becomes visible, the `reduced_homology=True` half becomes checkable too, and the requirement could soften to a check in both branches. |
 | **D23** | §3.3 promises that a diagram built from JAX arrays stays JAX-backed, and uses JAX as its worked example throughout. JAX defaults to 64-bit dtypes disabled, under which I2's `float64` and B7's `int64` are both truncated. On what terms is JAX supported? | **Under a caller-set 64-bit configuration this document MUST NOT set, stated as a supported-backend constraint on D16's pattern (§3.3).** What decides the shape is measurement (A.11), which corrects the premise the question was raised on: JAX carries a *second*, narrower lever, `jax_explicit_x64_dtypes='allow'`, under which an explicitly requested `float64` and `int64` are both honoured with `jax_enable_x64` still off and the process's default float dtype still `float32`. So a JAX-backed diagram is constructible, and both types construct and operate; what was true is that a *default* JAX install cannot build one. The narrow flag is the one this document names, changing only what akriti asks for. **Setting either flag ourselves is rejected on what was measured rather than on taste**: both are process-global, `jax_enable_x64` has no scoped form at all and the narrow one's is private API, so a library cannot set either without changing the numerics of unrelated JAX code in the caller's program. **Requiring x64 unconditionally is rejected** as the heavier of two flags where the lighter suffices. **Reopen if** JAX makes `dtypes()` agree with what `allow` mode actually produces, which A.11 asserts is still broken and the probe will catch, or if a scoped form of either flag becomes public API. |
 | **D24** | §10.2's bump rule fires on *any* clause carrying a BCP 14 keyword being added, removed or altered, so an editorial rewording of a MUST is a minor bump; it took the document from 0.1.0 to 0.3.0 in three weeks. Should the condition be semantic change to a requirement instead? Further, §10.1's requirement 4's promise of byte-identicality across spec bumps is directly contradicted by `spec_version`. What should be done there? | Scope the guarantee to one `spec_version` and name `bars.npz` as the comparison for checks that must survive revisions. **Keep the rule**: with requirement 4 resolved, and with Appendix C's mechanical generation, this is less of an issue. One considered and rejected alternative: **Bump on semantic change**: minor when a revision changes what a conforming implementation must do, patch otherwise, so an editorial rewording of a MUST stops moving the number, at the cost of replacing an objective rule with a subjective one. **Dropping `spec_version`, and excluding it from the compared bytes, are not live**: §10.1 records both as weighed and rejected. **Reopen if** further issues with `spec_version` emerge. |
-| **D25** | Superlevel-set filtrations produce `death < birth` in general, which I6 forbids exactly. Does I6 become conditional on a recorded orientation, does the adapter normalise superlevel input to this document's convention on the way in, and is the declaration a `DiagramMeta` field, a `provenance` key or a constructor argument? | **Normalise at the adapter; record the source orientation in one `provenance` key; I6 stays exact and unconditional (§3.1, §8, §11).** Superlevel persistence of $f$ is sublevel persistence of $-f$ and the map on bars is componentwise negation — exact in float64, bit-for-bit involutive (A.12), and carrying a $-\infty$ death onto the $+\infty$ death §5 already specifies. **What decides it against the conditional invariant is forward cost, not implementation cost.** Conditioning is four sites today — `persistence`, `finitize`, the clamp, I6 — and that is cheap; the objection is that every numerical function written in `core/` afterwards either reads the flag or is silently wrong on half the diagrams, in the layer this project exists to own. Normalising makes that structurally impossible rather than a thing every author has to remember, which is the move I8 makes for mutability and I7 for namespaces. **The mechanism is a reserved `provenance` key and D15 decides it**: under normalisation a `DiagramMeta.filtration_direction` field would read `"sublevel"` on every diagram ever written — a cached constant in every file, verbatim D15's argument against `order` — while what the caller declared about the *source* is not derivable, has a single writer, and is what `source_coordinates()` reads. A field would additionally be a `format_version` bump (§10.2); a key is not. **The declaration defaults to `"sublevel"` rather than being required**, which is where it parts from the `reduced_homology` precedent: that argument's absence yields a wrong answer, this one's yields an I6 error on every non-trivial bar in either direction of mis-declaration. §3.1 states the one residual and §11 the measured scope — no adapted Python backend offers a superlevel switch (A.12), so the argument lands on `from_persim` and `from_array` alone. **The obligation this incurs is not optional**: a caller gets their own coordinates back through §3.2's `source_coordinates()` and §10.3's `"source"` export default, without which normalising is correct and unusable. **Reopen if** a Python backend gains a superlevel switch, which adds the argument to that adapter and changes nothing else. |
+| **D25** | Superlevel-set filtrations produce `death < birth` in general, which I6 forbids exactly. Does I6 become conditional on a recorded orientation, does the adapter normalise superlevel input to this document's convention on the way in, and is the declaration a `DiagramMeta` field, a `provenance` key or a constructor argument? | **Normalise at the adapter; record the source orientation in one `provenance` key; I6 stays exact and unconditional (§3.1, §8, §11).** Superlevel persistence of $f$ is sublevel persistence of $-f$ and the map on bars is componentwise negation — exact in float64, bit-for-bit involutive (A.12), and carrying a $-\infty$ death onto the $+\infty$ death §5 already specifies. **What decides it against the conditional invariant is forward cost, not implementation cost.** Conditioning is four sites today — `persistence`, `finitize`, the clamp, I6 — and that is cheap; the objection is that every numerical function written in `core/` afterwards either reads the flag or is silently wrong on half the diagrams, in the layer this project exists to own. Normalising makes that structurally impossible rather than a thing every author has to remember, which is the move I8 makes for mutability and I7 for namespaces. **The mechanism is a reserved `provenance` key and D15 decides it**: under normalisation a `DiagramMeta.filtration_direction` field would read `"sublevel"` on every diagram ever written — a cached constant in every file, verbatim D15's argument against `order` — while what the caller declared about the *source* is not derivable, has a single writer, and is what `source_coordinates()` reads. A field would additionally be a `format_version` bump (§10.2); a key is not. **The declaration defaults to `"sublevel"` rather than being required**, which is where it parts from the `reduced_homology` precedent: that argument's absence yields a wrong answer, this one's yields an I6 error on every bar of more than ULP-scale persistence in either direction of mis-declaration. §3.1 states the residual the two directions share -- the all-trivial diagram and the empty one, where no bar separates the conventions -- and §11 the measured scope — no adapted Python backend offers a superlevel switch (A.12), so the argument lands on `from_persim` and `from_array` alone. **The obligation this incurs is not optional**: a caller gets their own coordinates back through §3.2's `source_coordinates()` and §10.3's `"source"` export default, without which normalising is correct and unusable. **Reopen if** a Python backend gains a superlevel switch, which adds the argument to that adapter and changes nothing else. |
 | **D26** | I4's widening admits primordial bars (`birth == -inf`), which `d.finite` leaves in place while its name promises finiteness and `finitize` cannot reach at all. Does `finitize` gain a birth-substituting mode, does `d.finite` widen to drop them, or does the accessor get renamed? | **`d.finite` widens to mean what it says; `finitize` stays about deaths; nothing is renamed (§3.2, §5).** `d.finite` removes every bar with a non-finite coordinate, which by I10 is exactly the essential bars plus the primordial ones, and records both drops (§8's `primordial_bars_dropped`). **What decides it is that a name is not a place to put a caveat** — the alternative was to document that an accessor called `finite` may return infinities, and `REVIEWING.md` records that a trap a reader cannot see becomes a test rather than prose. It is also the accessor a caller reaches for before handing bars to something that assumes finite coordinates, which is §9.1's hazard exactly. **The cost is the lost identity** with `finitize(at="drop")`, which §3.2 and §5 previously stated as one operation reached two ways; they still agree on any diagram with no primordial bar, which is every diagram this document measured before A.12. **Widening `finitize`'s substituting modes is rejected for now rather than forever**: a substituted birth needs a *lower* bound where §5's apparatus computes an upper one, and a second provenance vocabulary beside `essential_bars`, for a case no measurement asks for — A.12 supplies diagrams carrying primordial bars and no caller wanting them substituted. **Reopen when** one exists. **Renaming the accessor is rejected** as the more disruptive answer to a name that can simply be made true. |
 
 ### 12.3 Reconciled
@@ -4163,12 +4216,12 @@ admitted and `(-inf, 0)` is refused, and the difference is not a property of
 either bar — it is that `+inf` was the only infinity anyone here had seen. §3.1
 removes it by widening both ends and adding I10 rather than by widening one.
 
-**The last grid is the one to test against.** It returns all three admissible
-non-finite shapes and a finite bar in one diagram: `(-inf, finite)`,
-`(-inf, +inf)` and `(finite, finite)`, with `(finite, +inf)` present in the rows
-above. That is §3.1's four-shape surface, produced by an ordinary backend call
-rather than constructed by hand, and it is what §9.1's four-class partition has
-to be correct on.
+**The last grid is the one to test against.** It returns three of §3.1's four
+admissible shapes in one diagram: `(-inf, finite)`, `(-inf, +inf)` and
+`(finite, finite)`. The fourth, `(finite, +inf)`, is in the rows above and not
+in this one, so the two together are §3.1's surface — produced by an ordinary
+backend call rather than constructed by hand, and it is what §9.1's four-class
+partition has to be correct on.
 
 **No adapted Python backend offers a superlevel switch.** Measured, and it is
 what scopes §11's `filtration_direction` to two adapters rather than five:
@@ -4413,17 +4466,17 @@ records decisions and points at the sections carrying them, and
 the appendices hold evidence and rationale, so a keyword in
 either is a quotation of an obligation rather than one.
 
-242 clauses: MAY 11, MUST 189, MUST NOT 38, SHOULD 3, SHOULD NOT 1.
+244 clauses: MAY 11, MUST 191, MUST NOT 39, SHOULD 2, SHOULD NOT 1.
 
 | # | Section | Keyword | Clause |
 |---|---|---|---|
 | `N1-1` | §1 | **MUST NOT** | This is not a deprecation path and MUST NOT be read as one. |
 | `N2-1` | §2 | **MAY** | `death` MAY be |
-| `N2-2` | §2 | **MAY** | `+inf` and `birth` MAY be `-inf`, but no bar MAY carry the same infinity at both ends. |
+| `N2-2` | §2 | **MAY** | `+inf` and `birth` MAY be `-inf`, but a bar MUST NOT carry the same infinity at both ends. |
 | `N2-3` | §2 | **MUST NOT** | The diagonal is implicit and MUST NOT be stored. |
 | `N3-1` | §3 | **MUST** | `core/` MUST be written against the array API rather than hard-coded NumPy, and `PersistenceDiagram` is the input to every function in `core/`. §3.3 states what this does and does not promise. |
 | `N3.1-1` | §3.1 | **MUST** | `core.py` MUST enforce these at construction and MUST NOT permit an invalid instance to exist. |
-| `N3.1-2` | §3.1 | **SHOULD** | A conforming implementation SHOULD test the surface exhaustively over a probe carrying both infinities and representative finite values rather than sampling it, and MUST NOT admit a `NaN` from any accessor anywhere on it — `d.persistence` on `(-inf, +inf)` is the case I10 exists to keep from returning one (§3.2). |
+| `N3.1-2` | §3.1 | **MUST NOT** | An implementation MUST NOT admit a `NaN` from any accessor anywhere on that surface — `d.persistence` on `(-inf, +inf)` is the case I10 exists to keep from returning one (§3.2). |
 | `N3.1-3` | §3.1 | **MUST** | Observed floating-point violations are a real occurrence at the 1e-16 level in some filtration code; the adapter (not the core type) is the correct place to clamp, and it MUST warn when it does. |
 | `N3.1-4` | §3.1 | **MUST** | I6's error MUST therefore name `provenance["filtration_direction"]` (§8, §11) as well as the offending rows: a caller handing in superlevel bars under the default declaration is the one case where a violation is the caller's fact rather than the backend's, and an error blaming the backend sends them to the wrong place — the same complaint §5 makes about an `at=nan` reported as a death time. |
 | `N3.1-5` | §3.1 | **MUST** | The clamp has one target and one record. An adapter that repairs such a row MUST set `death := birth`, which is the only value satisfying I6 that changes the row by less than the violation it repairs, and it MUST record the count in `provenance["clamped_rows"]` (§8) — including `0` where it looked and found none, on the rule §11.1 states for `padding_removed`: the key records what was actually repaired, so its meaning does not change with the outcome. |
@@ -4448,11 +4501,12 @@ either is a quotation of an obligation rather than one.
 | `N3.2-3` | §3.2 | **MUST** | `d.dim(k)` for a `k` not present MUST return an empty diagram, not raise. |
 | `N3.2-4` | §3.2 | **MUST** | `d.finite` MUST record both drops it performs, and it performs two. |
 | `N3.2-5` | §3.2 | **MUST** | On any diagram with no primordial bar the two produce the same diagram bar for bar, so they MUST produce the same provenance. |
-| `N3.2-6` | §3.2 | **MUST** | For the primordial bars it removes, `d.finite` MUST set `provenance["primordial_bars_dropped"]` (§8) to the count, including `0` where it looked and found none — the rule §11.1 states for `padding_removed` and §3.1 for `clamped_rows`, so the key's meaning does not change with the outcome. |
-| `N3.2-7` | §3.2 | **MUST NOT** | `d.source_coordinates()` returns arrays and MUST NOT return a diagram. It is the documented inverse of §11's normalisation: |
-| `N3.2-8` | §3.2 | **MUST** | The docstring MUST say so, since a caller who expects a diagram back will otherwise read the tuple as an oversight. |
-| `N3.2-9` | §3.2 | **MUST** | The inverse is therefore first-class and named, not something to be reconstructed from a provenance key the caller has to find first. §10.3's `to_csv()` and `to_parquet()` default to these coordinates for the same reason, and any plotting surface this project later adds MUST default to them too and label the axis with the source convention — stated here because the obligation is created here, in the same way §9.1 places a requirement on `core/distances.py`. |
-| `N3.2-10` | §3.2 | **MUST** | A consumer MUST read `essential_bars` as a statement about the diagram it is attached to. |
+| `N3.2-6` | §3.2 | **MUST** | For the primordial bars it removes, `d.finite` MUST set `provenance["primordial_bars_dropped"]` (§8) to the count, including `0` where it looked and found none, whenever it writes `provenance` at all — the rule §11.1 states for `padding_removed` and §3.1 for `clamped_rows`, so the key's meaning does not change with the outcome. |
+| `N3.2-7` | §3.2 | **MUST** | Where primordial bars are present but no essential bar is, `d.finite` MUST write `primordial_bars_dropped` and MUST leave `essential_bars` and its qualifiers as it found them: §8 makes `essential_bars_dropped` present iff `essential_bars == "finitized_dropped"`, so writing that zero forces a finitization claim onto a diagram nothing was finitized in, overwrites the `"faithful"` or `"lost_upstream"` the adapter recorded, and carries the false claim onward through `d.finite.finitize(at="drop")` on §5's return-unchanged rule. |
+| `N3.2-8` | §3.2 | **MUST NOT** | `d.source_coordinates()` returns arrays and MUST NOT return a diagram. It is the documented inverse of §11's normalisation: |
+| `N3.2-9` | §3.2 | **MUST** | The docstring MUST say so, since a caller who expects a diagram back will otherwise read the tuple as an oversight. |
+| `N3.2-10` | §3.2 | **MUST** | The inverse is therefore first-class and named, not something to be reconstructed from a provenance key the caller has to find first. §10.3's `to_csv()` and `to_parquet()` default to these coordinates for the same reason, and any plotting surface this project later adds MUST default to them too and label the axis with the source convention — stated here because the obligation is created here, in the same way §9.1 places a requirement on `core/distances.py`. |
+| `N3.2-11` | §3.2 | **MUST** | A consumer MUST read `essential_bars` as a statement about the diagram it is attached to. |
 | `N3.3-1` | §3.3 | **MUST** | They are therefore eager-only accessors, and MUST be documented as such. |
 | `N3.3-2` | §3.3 | **MAY** | What is normative is the *result* §7 defines; whether an implementation reaches it eagerly is its own affair, and a conforming one MAY be traceable. |
 | `N3.3-3` | §3.3 | **MUST** | Two boundaries are NumPy-bound, deliberately. `io.py` (§10) writes `.npz`, converting at the I/O boundary via `np.asarray` and returning NumPy-backed diagrams on load — serialization is not a numerical kernel, so there's nothing to gain from making it generic, but the conversion MUST happen at that boundary only, never in the constructor or an adapter. |
@@ -4569,7 +4623,7 @@ either is a quotation of an obligation rather than one.
 | `N9.1-2` | §9.1 | **MUST** | If the counts differ in any class in any dimension, the distance is `+inf` and MUST be returned as such without calling the backend. |
 | `N9.1-3` | §9.1 | **MUST** | If they agree everywhere, it MUST delegate the `(finite, finite)` class one dimension at a time — one backend call per dimension present in either diagram — and it MUST NOT pass a diagram containing any infinity to persim under any circumstances. |
 | `N9.1-4` | §9.1 | **MUST** | A dimension present in one diagram and absent from the other MUST be delegated against the other side's empty diagram rather than skipped, that being the case where one diagram has bars to send to the diagonal and the comparison is not free. |
-| `N9.1-5` | §9.1 | **MUST NOT** | The `NaN` hazard moves with it: this section's note that an implementation "MUST NOT reach that value by subtracting the deaths" applies verbatim to the births once two bars can both be born at $-\infty$, and the formula below does subtract them. |
+| `N9.1-5` | §9.1 | **MUST NOT** | The `NaN` hazard moves with it: the note below, that an implementation "MUST NOT reach that value by subtracting the two infinite coordinates", binds the births as well as the deaths once two bars can both be born at $-\infty$. |
 | `N9.1-6` | §9.1 | **MUST NOT** | Note: an implementation MUST NOT reach that value by subtracting the two infinite coordinates; by an opposing convention, Python returns `NaN`. |
 | `N9.2-1` | §9.2 | **MUST** | - `from_giotto` MUST be tested against *stored fixture arrays*, not a live |
 | `N9.2-2` | §9.2 | **MUST NOT** | - giotto-tda MUST NOT enter the default dependency closure. |
@@ -4601,17 +4655,18 @@ either is a quotation of an obligation rather than one.
 | `N10.3-3` | §10.3 | **MUST** | §11.2's round-trip case for this pair is therefore `to_csv` then a caller-side parse then `from_array`, and it needs `akriti[numpy]` to run; it MUST say so rather than reading as a test of an API that does not exist. |
 | `N10.3-4` | §10.3 | **MUST** | Requires `pip install akriti[parquet] # pyarrow (Apache 2.0)` (D8); `pyarrow` MUST be a lazy, function-scoped import inside `to_parquet()`, on §10.1 requirement 2's terms. |
 | `N10.3-5` | §10.3 | **MUST** | Any other value MUST raise `ValueError`. |
-| `N10.3-6` | §10.3 | **MUST** | Its docstring MUST state which convention it emits. |
-| `N10.3-7` | §10.3 | **MUST** | The `to_csv` round trip keeps working and grows one argument. These exports carry no `DiagramMeta`, so a CSV in source coordinates does not record that it is in them; reading one back is `from_array(arr, columns=("dim", "birth", "death"), filtration_direction="superlevel")`, the same declaration the original adapter call needed, and I6 catches its omission (§3.1, §11). §11.2's round-trip case for this pair MUST cover both conventions rather than only the one where the argument is invisible. |
-| `N10.3-8` | §10.3 | **MUST** | `from_array` MUST therefore take the column order from a `columns` argument wherever the caller has one — a sequence of strings naming `arr`'s columns in order, which is exactly what a header row is and exactly what `to_csv()` now writes: |
-| `N10.3-9` | §10.3 | **MUST** | `columns` MUST have one entry per column of `arr`, and a length disagreement MUST raise. |
-| `N10.3-10` | §10.3 | **MUST** | A name that is not one of the three MUST raise rather than fall through to position — a name that went unrecognised is the one case where the positional reading has been actively contradicted. |
-| `N10.3-11` | §10.3 | **MUST** | `columns` MUST name `birth` and `death` exactly once each, and `dim` at most once. A repeated name and a missing one are one defect seen from two ends — `["birth", "birth", "dim"]` names two births and no death — and neither is resolvable by falling back to position, the argument having been supplied precisely to override position. |
-| `N10.3-12` | §10.3 | **MUST** | Both MUST raise on the argument, before `arr` is inspected, so the failure does not depend on the data; §5 imposes the same ordering on `finitize`'s `at` and §6.3 on the cross-namespace check, for the same reason. |
-| `N10.3-13` | §10.3 | **MUST** | With this rule and the length rule above, `columns` settles §11's degree question by itself rather than leaving it to the column count: a two-entry `columns` is `(birth, death)` and MUST be given `dim=`, a three-entry one names `dim` and MUST NOT be. |
-| `N10.3-14` | §10.3 | **MUST NOT** | A separate argument, not names carried on the array itself. A NumPy structured or record array is the obvious alternative and MUST NOT be the mechanism: the array API standard defines no structured dtype and no way to ask an array for its field names, so recognising one means reaching for `.dtype.names` — a NumPy-shaped idiom applied to an array the caller handed in, which is what §3 forbids `adapters.py`, and which no other backend here answers. |
-| `N10.3-15` | §10.3 | **MUST** | A `columns` entry naming `diagram_id` MUST raise naming the column and pointing at `.akd`, which is the batch round trip (§10.1 requirement 1). |
-| `N10.3-16` | §10.3 | **MUST** | It is D16's trade taken in D16's direction — a default that fails loudly on nearly every real input beats refusing every nameless array — and the residual case is why the header is a MUST on the writing side rather than a convenience. |
+| `N10.3-6` | §10.3 | **MUST** | On a `DiagramBatch` the transform is per member. `filtration_direction` is a `provenance` key on each `metas[i]` (§8), not a property of the batch, so `coordinates="source"` MUST negate the rows of segment `i` iff *that* member records `"superlevel"`, and a batch whose members disagree MUST be exported with each member in its own source convention rather than have one picked for the file. |
+| `N10.3-7` | §10.3 | **MUST** | Its docstring MUST state which convention it emits. |
+| `N10.3-8` | §10.3 | **MUST** | The `to_csv` round trip keeps working and grows one argument. These exports carry no `DiagramMeta`, so a CSV in source coordinates does not record that it is in them; reading one back is `from_array(arr, columns=("dim", "birth", "death"), filtration_direction="superlevel")`, the same declaration the original adapter call needed, and I6 catches its omission (§3.1, §11). §11.2's round-trip case for this pair MUST cover both conventions rather than only the one where the argument is invisible. |
+| `N10.3-9` | §10.3 | **MUST** | `from_array` MUST therefore take the column order from a `columns` argument wherever the caller has one — a sequence of strings naming `arr`'s columns in order, which is exactly what a header row is and exactly what `to_csv()` now writes: |
+| `N10.3-10` | §10.3 | **MUST** | `columns` MUST have one entry per column of `arr`, and a length disagreement MUST raise. |
+| `N10.3-11` | §10.3 | **MUST** | A name that is not one of the three MUST raise rather than fall through to position — a name that went unrecognised is the one case where the positional reading has been actively contradicted. |
+| `N10.3-12` | §10.3 | **MUST** | `columns` MUST name `birth` and `death` exactly once each, and `dim` at most once. A repeated name and a missing one are one defect seen from two ends — `["birth", "birth", "dim"]` names two births and no death — and neither is resolvable by falling back to position, the argument having been supplied precisely to override position. |
+| `N10.3-13` | §10.3 | **MUST** | Both MUST raise on the argument, before `arr` is inspected, so the failure does not depend on the data; §5 imposes the same ordering on `finitize`'s `at` and §6.3 on the cross-namespace check, for the same reason. |
+| `N10.3-14` | §10.3 | **MUST** | With this rule and the length rule above, `columns` settles §11's degree question by itself rather than leaving it to the column count: a two-entry `columns` is `(birth, death)` and MUST be given `dim=`, a three-entry one names `dim` and MUST NOT be. |
+| `N10.3-15` | §10.3 | **MUST NOT** | A separate argument, not names carried on the array itself. A NumPy structured or record array is the obvious alternative and MUST NOT be the mechanism: the array API standard defines no structured dtype and no way to ask an array for its field names, so recognising one means reaching for `.dtype.names` — a NumPy-shaped idiom applied to an array the caller handed in, which is what §3 forbids `adapters.py`, and which no other backend here answers. |
+| `N10.3-16` | §10.3 | **MUST** | A `columns` entry naming `diagram_id` MUST raise naming the column and pointing at `.akd`, which is the batch round trip (§10.1 requirement 1). |
+| `N10.3-17` | §10.3 | **MUST** | It is D16's trade taken in D16's direction — a default that fails loudly on nearly every real input beats refusing every nameless array — and the residual case is why the header is a MUST on the writing side rather than a convenience. |
 | `N11-1` | §11 | **MUST** | So the caller MUST pass `homology_dimensions` with this form, exactly as `from_giotto` requires `reduced_homology` and for the same reason: a fact the caller holds, the array does not carry, and whose absence yields a wrong answer rather than an error. |
 | `N11-2` | §11 | **MUST** | Omitting it with a degree-indexed list MUST raise `TypeError`; passing a sequence whose length does not match the outer list MUST raise `ValueError`. |
 | `N11-3` | §11 | **MUST** | Passing `dim=` alongside this form MUST raise `TypeError` on the same grounds the plain `list` form is refused it: both carry every degree at once, and a single degree is not a thing the caller can be asserting about them. |
@@ -4629,7 +4684,7 @@ either is a quotation of an obligation rather than one.
 | `N11-15` | §11 | **MUST** | An adapter handed `"sublevel"`, or defaulted to it, MUST record that and MUST NOT negate. |
 | `N11-16` | §11 | **MUST** | Any other value MUST raise `ValueError`. |
 | `N11-17` | §11 | **MUST** | So `from_persim` and `from_array` take `filtration_direction`; `from_gudhi`, `from_ripser` and `from_giotto` MUST record `"sublevel"` on the same footing as `from_ripser` records `filtration = "rips"` — a fact about the input form rather than an inference about what the caller meant. |
-| `N11-18` | §11 | **MUST** | Every adapter MUST: validate against §3.1; populate `backend`, `backend_version`, `provenance`, `provenance["filtration_direction"]`, and `filtration` where its own input form determines it (§8 — `from_ripser` is the one that does); preserve backend row order; and never finitize, sort, or deduplicate. |
+| `N11-18` | §11 | **MUST** | Every adapter MUST: validate against §3.1; populate `backend`, `backend_version` and `provenance`, the last always including `provenance["filtration_direction"]` on the terms above; populate `filtration` where its own input form determines it (§8 — `from_ripser` is the one that does); preserve backend row order; and never finitize, sort, or deduplicate. |
 | `N11-19` | §11 | **MUST** | Every adapter MUST also reject an input form not in the table below rather than attempt it. |
 | `N11-20` | §11 | **MUST** | `extended_persistence()` returns a four-element list of `list[(dim, (b, d))]` (§1), structurally distinct from `persistence()`'s flat list, so `from_gudhi` MUST reject that outer list outright and MUST name the scope exclusion rather than the shape. |
 | `N11-21` | §11 | **MUST** | `from_gudhi`'s docstring MUST state this residual case, since it is the one place in the adapter contract where a rejected input form can arrive undetected. |
@@ -4646,7 +4701,7 @@ either is a quotation of an obligation rather than one.
 | `N11.2-3` | §11.2 | **MUST** | - A diagram with repeated identical bars — multiplicity MUST survive. |
 | `N11.2-4` | §11.2 | **MUST** | The surface is small enough that it MUST be enumerated rather than sampled. |
 | `N11.2-5` | §11.2 | **MUST** | Every accessor MUST be `NaN`-free across all of it — `persistence` on `(-inf, +inf)` is the case, and the test generalises past this issue into a standing regression test for the class rather than the instance. |
-| `N11.2-6` | §11.2 | **MUST** | `negate(negate(d))` bit-identical to `d` MUST be property-based over the widened domain rather than checked on examples. |
+| `N11.2-6` | §11.2 | **MUST** | That bit-identical round trip MUST be property-based over the widened domain rather than checked on examples, and MUST be stated on the arrays handed in and the arrays `source_coordinates()` gives back: double negation is not an operation on a diagram, §3.2 ruling out a negated one because it violates I6 by construction. |
 | `N11.2-7` | §11.2 | **MUST** | The coefficient field MUST be pinned explicitly on both sides, with a comment pointing at §9.3: the two backends default to different fields, so a comparison taking the defaults is matching bars across two different homology theories. |
 | `N11.2-8` | §11.2 | **MUST** | installed backend — GUDHI 11, Ripser 2 — one test per backend, marked `@pytest.mark.backend`. §11 writes these numbers into diagrams that stated no field, so an upstream change to either MUST break the build rather than reach a user's provenance. |
 | `N11.2-9` | §11.2 | **MUST** | than on the data (§11): omitting `reduced_homology` or `infinity_values` MUST raise `TypeError`, and `infinity_values=None` — giotto's own default, which resolves to the transformer's cutoff and so writes a finite sentinel whenever that cutoff is finite — MUST raise `ValueError` naming the default and the cutoff together, as MUST any finite value. |
@@ -4748,4 +4803,4 @@ Full narrative: history document.
 - **2026-08-23 (75)** — **New Appendix C, the normative-requirements index, and the internal references swept.** A document this size cannot be checked for consistency by reading, and its failure mode — a rule argued in one section and not propagated to the places it binds — is two adjacent rows in a table. It is **generated** (`tools/normative_index.py`, with a test that fails when body and index disagree) on D15's ground that a separately maintained index can only go stale. It is placed **before** the changelog, which its own note says is removed when the window closes, so that removal leaves no gap in the lettering. **D24 closed** with the issue now less prevalent. §1 and §4 no longer name components this document does not affect.
 - **2026-08-24 (76)** — **A human read of entries 68-75, and the document becomes 1.1.0.** Cut commentary on the document's revisions and compress. I8's permission to skip the copy on an immutable backend becomes normative; the MUST confining the revalidation bypass goes. One bump to the minor for the whole pass. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow.
 - **2026-08-30 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly. §1 also gains the test that decides a non-goal — not one order, or a meaning the coordinates cannot carry — so the next case is applied rather than argued, and states that `death < birth` decides nothing by itself: superlevel has an exact invertible transform into this type and extended persistence has none, which is the difference the sign hides. Attribution for a raised issue lives here rather than in §1, on @ADSilberman's point that the normative text should carry the argument and the changelog the provenance. Appendix A's preamble gains the scope of what it measured: every diagram in it is a point cloud in $\mathbb{R}^2$ under Rips, so no figure there says anything about cubical or lower-star values. #44 was found from outside because that limit was not written down; stating it is what makes the next one findable from inside.
-- **2026-09-09 (78)** — **Filtration values may be infinite at either end, and orientation may be reversed; the document becomes 1.2.0.** Two independent defects from the same root, both raised by @corybrunson (tdaverse) in the comment window (tdaverse/phutil#61, #44), and the root is worth naming before either: **every measurement in Appendix A was a point cloud in $\mathbb{R}^2$ under Rips**, so the invariant table inherited an assumption about the range of a filtration function that nobody wrote down and no run this project could have designed would have contradicted. Entry 77 stated that limit in A's preamble; this entry fixes what it was hiding. **The values half is measured rather than argued.** New A.12 runs GUDHI's own cubical complex over grids holding infinities — sublevel throughout, orientation nowhere near it — and gets `(dim 0, birth -inf, death 0.0)` and `(dim 0, birth -inf, death inf)` back, which I4 refused. So **I4 and I5 both reduce to non-`NaN`**: births may be `-inf`, deaths may be `+inf`, and I4's rationale cell stops claiming that a class born at the first value is not a class. What replaces the guarantee they were carrying is **I10**, a new row and *stronger* than either: no bar carries the same infinity at both ends, `(-inf, -inf)` and `(+inf, +inf)` being the only two pairs that make `deaths - births` a `NaN` and meaningless in any convention. I10 is a row rather than a sign restriction because it is convention-independent, because it subsumes the sign rules — a `+inf` birth needs `death == +inf` by I6 and is therefore already excluded — and because widening one infinity and not the other would replace an asymmetry nobody chose with one we did. The admissible surface is four shapes and thirteen pairs over a five-value probe, small enough that §11.2 requires it enumerated rather than sampled. **§9.1 is where the widening did real damage, and it is corrected in the same change rather than after it.** Partitioning "by dimension and within each dimension by `essential`" was correct only while infinite births were forbidden: a `(-inf, 0.5)` bar is not essential, is handed to persim by that partition, is dropped there, and the returned number is a finite distance between diagrams infinitely far apart — §9.1's own defect, self-inflicted, with no upstream issue to point at. The partition becomes four classes on the pair (birth infinite, death infinite), counts required equal per class per dimension, primordial bars pairing by sorted *death* as the mirror of essential bars pairing by sorted birth, `(-inf, +inf)` bars costing nothing to match, and `inf - inf = 0` extended to births with the existing MUST NOT against reaching it by subtraction now binding both coordinates. `core/distances.py` does not exist yet, so specifying this before it is written costs nothing. **The orientation half is D25, and it normalises rather than conditions.** Superlevel persistence of $f$ is sublevel persistence of $-f$; the map on bars is componentwise negation, exact in float64 and bit-for-bit involutive (A.12). §11 requires an adapter handed `filtration_direction="superlevel"` to negate before validating and before clamping, so **I6 stays exact and unconditional** and the clamp is reasoned about once, in one direction. What decides it against the conditional invariant is not implementation cost — that is four sites — but that every numerical function written in `core/` afterwards would either read the flag or be silently wrong on half the diagrams, in the layer this project exists to own. The mechanism is a reserved `provenance["filtration_direction"]` key and **D15 decides it**: under normalisation a `DiagramMeta` field would read `"sublevel"` in every file ever written, which is verbatim the argument that removed `order`, and a new `meta` field would be a `format_version` bump where a key is not. **Two corrections to what #44's own comment thread proposed.** The declaration **defaults to `"sublevel"` rather than being required**: that comment claimed absence "yields a wrong answer rather than an error" on the `reduced_homology` precedent, and that is false — under a superlevel filtration every non-trivial bar has `death < birth`, so an undeclared superlevel diagram fails I6, and a sublevel diagram wrongly declared superlevel fails it after negation. The mis-declaration is loud in both directions; §11.1's own rule, that a detectable hazard may default where an undetectable one may not, puts orientation on `strip_padding`'s side of that line. §3.1 states the one residual — a diagram every bar of which is inverted by less than the clamp threshold — and it costs nothing of consequence. And the argument lands on **two adapters, not four**: A.12 measures that no adapted Python backend offers a superlevel switch, so a Python caller negates their own input and gets a `"sublevel"` diagram back, and the reversed convention arrives from R through `from_persim` and `from_array`. **What normalising owes the caller is not a follow-up.** Someone running superlevel persistence on an image at intensity 200 has a bar stored at `-200`, and "it is the same object up to an exact involution" is not an answer to that. So §3.2 gains `source_coordinates()`, which returns arrays and MUST NOT return a diagram — negating a valid diagram inverts every non-trivial bar and violates I6, which is a fact about this type rather than an inconvenience — and §10.3's `to_csv()` and `to_parquet()` default to those coordinates, identical to the stored ones for every diagram not sourced superlevel. `to_arrays()` is the deliberate exception, being the hand-off to persim. **`d.finite` was a naming lie the moment I4 widened, and D26 makes the name true rather than documenting the trap.** It now removes every bar with a non-finite coordinate — by I10 exactly the essential bars plus the primordial ones — and records both drops, `provenance["primordial_bars_dropped"]` being the second. The cost is the lost identity with `finitize(at="drop")`, which the two sections previously stated as one operation reached two ways; they still agree on any diagram with no primordial bar, which is every diagram this document measured before A.12. `finitize` stays about deaths: a substituted birth needs a lower bound where §5 computes an upper one, and no measurement asks for one. `REVIEWING.md`'s "a trap a reader cannot see becomes a standing regression test, not prose" is what decided it. **The audit is the fourth piece and its output is mostly a clearance.** I1, I2, I3, I7 and I9 are shape, storage and degree; I8 is a property of this type. None can be reached by a filtration, and that is recorded in §3.1 so it is not re-derived. Two propagation sites were found by looking rather than by reasoning: §6.3's `allclose` said "`births` need no counterpart clause — I4 makes every birth finite", true when written and false after the widening, so infinite coordinates are now matched exactly at both ends; and §8.1's signed-zero note said "`+inf` has one representation", now stated for both infinities with `-inf + 0.0` checked exact. §2 gains **primordial** as a term beside essential and trivial, and disambiguates its own two senses of "finite" — cardinality, not coordinates. **On the bump.** §10.2's condition defines minor and patch only, and a revision adding a BCP 14 clause takes the minor, so this is mechanically 1.2.0; "major" would be a new rule rather than an application of the existing one and is not decided here. `format_version` does **not** move, which is the concrete cost difference D15's mechanism bought. Worth stating plainly because the two directions get conflated: widening an invariant is backward-compatible for **producers** and breaking for any **consumer** that relied on the guarantee, and here they genuinely differ. `io.py`'s `_SPEC_VERSION` and the `spec_version` pins in the I/O and review-clause tests follow in the same commit, on entry 76's rule. **The implementation now trails the document deliberately**, `core.py` still enforcing 1.1.1's I4 and I5; catching it up is its own change, with its tests written by someone other than whoever writes the checks.
+- **2026-09-09 (78)** — **Filtration values may be infinite at either end, and orientation may be reversed; the document becomes 1.2.0.** Two defects from one root, raised by @corybrunson (tdaverse) in the comment window (tdaverse/phutil#61, #44): Appendix A measured only VR over point clouds in $\mathbb{R}^2$, so the invariant table inherited an unstated assumption about a filtration's range. New **A.12** measures GUDHI's cubical complex returning `-inf` births, sublevel throughout. **I4 and I5** reduce to non-`NaN`; new **I10** carries what they protected: no bar with the same infinity at both ends. §2 gains **primordial**, and §9.1's partition becomes four classes on (birth infinite, death infinite). **D25** normalises superlevel input by negation at the adapter and records the source convention in `provenance["filtration_direction"]`, so I6 stays exact and unconditional; §3.2's `source_coordinates()` and §10.3's `"source"` export default are the inverse. The declaration defaults rather than being required, correcting #44's comment: absence errors rather than silently misreads. **D26** widens `d.finite` to mean what its name says; `finitize` stays about deaths. The audit cleared the other six invariants and found two propagation sites, §6.3's `allclose` and §8.1's signed zeros. **`io.py` does not follow, correcting entry 76's rule**: §10.2's `spec_version` is the revision *the writer implemented* and `core.py` still enforces 1.1.1's, so `_SPEC_VERSION` holds there, with a test requiring the gap to be acknowledged in code against the current Version row. `format_version` does not move.
