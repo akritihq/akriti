@@ -211,33 +211,7 @@ these at construction and MUST NOT permit an invalid instance to exist.
 | I9 | `dims`, `births`, `deaths` are each rank-1 (`ndim == 1`) | §3, shape `(n,)` |
 | I10 | no bar carries the same infinity at both ends — `(births == -inf) & (deaths == -inf)` and `(births == +inf) & (deaths == +inf)` are each empty | §2; a bar born and dying at the same end of the filtration is not an interval, and it is the only way `deaths - births` becomes `NaN` |
 
-**I4 and I5 widened, and I10 is what they were actually protecting.** Both
-rules previously read as definitional and were not: I4 said births are finite
-because "a class that is never born is not a class", which is a claim about the
-*range of the filtration function* rather than about classes, and it fails the
-moment that function takes $-\infty$. I5's prohibition on `-inf` deaths was
-the same assumption one column over. Appendix A.12 measures GUDHI's own
-cubical complex returning `(dim 0, birth -inf, death inf)` from a grid holding
-`-inf`, under an ordinary sublevel filtration with no reversed convention
-anywhere near it. The
-guarantee worth keeping was never about signs — it was that `deaths - births`
-is never `NaN`, and I10 states exactly that and nothing more.
-
-**I10 is a separate row rather than a sign restriction on I4, for three
-reasons.** It is **convention-independent**: the obvious alternative — widen I4
-to `-inf` only, keep `+inf` births forbidden, keep I5's `-inf` prohibition —
-works, but only by accident of which convention this document stores in, and
-would have to be re-reasoned the moment orientation is on the table (§11's
-normalisation is where that would have bitten). It **subsumes the sign rules
-rather than sitting beside them**: a `+inf` birth requires `death >= +inf` by
-I6, hence `death == +inf`, which I10 forbids, so `+inf` births need no clause
-of their own, and `-inf` deaths are excluded by the mirror argument. And it
-**removes an asymmetry instead of choosing a different one** — the table
-admitted `(0, +inf)` and refused `(-inf, 0)` because `+inf` was the only
-infinity anyone here had seen.
-
-**The admissible surface is therefore four shapes, and it is small enough to
-test exhaustively:**
+**The admissible surface is therefore four shapes:**
 
 ```
 (finite, finite)   (finite, +inf)   (-inf, finite)   (-inf, +inf)
@@ -245,40 +219,12 @@ test exhaustively:**
 
 I6 and I10 together admit these and nothing else. An implementation MUST NOT
 admit a `NaN` from any accessor anywhere on that surface — `d.persistence` on
-`(-inf, +inf)` is the case I10 exists to keep from returning one (§3.2). The
-surface is small enough to enumerate rather than sample, and **§11.2 carries
-that requirement** rather than this section stating it a second time at a
-different strength.
+`(-inf, +inf)` is the case I10 exists to keep from returning one (§3.2). It is
+small enough to enumerate rather than sample; **§11.2 carries that
+requirement**.
 
-**The other six invariants were re-read against the same question and are
-clear, and that is recorded so it is not re-derived.** The finding behind #44
-was structural rather than a list of cells: this table was written against an
-evidence base that is entirely Vietoris–Rips and alpha over point clouds in
-$\mathbb{R}^2$ (Appendix A's preamble now says so), so any rationale cell
-reading "definitional" had to be re-read against a filtration whose values come
-from a function rather than from a distance. Cubical and lower-star are named
-several times in this document, and until A.12 every one of those was a
-mention: §5 cites them as the ordinary case where every bar is essential, §8
-lists them as `filtration` values, and §11 cites them as the reason `from_gudhi`
-cannot infer what built a `SimplexTree`. The document knew these filtrations
-behave differently and had only ever followed it through for `finitize`; it
-never asked what their *values* can be.
-
-- **I1** (equal lengths) and **I9** (rank-1) are statements about array shape.
-  No filtration reaches them.
-- **I2** (`float64` / `int32`) is a storage decision (§6.1). A homological
-  degree does not grow with the filtration's range, so `int32` is not at risk
-  from a grid of any size.
-- **I3** (`dims >= 0`) is genuinely definitional: homological degree is a
-  non-negative integer in every theory this document admits.
-- **I7** (one namespace) and **I8** (immutability) are properties of the arrays
-  and of this type, argued from the array API and from §4.2's views. Neither
-  mentions a filtration and neither could.
-
-So the assumption was confined to the three cells that constrain *values*, which
-is where it would be, and I4, I5 and I6 are where it landed. The check that
-found them generalises past this table and is recorded in `REVIEWING.md`
-rather than here.
+I10 is a row of its own rather than a sign restriction on I4, and the other six
+invariants were checked against the same question: **D27**.
 
 **I6 is checked exactly, not within tolerance.** A backend that returns
 `death < birth` has a bug, and we surface it rather than absorb it. Observed
@@ -465,27 +411,15 @@ d.source_coordinates()   # -> (dims, births, deaths) in the source's own values
 ```
 
 **`d.finite` MUST mean what its name says: every coordinate of every bar it
-returns is finite.** Under I4's widening that is no longer the same set as
-"essential bars removed" — a `(-inf, 0.5)` bar is not essential, survives
-`~d.essential`, and is not finite. By I10 the bars with a non-finite coordinate
-are exactly `d.essential | d.primordial`, and `d.finite` removes both.
+returns is finite.** That is not the same set as "essential bars removed" — a
+`(-inf, 0.5)` bar is not essential, survives `~d.essential`, and is not finite.
+By I10 the bars with a non-finite coordinate are exactly
+`d.essential | d.primordial`, and `d.finite` removes both.
 
-This is the one place the widening changes an operation's *result* rather than
-only widening what it accepts, and the change is invisible to every diagram
-admissible before it: a diagram with no primordial bar — every Rips diagram,
-every alpha diagram, everything Appendix A measures — gets exactly what it got
-at 1.1.1. **What decided it is that a name is not a place to put a caveat.** The
-alternative was to keep `d.finite` as "essential removed" and document that its
-result may hold infinities, which is a trap a reader cannot see, and
-`REVIEWING.md` records that those become tests rather than prose. It is also
-the accessor a caller reaches for to get something safe to hand to a routine
-that assumes finite coordinates, which is precisely §9.1's hazard; an accessor
-named `finite` that does not deliver finiteness manufactures that hazard here.
-
-The cost is that `d.finite` and `finitize(at="drop")` (§5) are no longer the
-same operation reached two ways — the second is about `+inf` deaths and stays
-that way (D26). They still agree bar for bar on any diagram with no primordial
-bar, and §5 states what `d.finite` does that `finitize` does not.
+`d.finite` and `finitize(at="drop")` (§5) are therefore not one operation
+reached two ways — the second is about `+inf` deaths (D26). They agree bar for
+bar on any diagram with no primordial bar, and §5 states what `d.finite` does
+that `finitize` does not.
 
 **`d.essential`, `d.primordial` and `d.finite` are not complements, and the
 names invite reading them as a pair.** `d.essential` and `d.primordial` are
@@ -1480,10 +1414,9 @@ every other bar keeps the death it already had and already satisfies I6. It is
 vacuous on a diagram with no essential bars, which the return-unchanged rule
 above has already returned before this point is reached.
 
-**The check survives I4's widening unaltered, and it is worth saying why rather
-than leaving a reader to re-derive it.** An essential bar may now be primordial,
-so `xp.max(births[essential])` may be `-inf` — when every essential bar is, the
-maximum is `-inf`, every finite `at` clears it, and the comparison is doing
+**An essential bar may itself be primordial, and the check stands unaltered.**
+`xp.max(births[essential])` may then be `-inf` — when every essential bar is,
+the maximum is `-inf`, every finite `at` clears it, and the comparison is doing
 exactly what it should. `at` is required finite by the paragraph above, so a
 substitution can produce `(-inf, at)` but never `(-inf, -inf)`: I10 is not
 reachable from here, and the check needs no I10 counterpart.
@@ -1811,13 +1744,10 @@ case rather than a corner: `|inf - inf|` evaluates to `NaN`, every comparison
 against `NaN` is `False`, and a diagram carrying an essential bar is therefore
 not `allclose` to itself.
 
-**The `births` half of that clause is I4's widening propagating, and it is the
-kind of site the widening was audited for.** This paragraph previously read
-"`births` need no counterpart clause — I4 makes every birth finite", which was
-true when I4 forbade infinite births and became false with it. A primordial bar
+**The clause binds births as well as deaths.** A primordial bar
 (§2) puts `-inf` on the birth coordinate, `|-inf - -inf|` is `NaN` by the same
 IEEE rule, and without the clause a diagram carrying one is not `allclose` to
-itself either. `NaN` still cannot occur on either coordinate (I4, I5), so with
+itself either. `NaN` cannot occur on either coordinate (I4, I5), so with
 both halves stated this is the whole of the non-finite handling `allclose`
 requires. `==` needs no clause at all: IEEE equality gives `inf == inf`
 directly, which is why the contradiction was reachable only on the approximate
@@ -2030,7 +1960,7 @@ stored when one determines the other. Two reasons, not one:
 The writers are `from_giotto` at construction and the finitizing operations
 afterwards — `finitize()` (§5) and `d.finite` (§3.2). Those MUST be the only
 places that set this key, so the derived value and its source never have the
-chance to drift apart. The two are no longer one operation reached two ways
+chance to drift apart. The two are not one operation reached two ways
 (D26) — `d.finite` also drops primordial bars — but they write *this* key
 identically, and it is the drop of essential bars that either of them records
 here. `primordial_bars_dropped` is the key that separates them, and `d.finite`
@@ -2256,8 +2186,8 @@ normalisation is a second producer of one — negating a source `+0.0` yields
 `-0.0` — which changes nothing here, the rule already covering every route a
 signed zero arrives by. No other value needs normalising: `NaN` cannot occur
 (I4, I5), and each infinity has exactly one representation. Adding `+0.0` is
-still exact at both, `-inf + 0.0` being `-inf`, so I4's widening does not
-disturb the placement argument above.
+exact at both, `-inf + 0.0` being `-inf`, so an infinite birth does not disturb
+the placement argument above.
 
 ### 8.2 Batch content hash
 
@@ -2411,26 +2341,23 @@ present in one diagram and absent from the other MUST be delegated against the
 other side's empty diagram rather than skipped, that being the case where one
 diagram has bars to send to the diagonal and the comparison is not free.
 
-**Partitioning on `essential` alone is this section's own bug, reintroduced by
-I4's widening, and it is specified out before `core/distances.py` exists.**
-That file is not written yet, so this costs nothing now and would cost a
-released wrong answer later. The clause above read "within each dimension by
-`essential`" while I4 forbade infinite births, under which `essential` and
-"has an infinite coordinate" were the same mask. They are not the same mask any
-more. Take $p = (-\infty, 0.5)$:
+**Partitioning on `essential` alone is a bug, and it is specified out before
+`core/distances.py` exists.** `essential` and "has an infinite coordinate" are
+not the same mask (I4, I10). Take $p = (-\infty, 0.5)$:
 
 - its cost to the diagonal is $(d - b)/2 = +\infty$;
 - its cost against any finite-birth bar is $+\infty$;
 - its cost against another primordial bar is finite.
 
 So $p$ is **not** `essential` by the `deaths == +inf` mask, is handed to persim
-by the old partition, is dropped there with the warning this section already
-documents, and the returned number is a finite distance between two diagrams
+by a partition on that mask alone, is dropped there with the warning this
+section already documents, and the returned number is a finite distance
+between two diagrams
 that are infinitely far apart — §9.1's own defect, manufactured by us, in our
 own code, with no upstream issue to point at. The `NaN` hazard moves with it:
 the note below, that an implementation "MUST NOT reach that value by
 subtracting the two infinite coordinates", binds the births as well as the
-deaths once two bars can both be born at $-\infty$.
+deaths, two bars both being born at $-\infty$.
 
 **Pooling the degrees is the failure this clause exists to prevent.** persim
 receives an array of birth-death pairs and no degree column, so a single call on
@@ -2460,8 +2387,8 @@ to a bar of its own class in its own dimension**, where the class is the pair
 coordinates are either both finite or both the same infinity, and here, by
 convention, $\infty - \infty = 0$ at either end. Note: an implementation MUST
 NOT reach that value by subtracting the two infinite coordinates; by an opposing
-convention, Python returns `NaN`. **That note now binds both coordinates**, the
-births included, which is the half I4's widening added.
+convention, Python returns `NaN`. **That note binds both coordinates**, births
+included.
 
 Below, $D^{(k)}$ denotes the degree-$k$ part of $D$. Write
 $\mathrm{ess} = (\text{finite}, +\infty)$,
@@ -2502,8 +2429,8 @@ $$
   from a $(b, +\infty)$ bar alike, so folding it in either direction would
   match at infinite cost what the count check should have refused.
 
-  Each of the three empty classes contributes $0$ when $m = 0$, which is what
-  makes an all-finite diagram behave exactly as it did before this widening.
+  Each of the three empty classes contributes $0$ when $m = 0$, so an all-finite
+  diagram reduces to the `(finite, finite)` term alone.
 
 - **Combine with $\max$,** over classes and over dimensions, allowable due to
   the sub-problems being disjoint:
@@ -3728,7 +3655,8 @@ document would rather put to its reviewers than settle by itself.
 | **D23** | §3.3 promises that a diagram built from JAX arrays stays JAX-backed, and uses JAX as its worked example throughout. JAX defaults to 64-bit dtypes disabled, under which I2's `float64` and B7's `int64` are both truncated. On what terms is JAX supported? | **Under a caller-set 64-bit configuration this document MUST NOT set, stated as a supported-backend constraint on D16's pattern (§3.3).** What decides the shape is measurement (A.11), which corrects the premise the question was raised on: JAX carries a *second*, narrower lever, `jax_explicit_x64_dtypes='allow'`, under which an explicitly requested `float64` and `int64` are both honoured with `jax_enable_x64` still off and the process's default float dtype still `float32`. So a JAX-backed diagram is constructible, and both types construct and operate; what was true is that a *default* JAX install cannot build one. The narrow flag is the one this document names, changing only what akriti asks for. **Setting either flag ourselves is rejected on what was measured rather than on taste**: both are process-global, `jax_enable_x64` has no scoped form at all and the narrow one's is private API, so a library cannot set either without changing the numerics of unrelated JAX code in the caller's program. **Requiring x64 unconditionally is rejected** as the heavier of two flags where the lighter suffices. **Reopen if** JAX makes `dtypes()` agree with what `allow` mode actually produces, which A.11 asserts is still broken and the probe will catch, or if a scoped form of either flag becomes public API. |
 | **D24** | §10.2's bump rule fires on *any* clause carrying a BCP 14 keyword being added, removed or altered, so an editorial rewording of a MUST is a minor bump; it took the document from 0.1.0 to 0.3.0 in three weeks. Should the condition be semantic change to a requirement instead? Further, §10.1's requirement 4's promise of byte-identicality across spec bumps is directly contradicted by `spec_version`. What should be done there? | Scope the guarantee to one `spec_version` and name `bars.npz` as the comparison for checks that must survive revisions. **Keep the rule**: with requirement 4 resolved, and with Appendix C's mechanical generation, this is less of an issue. One considered and rejected alternative: **Bump on semantic change**: minor when a revision changes what a conforming implementation must do, patch otherwise, so an editorial rewording of a MUST stops moving the number, at the cost of replacing an objective rule with a subjective one. **Dropping `spec_version`, and excluding it from the compared bytes, are not live**: §10.1 records both as weighed and rejected. **Reopen if** further issues with `spec_version` emerge. |
 | **D25** | Superlevel-set filtrations produce `death < birth` in general, which I6 forbids exactly. Does I6 become conditional on a recorded orientation, does the adapter normalise superlevel input to this document's convention on the way in, and is the declaration a `DiagramMeta` field, a `provenance` key or a constructor argument? | **Normalise at the adapter; record the source orientation in one `provenance` key; I6 stays exact and unconditional (§3.1, §8, §11).** Superlevel persistence of $f$ is sublevel persistence of $-f$ and the map on bars is componentwise negation — exact in float64, bit-for-bit involutive (A.12), and carrying a $-\infty$ death onto the $+\infty$ death §5 already specifies. **What decides it against the conditional invariant is forward cost, not implementation cost.** Conditioning is a handful of sites today — I6, the clamp, `persistence`, `essential`, `finite` and `canonical()`'s sort order among them — and that is cheap; the objection is that every numerical function written in `core/` afterwards either reads the flag or is silently wrong on half the diagrams, in the layer this project exists to own. Normalising makes that structurally impossible rather than a thing every author has to remember, which is the move I8 makes for mutability and I7 for namespaces. **The mechanism is a reserved `provenance` key and D15 decides it**: under normalisation a `DiagramMeta.filtration_direction` field would read `"sublevel"` on every diagram ever written — a cached constant in every file, verbatim D15's argument against `order` — while what the caller declared about the *source* is not derivable, has a single writer, and is what `source_coordinates()` reads. A field would additionally be a `format_version` bump (§10.2); a key is not. **The declaration defaults to `"sublevel"` rather than being required**, which is where it parts from the `reduced_homology` precedent: that argument's absence yields a wrong answer, this one's yields an I6 error on every bar of more than ULP-scale persistence in either direction of mis-declaration. §3.1 states the residual the two directions share — the all-trivial diagram and the empty one, where no bar separates the conventions — and §11 the measured scope — no adapted Python backend offers a superlevel switch (A.12), so the argument lands on `from_persim` and `from_array` alone. **The obligation this incurs is not optional**: a caller gets their own coordinates back through §3.2's `source_coordinates()` and §10.3's `"source"` export default, without which normalising is correct and unusable. **Reopen if** a Python backend gains a superlevel switch, which adds the argument to that adapter and changes nothing else. |
-| **D26** | I4's widening admits primordial bars (`birth == -inf`), which `d.finite` leaves in place while its name promises finiteness and `finitize` cannot reach at all. Does `finitize` gain a birth-substituting mode, does `d.finite` widen to drop them, or does the accessor get renamed? | **`d.finite` widens to mean what it says; `finitize` stays about deaths; nothing is renamed (§3.2, §5).** `d.finite` removes every bar with a non-finite coordinate, which by I10 is exactly the essential bars plus the primordial ones, and records both drops (§8's `primordial_bars_dropped`). **What decides it is that a name is not a place to put a caveat** — the alternative was to document that an accessor called `finite` may return infinities, and `REVIEWING.md` records that a trap a reader cannot see becomes a test rather than prose. It is also the accessor a caller reaches for before handing bars to something that assumes finite coordinates, which is §9.1's hazard exactly. **The cost is the lost identity** with `finitize(at="drop")`, which §3.2 and §5 previously stated as one operation reached two ways; they still agree on any diagram with no primordial bar, which is every diagram this document measured before A.12. **Widening `finitize`'s substituting modes is rejected for now rather than forever**: a substituted birth needs a *lower* bound where §5's apparatus computes an upper one, and a second provenance vocabulary beside `essential_bars`, for a case no measurement asks for — A.12 supplies diagrams carrying primordial bars and no caller wanting them substituted. **Reopen when** one exists. **Renaming the accessor is rejected** as the more disruptive answer to a name that can simply be made true. |
+| **D26** | I4's widening admits primordial bars (`birth == -inf`), which `d.finite` leaves in place while its name promises finiteness and `finitize` cannot reach at all. Does `finitize` gain a birth-substituting mode, does `d.finite` widen to drop them, or does the accessor get renamed? | **`d.finite` widens to mean what it says; `finitize` stays about deaths; nothing is renamed (§3.2, §5).** `d.finite` removes every bar with a non-finite coordinate, which by I10 is exactly the essential bars plus the primordial ones, and records both drops (§8's `primordial_bars_dropped`). **What decides it is that a name is not a place to put a caveat** — the alternative was to document that an accessor called `finite` may return infinities, leaving a trap a reader cannot see. It is also the accessor a caller reaches for before handing bars to something that assumes finite coordinates, which is §9.1's hazard exactly. **The cost is the lost identity** with `finitize(at="drop")`, which §3.2 and §5 previously stated as one operation reached two ways; they still agree on any diagram with no primordial bar, which is every diagram this document measured before A.12. **Widening `finitize`'s substituting modes is rejected for now rather than forever**: a substituted birth needs a *lower* bound where §5's apparatus computes an upper one, and a second provenance vocabulary beside `essential_bars`, for a case no measurement asks for — A.12 supplies diagrams carrying primordial bars and no caller wanting them substituted. **Reopen when** one exists. **Renaming the accessor is rejected** as the more disruptive answer to a name that can simply be made true. |
+| **D27** | I4 and I5 read as definitional and were not: each was a claim about the *range* of the filtration function, and A.12 measures GUDHI's cubical complex returning `(dim 0, birth -inf, death inf)` from an ordinary sublevel filtration. What replaces them, and do the other invariants carry the same assumption? | **I4 and I5 reduce to non-`NaN`, a separate I10 carries what they were protecting, and the other six cells are clear (§3.1).** The guarantee worth keeping was never about signs — it was that `deaths - births` is never `NaN`, and I10 states that and nothing more. **I10 is a row of its own rather than a sign restriction on I4, for three reasons.** It is **convention-independent**: widening I4 to `-inf` only, keeping `+inf` births and I5's `-inf` prohibition, works only by accident of which convention this document stores in, and would have to be re-reasoned the moment orientation is on the table (D25). It **subsumes the sign rules rather than sitting beside them**: a `+inf` birth requires `death >= +inf` by I6, hence `death == +inf`, which I10 forbids, so `+inf` births need no clause of their own, and `-inf` deaths go by the mirror argument. And it **removes an asymmetry instead of choosing a different one** — the table admitted `(0, +inf)` and refused `(-inf, 0)` because `+inf` was the only infinity anyone here had seen (A.12). **The other six invariants are clear, recorded here so it is not re-derived**: I1 and I9 are statements about array shape, and no filtration reaches them; I2 is a storage decision (§6.1), and a homological degree does not grow with a filtration's range, so `int32` is not at risk from a grid of any size; I3 is genuinely definitional, homological degree being a non-negative integer in every theory this document admits; I7 and I8 are properties of the arrays and of this type, neither mentioning a filtration nor able to. The assumption was confined to the three cells that constrain *values*, which is where it would be, and I4, I5 and I6 are where it landed. |
 
 ### 12.3 Reconciled
 
@@ -4532,7 +4460,7 @@ either is a quotation of an obligation rather than one.
 | `N3.1-19` | §3.1 | **MUST** | Anything computing a *new* coordinate value MUST use the ordinary constructor, `finitize`'s substituting modes being the case: a substituted death is not a value any earlier check saw, and it can break I6. |
 | `N3.1-20` | §3.1 | **MUST** | What remains unenforceable MUST be documented rather than implied. After all three rules, `d.births[0] = 5.0` still runs on every backend, because no array library in scope offers a way to stop it. |
 | `N3.1-21` | §3.1 | **MUST** | I8 is a contract on callers at that last step, not a guarantee the type can make, and the class docstring MUST say so — a reader who has been told the type is immutable and finds that a subscript assignment works will conclude the immutability is nominal everywhere, including at the two places above where it is real. |
-| `N3.2-1` | §3.2 | **MUST** | `d.finite` MUST mean what its name says: every coordinate of every bar it returns is finite. Under I4's widening that is no longer the same set as "essential bars removed" — a `(-inf, 0.5)` bar is not essential, survives `~d.essential`, and is not finite. |
+| `N3.2-1` | §3.2 | **MUST** | `d.finite` MUST mean what its name says: every coordinate of every bar it returns is finite. That is not the same set as "essential bars removed" — a `(-inf, 0.5)` bar is not essential, survives `~d.essential`, and is not finite. |
 | `N3.2-2` | §3.2 | **MUST NOT** | `d.persistence` is `deaths - births` and MUST NOT be `NaN` anywhere on the admissible surface (§3.1). It is `+inf` for an essential bar, `+inf` for a primordial one, and `+inf` for a bar that is both — that last is the pair I10 exists to make representable without `inf - inf` reaching the subtraction. |
 | `N3.2-3` | §3.2 | **MUST** | `d.dim(k)` for a `k` not present MUST return an empty diagram, not raise. |
 | `N3.2-4` | §3.2 | **MUST** | `d.finite` MUST record both drops it performs, and it performs two. |
@@ -4662,7 +4590,7 @@ either is a quotation of an obligation rather than one.
 | `N9.1-3` | §9.1 | **MUST NOT** | The count rule binds those three and MUST NOT be extended to `(finite, finite)`, where unequal counts are the ordinary case and the surplus bars are matched to the diagonal — a count check over all four would return `+inf` for any two diagrams with different numbers of finite bars, which is most of them. |
 | `N9.1-4` | §9.1 | **MUST** | If the three agree, it MUST delegate the `(finite, finite)` class one dimension at a time — one backend call per dimension present in either diagram — and it MUST NOT pass a diagram containing any infinity to persim under any circumstances. |
 | `N9.1-5` | §9.1 | **MUST** | A dimension present in one diagram and absent from the other MUST be delegated against the other side's empty diagram rather than skipped, that being the case where one diagram has bars to send to the diagonal and the comparison is not free. |
-| `N9.1-6` | §9.1 | **MUST NOT** | The `NaN` hazard moves with it: the note below, that an implementation "MUST NOT reach that value by subtracting the two infinite coordinates", binds the births as well as the deaths once two bars can both be born at $-\infty$. |
+| `N9.1-6` | §9.1 | **MUST NOT** | The `NaN` hazard moves with it: the note below, that an implementation "MUST NOT reach that value by subtracting the two infinite coordinates", binds the births as well as the deaths, two bars both being born at $-\infty$. |
 | `N9.1-7` | §9.1 | **MUST NOT** | Note: an implementation MUST NOT reach that value by subtracting the two infinite coordinates; by an opposing convention, Python returns `NaN`. |
 | `N9.2-1` | §9.2 | **MUST** | - `from_giotto` MUST be tested against *stored fixture arrays*, not a live |
 | `N9.2-2` | §9.2 | **MUST NOT** | - giotto-tda MUST NOT enter the default dependency closure. |
@@ -4844,4 +4772,4 @@ Full narrative: history document.
 - **2026-08-23 (75)** — **New Appendix C, the normative-requirements index, and the internal references swept.** A document this size cannot be checked for consistency by reading, and its failure mode — a rule argued in one section and not propagated to the places it binds — is two adjacent rows in a table. It is **generated** (`tools/normative_index.py`, with a test that fails when body and index disagree) on D15's ground that a separately maintained index can only go stale. It is placed **before** the changelog, which its own note says is removed when the window closes, so that removal leaves no gap in the lettering. **D24 closed** with the issue now less prevalent. §1 and §4 no longer name components this document does not affect.
 - **2026-08-24 (76)** — **A human read of entries 68-75, and the document becomes 1.1.0.** Cut commentary on the document's revisions and compress. I8's permission to skip the copy on an immutable backend becomes normative; the MUST confining the revalidation bypass goes. One bump to the minor for the whole pass. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow.
 - **2026-08-30 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly. §1 also gains the test that decides a non-goal — not one order, or a meaning the coordinates cannot carry — so the next case is applied rather than argued, and states that `death < birth` decides nothing by itself: superlevel has an exact invertible transform into this type and extended persistence has none, which is the difference the sign hides. Attribution for a raised issue lives here rather than in §1, on @ADSilberman's point that the normative text should carry the argument and the changelog the provenance. Appendix A's preamble gains the scope of what it measured: every diagram in it is a point cloud in $\mathbb{R}^2$ under Rips, so no figure there says anything about cubical or lower-star values. #44 was found from outside because that limit was not written down; stating it is what makes the next one findable from inside.
-- **2026-09-10 (78)** — **Filtration values may be infinite at either end, and orientation may be reversed; the document becomes 1.2.0.** Two defects from one root, raised by @corybrunson (tdaverse) in the comment window (tdaverse/phutil#61, #44): Appendix A measured only VR over point clouds in $\mathbb{R}^2$, so the invariant table inherited an unstated assumption about a filtration's range. New **A.12** measures GUDHI's cubical complex returning `-inf` births, sublevel throughout. **I4 and I5** reduce to non-`NaN`; new **I10** carries what they protected: no bar with the same infinity at both ends. §2 gains **primordial**, and §9.1's partition becomes four classes on (birth infinite, death infinite). **D25** normalises superlevel input by negation at the adapter and records the source convention in `provenance["filtration_direction"]`, so I6 stays exact and unconditional; §3.2's `source_coordinates()` and §10.3's `"source"` export default are the inverse. The declaration defaults rather than being required, correcting #44's comment: absence errors rather than silently misreads. **D26** widens `d.finite` to mean what its name says; `finitize` stays about deaths. The audit cleared the other six invariants and found two propagation sites, §6.3's `allclose` and §8.1's signed zeros. **`io.py` does not follow, correcting entry 76's rule**: §10.2's `spec_version` is the revision *the writer implemented* and `core.py` still enforces 1.1.1's, so `_SPEC_VERSION` holds there, with a test requiring the gap to be acknowledged in code against the current Version row. `format_version` does not move.
+- **2026-09-10 (78)** — **Filtration values may be infinite at either end, and orientation may be reversed; the document becomes 1.2.0.** Two defects from one root, raised by @corybrunson (tdaverse) in the comment window (tdaverse/phutil#61, #44): Appendix A measured only VR over point clouds in $\mathbb{R}^2$, so the invariant table inherited an unstated assumption about a filtration's range. New **A.12** measures GUDHI's cubical complex returning `-inf` births, sublevel throughout. **I4 and I5** reduce to non-`NaN`; new **I10** carries what they protected: no bar with the same infinity at both ends. §2 gains **primordial**, and §9.1's partition becomes four classes on (birth infinite, death infinite). **D25** normalises superlevel input by negation at the adapter and records the source convention in `provenance["filtration_direction"]`, so I6 stays exact and unconditional; §3.2's `source_coordinates()` and §10.3's `"source"` export default are the inverse. The declaration defaults rather than being required, correcting #44's comment: absence errors rather than silently misreads. **D26** widens `d.finite` to mean what its name says; `finitize` stays about deaths. **D27** carries why I10 is a row of its own and the audit that cleared the other six invariants; it found two propagation sites, §6.3's `allclose` and §8.1's signed zeros. **`io.py` does not follow, correcting entry 76's rule**: §10.2's `spec_version` is the revision *the writer implemented* and `core.py` still enforces 1.1.1's, so `_SPEC_VERSION` holds there, with a test requiring the gap to be acknowledged in code against the current Version row. `format_version` does not move.
