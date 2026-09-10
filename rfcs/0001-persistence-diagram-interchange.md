@@ -3,10 +3,10 @@
 | Field | Value |
 |---|---|
 | **Status** | Open for public comment — opened 2026-08-23, closes 2026-10-16 (#31) |
-| **Version** | 1.1.0 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
+| **Version** | 1.1.1 — `major.minor.patch`; what §10.2 writes as `spec_version` into every file, on the bump condition stated there |
 | **Authors** | Sushovan Majhi, A. D. Silberman, Edward Bae |
 | **Created** | 2026-07-29 |
-| **Last Edited** | 2026-08-24 |
+| **Last Edited** | 2026-09-10 |
 | **Target** | M0 (2026-08-01) drafted — met, initial draft 2026-07-29 · published for comment 2026-08-23 — met · M1 follows |
 | **Implements** | `akriti.diagrams` |
 
@@ -42,6 +42,25 @@ It exists for three reasons, in order of importance:
 **Non-goal.** This RFC does not specify vectorisations, distances, kernels, or
 any statistical procedure. It specifies the *object* those consume.
 
+**What decides a non-goal, so the next one is not argued from scratch.** This
+type stores two filtration values and a homological degree per bar, and nothing
+else. A construction is out of scope when its intervals are not intervals of one
+totally ordered filtration, or when what a bar *means* cannot be recovered from
+the coordinates without a field this type does not carry. Multiparameter fails
+the first: there is no single order. Zigzag fails the first: the arrows do not
+align. Extended persistence fails the second: the four families are not
+recoverable from two numbers. Each is a parallel type rather than a column here.
+
+**`death < birth` decides nothing on its own**, and it is worth saying so
+because two of the cases in this section produce it and only one is excluded.
+What decides is whether an exact, invertible, recorded transform carries the
+object into this type. Superlevel persistence has one — negation, which is exact
+in float64 and involutive — so it is a convention this document normalises
+rather than a construction it refuses. Extended persistence has none: no
+function of `(birth, death)` recovers which of the four families a bar came
+from. A future case producing reversed bars is decided by that test, not by the
+sign.
+
 **Non-goal: multiparameter persistence**, for this type and for this RFC.
 `PersistenceDiagram` is single-parameter-shaped by construction: a multiset of
 intervals, one scalar `dim`, one `birth` and one `death` per bar.
@@ -73,6 +92,15 @@ Support therefore requires a fourth per-bar field carrying that family, and
 every invariant, accessor and adapter in this document would have to say what
 it means for each. A parallel type again, not a column. §11 states what
 `from_gudhi` can and cannot do about it.
+
+**Non-goal: zigzag persistence**, and named because a reader should not have to
+infer it. A zigzag module's arrows do not all point the same way, so its
+intervals are not intervals of a filtration and there is no filtration value a
+`birth` or a `death` refers to. `PersistenceDiagram` records two such values per
+bar and nothing else, and no field added to it would carry the zigzag structure
+that gives those numbers meaning. Dionysus provides zigzag persistence; a caller
+holding its output has an object this type cannot represent, and should learn
+that here rather than from a rejected construction.
 
 **Note: Three modules implement this document**: `diagrams/core.py`
 (§3 through §8), `diagrams/adapters.py` (§10.3 and §11's five `from_*` adapters),
@@ -2462,7 +2490,7 @@ message byte for byte:
   "format": "akriti.diagrams.akd",
   "format_version": 0,
   "spec": "RFC-0001",
-  "spec_version": "1.1.0",
+  "spec_version": "1.1.1",
   "kind": "diagram",
   "meta": { "filtration": "rips", "backend": "ripser", "...": "..." }
 }
@@ -2473,7 +2501,7 @@ message byte for byte:
 | `format` | `str` | Exactly `"akriti.diagrams.akd"`. This is requirement 3's self-identification, and it MUST be a fixed string rather than anything derived, so a reader can recognise the file without parsing the rest |
 | `format_version` | `int` | The version of *this layout*, currently `0`. Incremented whenever a change would make an older `load` misread a newer file. The one version key `load` is allowed to branch on |
 | `spec` | `str` | Which specification defines the file: `"RFC-0001"`. Separate from `format` so that a format defined by some later RFC is distinguishable from a later revision of this one |
-| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"1.1.0"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. **A revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor; a revision that alters none MUST increment the patch.** The major is `0` while the Status row reads Draft and becomes `1` at the revision published for comment. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
+| `spec_version` | `str` | Which revision of that specification the writer implemented, `major.minor.patch`, `"1.1.1"` at time of writing. A string rather than a number because `0.10.0` follows `0.2.0` and the float ordering says otherwise. **A revision that adds, removes or alters any clause carrying a BCP 14 keyword MUST increment the minor; a revision that alters none MUST increment the patch.** The major is `0` while the Status row reads Draft and becomes `1` at the revision published for comment. Recorded for audit; `load` MUST NOT branch on it — a spec revision that changes what `load` must do is a `format_version` bump by definition, and one that does not is a revision older readers are entitled to ignore |
 | `kind` | `str` | `"diagram"` or `"batch"`. Nothing else is valid |
 | `meta` | object | Present iff `kind == "diagram"`: one `DiagramMeta` as a JSON object, its own keys being the field names of §8's dataclass |
 | `metas` | array | Present iff `kind == "batch"`: the per-diagram `DiagramMeta` objects, in batch order |
@@ -3171,6 +3199,14 @@ disagree, neither figure is reported.
 
 Input: 40 points sampled uniformly on the unit circle with Gaussian noise
 `σ = 0.05`, `numpy` default_rng seed 0.
+
+**Every diagram measured anywhere in this appendix comes from a point cloud in
+$\mathbb{R}^2$ under a Vietoris–Rips filtration.** No cubical, lower-star or
+superlevel measurement appears here, so nothing below constrains what those
+filtrations produce — including whether their births and deaths are finite, and
+including which of the two is the larger. Where the document reasons from a
+figure in this appendix to a claim about diagrams in general, that is the gap to
+check first.
 
 ### A.1 Essential bars
 
@@ -4125,4 +4161,4 @@ Full narrative: history document.
 - **2026-08-23 (74)** — **Over-claims, then the editorial line.** `b.canonical()`'s eager-only status is a property of routing rather than of the operation, `searchsorted` giving a traceable form (§3.3). D21's cost cell names the common giotto configuration rather than the rare deliberate one. §11.1 states why `strip_padding` may default-and-warn where §5.1 and D21 refuse to. §3.2 states that `d.essential` and `d.finite` are not complements. Seven smaller corrections, including B8 gaining explicit permission for derived caches and §11.2's determinism case asserting the pinned `ZipInfo` fields rather than sleeping 2.5 s per case.
 - **2026-08-23 (75)** — **New Appendix C, the normative-requirements index, and the internal references swept.** A document this size cannot be checked for consistency by reading, and its failure mode — a rule argued in one section and not propagated to the places it binds — is two adjacent rows in a table. It is **generated** (`tools/normative_index.py`, with a test that fails when body and index disagree) on D15's ground that a separately maintained index can only go stale. It is placed **before** the changelog, which its own note says is removed when the window closes, so that removal leaves no gap in the lettering. **D24 closed** with the issue now less prevalent. §1 and §4 no longer name components this document does not affect.
 - **2026-08-24 (76)** — **A human read of entries 68-75, and the document becomes 1.1.0.** Cut commentary on the document's revisions and compress. I8's permission to skip the copy on an immutable backend becomes normative; the MUST confining the revalidation bypass goes. One bump to the minor for the whole pass. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow.
-
+- **2026-09-10 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly. §1 also gains the test that decides a non-goal — not one order, or a meaning the coordinates cannot carry — so the next case is applied rather than argued, and states that `death < birth` decides nothing by itself: superlevel has an exact invertible transform into this type and extended persistence has none, which is the difference the sign hides. Attribution for a raised issue lives here rather than in §1, on @ADSilberman's point that the normative text should carry the argument and the changelog the provenance. The rule is stated **before** the three instances rather than after them, also on his point: a reader meets the test and then its examples, instead of three arguments followed by the thing that would have made them one. Appendix A's preamble gains the scope of what it measured: every diagram in it is a point cloud in $\mathbb{R}^2$ under Rips, so no figure there says anything about cubical or lower-star values. #44 was found from outside because that limit was not written down; stating it is what makes the next one findable from inside.
