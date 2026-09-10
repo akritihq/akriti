@@ -23,10 +23,7 @@ Papers: PLACE (arXiv:2605.02836), PALACE (arXiv:2605.04046), and Paper III
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
-
-if TYPE_CHECKING:  # pragma: no cover - typing only
-    import numpy as np
+from typing import Any
 
 __all__ = ["Configuration", "fit_configuration"]
 
@@ -74,7 +71,7 @@ class Configuration:
     truncation: int
     fitted_on: str
 
-    def embed(self, diagram: Any) -> np.ndarray:
+    def embed(self, diagram: Any) -> Any:
         """Embed one diagram, returning a ``(K,)`` vector. NumPy only.
 
         Ports from ``NonUniformEmbedding.embed``.
@@ -84,7 +81,7 @@ class Configuration:
             "with hard_coords and soft_coords beneath it."
         )
 
-    def embed_batch(self, batch: Any) -> np.ndarray:
+    def embed_batch(self, batch: Any) -> Any:
         """Embed a ``DiagramBatch``, returning ``(n_diagrams, K)``.
 
         Ports from ``NonUniformEmbedding.embed_dataset``, taking a
