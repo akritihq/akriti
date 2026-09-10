@@ -22,6 +22,16 @@ only what transfers to the next document.
 - **A wrong figure inside a review finding is the one least likely to be
   recomputed before it is written down.** Re-measure the findings, not just the
   document.
+- **A rationale reading "definitional" is a claim about every object the type
+  admits, and the way to check one is to name an object the evidence base does
+  not contain.** RFC-0001's invariant table said births are finite because "a
+  class that is never born is not a class", which reads as a definition and was
+  an assumption about the range of the filtration function. It survived every
+  review pass because the appendix behind it was entirely Vietoris-Rips and
+  alpha over point clouds, where the assumption happens to hold; one cubical
+  grid broke it, and the finding came from outside the project (#44). The check
+  is cheap and does not need the object to exist yet -- ask what the evidence
+  base is made of, then name something it is not made of.
 
 ## Writing
 
@@ -31,6 +41,11 @@ only what transfers to the next document.
   passing by the branch that depends on it.
 - **Fix the class a finding belongs to, not the instance it named.**
 - **A trap a reader cannot see becomes a standing regression test, not prose.**
+- **A name is not a place to put a caveat.** Where an accessor's name promises
+  something its result no longer delivers, widen the operation or rename it;
+  documenting the exception leaves the trap in place and puts the warning where
+  a reader who trusts the name will never look. RFC-0001's `d.finite` is the
+  worked case (D26).
 - **Tables are for genuinely short, structured data.**
 - **D-numbers are stable identifiers, not a dense sequence.** Do not renumber
   to close a gap.
