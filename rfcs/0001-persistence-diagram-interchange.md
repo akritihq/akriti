@@ -2323,9 +2323,29 @@ That suppression is fixed and cannot silently return:
 rather than filtering, and `tests/test_rfc0001_backend_claims.py` asserts the
 warning is raised.
 
+**The guard keys on the death coordinate alone, so it sees two of the three
+non-finite classes and never the third.** persim filters on a non-finite
+`death`, which removes a `(finite, +inf)` bar and a `(-inf, +inf)` bar alike —
+the second one's `-inf` birth leaving with the rest of the bar — and it
+inspects no birth at all. A `(-inf, finite)` bar therefore passes the filter
+untouched and reaches the cost matrix, where its birth is subtracted from
+another `-inf` birth. The two classes it drops produce the plausible finite
+number this section is named for; the class it cannot see produces `nan` from
+`bottleneck` and a `ValueError` from `wasserstein`, and on neither path is a
+`UserWarning` raised (A.4).
+
+**`nan` is the worse of the two failures**, which has to be said because the
+severity argument above was made about a wrong finite number. A wrong finite
+number is at least ordered — it can be ranked, plotted, and eyeballed against
+a neighbour. `nan` compares `False` against everything, so a caller's
+`d < tol` reports "not similar" for two *identical* diagrams, a `min` over a
+distance matrix steps over the cell without lowering the minimum, and a
+linkage or a nearest-neighbour search returns a clean answer built on a
+comparison that was never made.
+
 **Requirement on `core/distances.py`.** Before delegating, it MUST partition
 both diagrams **by dimension, and within each dimension by which of a bar's two
-coordinates are infinite**. By I10 (§3.1) that is four classes and not two —
+coordinates are infinite**. By I10 (§3.1) that is four classes —
 `(finite, finite)`, `(finite, +inf)`, `(-inf, finite)`, `(-inf, +inf)` — and
 `essential` alone names only the second. If the counts differ in any of the
 **three non-finite** classes in any dimension, the distance is `+inf` and MUST
@@ -2350,11 +2370,12 @@ not the same mask (I4, I10). Take $p = (-\infty, 0.5)$:
 - its cost against another primordial bar is finite.
 
 So $p$ is **not** `essential` by the `deaths == +inf` mask, is handed to persim
-by a partition on that mask alone, is dropped there with the warning this
-section already documents, and the returned number is a finite distance
-between two diagrams
-that are infinitely far apart — §9.1's own defect, manufactured by us, in our
-own code, with no upstream issue to point at. The `NaN` hazard moves with it:
+by a partition on that mask alone, and is *not* dropped there — its death is
+finite, so the guard above never fires. Nothing is removed, nothing is warned
+about, and `bottleneck` returns `nan` where the answer is an ordinary finite
+number (A.4). That is this section's defect made worse rather than reproduced,
+manufactured by us, in our own code, out of the one class persim's own guard
+cannot see. The `NaN` hazard moves with it:
 the note below, that an implementation "MUST NOT reach that value by
 subtracting the two infinite coordinates", binds the births as well as the
 deaths, two bars both being born at $-\infty$.
@@ -2442,6 +2463,15 @@ $$
   the last term being persim's answer on that dimension's two finite
   sub-diagrams, and the only term this document delegates.
 
+**Everything above the combination rule is the bottleneck distance's.** The
+partition, the count rule, and the prohibition on passing an infinity to persim
+are properties of which pairs cost $+\infty$, so they bind any matching distance
+on these diagrams, including `wasserstein`. The $\max$ does not carry: $W_{p}$
+combines disjoint sub-problems by a $p$-sum. A.4 measures `wasserstein` failing
+on the same three non-finite classes and failing differently — on the primordial
+class it raises rather than returns — though the safety measures remain the
+same.
+
 This is a guardrail: a negative result about a dependency, converted into a
 safety feature. It is a named exception to this document's delegation position
 rather than a drift away from it, which is why it carries a decision row.
@@ -2460,6 +2490,12 @@ The same pass filed [#106](https://github.com/scikit-tda/persim/issues/106),
 persim's dependency on the abandoned GPLv3 `hopcroftkarp`, which reaches every
 install carrying a backend. The maintainer invited a fix, open as
 [#108](https://github.com/scikit-tda/persim/pull/108).
+
+**The primordial-class `nan` is a second defect and is not yet filed.** It is
+a different code path from #105 — that one drops a bar and says so, this one
+inspects no birth, so nothing is dropped and nothing is said — and it was
+measured after #105 was filed. D5 requires it upstream before this revision
+publishes, and this paragraph is the outstanding item until it is.
 
 ### 9.2 giotto-tda 0.6.2 does not run on current scikit-learn
 
@@ -3605,7 +3641,7 @@ its member; and the same bars hash identically under two namespaces.
 
 ## 12. Decisions
 
-Twenty-three decisions are on record: D1-D8 and D12-D26. **Twenty-two are
+Twenty-four decisions are on record: D1-D8 and D12-D27. **Twenty-three are
 settled** (§12.2) and one, D22, is open (§12.1), each stating the outcome or
 the question and pointing at the section that carries the normative
 requirement. Superseded recommendations are not repeated here.
@@ -3792,12 +3828,21 @@ Order differs. Max coordinate difference after sorting: `2.69e-8`.
 The difference is ~7.5x smaller than `float32` eps and ~7.2e7 times larger
 than `float64` eps. Ripser is computing in single precision.
 
-### A.4 persim on essential and empty diagrams
+### A.4 persim on essential, primordial and empty diagrams
+
+A row for each non-finite class of §9.1's partition, both persim functions on
+each, the two empty-diagram rows kept from the original measurement.
+`ValueError` names an exception raised, not a value returned.
 
 | Inputs | `bottleneck` | `wasserstein` | Correct? | Warnings |
 |---|---|---|---|---|
 | `[[0,inf],[.1,.5]]` vs itself | 0.0 | 0.0 | yes | **2** |
 | `[[0,inf],[.1,.5]]` vs `[[0,1],[.1,.5]]` | **0.5** | **0.707** | **no — should be `inf`** | **1** |
+| `[[-inf,inf],[.1,.5]]` vs itself | 0.0 | 0.0 | yes | **2** |
+| `[[-inf,inf],[.1,.5]]` vs `[[0,1],[.1,.5]]` | **0.5** | **0.707** | **no — should be `inf`** | **1** |
+| `[[-inf,.5],[.1,.5]]` vs itself | **`nan`** | **`ValueError`** | **no — should be `0.0`** | **0** |
+| `[[-inf,.5],[.1,.5]]` vs `[[-inf,2],[.1,.5]]` | **`nan`** | **`ValueError`** | **no — should be `1.5`** | **0** |
+| `[[-inf,.5],[.1,.5]]` vs `[[0,1],[.1,.5]]` | `inf` | **`ValueError`** | yes | 0 |
 | empty vs empty | 0.0 | 0.0 | yes | 0 |
 | empty vs `[[0,1],[.1,.5]]` | 0.5 | 0.990 | yes | 0 |
 
@@ -3812,6 +3857,16 @@ an essential bar, not whether the result is meaningful. Row 1 is right only
 by accident (dropping matching essential bars from both diagrams happens to
 preserve a distance of zero), so neither the warning's presence nor its
 absence can be used to certify a result.
+
+**The `-inf` birth rows carry no `UserWarning` at all**, which is the
+mechanism §9.1 states: the filter reads deaths. Rows 3 and 4 are the essential
+rows again, a `(-inf, +inf)` bar being dropped whole by its `+inf` death, its
+birth never examined. Rows 5 through 7 are the class that survives the filter,
+and the only diagnostic on the two `nan` rows is numpy's own
+`RuntimeWarning: invalid value encountered in subtract` — the $-\infty$ births
+of two matched primordial bars, subtracted. Row 7 is right for the wrong
+reason: one side's birth is finite, so no subtraction of like infinities
+occurs and `inf` falls out of the arithmetic rather than out of a rule.
 
 ### A.5 Coefficient field — recoverability from backend output
 
@@ -4772,4 +4827,4 @@ Full narrative: history document.
 - **2026-08-23 (75)** — **New Appendix C, the normative-requirements index, and the internal references swept.** A document this size cannot be checked for consistency by reading, and its failure mode — a rule argued in one section and not propagated to the places it binds — is two adjacent rows in a table. It is **generated** (`tools/normative_index.py`, with a test that fails when body and index disagree) on D15's ground that a separately maintained index can only go stale. It is placed **before** the changelog, which its own note says is removed when the window closes, so that removal leaves no gap in the lettering. **D24 closed** with the issue now less prevalent. §1 and §4 no longer name components this document does not affect.
 - **2026-08-24 (76)** — **A human read of entries 68-75, and the document becomes 1.1.0.** Cut commentary on the document's revisions and compress. I8's permission to skip the copy on an immutable backend becomes normative; the MUST confining the revalidation bypass goes. One bump to the minor for the whole pass. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow.
 - **2026-08-30 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly. §1 also gains the test that decides a non-goal — not one order, or a meaning the coordinates cannot carry — so the next case is applied rather than argued, and states that `death < birth` decides nothing by itself: superlevel has an exact invertible transform into this type and extended persistence has none, which is the difference the sign hides. Attribution for a raised issue lives here rather than in §1, on @ADSilberman's point that the normative text should carry the argument and the changelog the provenance. Appendix A's preamble gains the scope of what it measured: every diagram in it is a point cloud in $\mathbb{R}^2$ under Rips, so no figure there says anything about cubical or lower-star values. #44 was found from outside because that limit was not written down; stating it is what makes the next one findable from inside.
-- **2026-09-10 (78)** — **Filtration values may be infinite at either end, and orientation may be reversed; the document becomes 1.2.0.** Two defects from one root, raised by @corybrunson (tdaverse) in the comment window (tdaverse/phutil#61, #44): Appendix A measured only VR over point clouds in $\mathbb{R}^2$, so the invariant table inherited an unstated assumption about a filtration's range. New **A.12** measures GUDHI's cubical complex returning `-inf` births, sublevel throughout. **I4 and I5** reduce to non-`NaN`; new **I10** carries what they protected: no bar with the same infinity at both ends. §2 gains **primordial**, and §9.1's partition becomes four classes on (birth infinite, death infinite). **D25** normalises superlevel input by negation at the adapter and records the source convention in `provenance["filtration_direction"]`, so I6 stays exact and unconditional; §3.2's `source_coordinates()` and §10.3's `"source"` export default are the inverse. The declaration defaults rather than being required, correcting #44's comment: absence errors rather than silently misreads. **D26** widens `d.finite` to mean what its name says; `finitize` stays about deaths. **D27** carries why I10 is a row of its own and the audit that cleared the other six invariants; it found two propagation sites, §6.3's `allclose` and §8.1's signed zeros. **`io.py` does not follow, correcting entry 76's rule**: §10.2's `spec_version` is the revision *the writer implemented* and `core.py` still enforces 1.1.1's, so `_SPEC_VERSION` holds there, with a test requiring the gap to be acknowledged in code against the current Version row. `format_version` does not move.
+- **2026-09-10 (78)** — **Filtration values may be infinite at either end, and orientation may be reversed; the document becomes 1.2.0.** Two defects from one root, raised by @corybrunson (tdaverse) in the comment window (tdaverse/phutil#61, #44). New **A.12** measures GUDHI's cubical complex returning `-inf` births. **I4 and I5** reduce to non-`NaN`, new **I10** carries what they protected, §2 gains **primordial**, and §9.1's partition becomes four classes. **D25** normalises superlevel input at the adapter, **D26** widens `d.finite`, **D27** carries why I10 is a row of its own. `io.py` holds at 1.1.1; `spec_version` is the revision the writer implemented. **§9.1 was measured for one class and asserted for three**: persim's guard reads deaths, so a `(-inf, finite)` bar comes back `nan` unwarned, and **A.4** now measures every class. Distinct from persim#105 and **not yet filed** — D5 requires it before publication.
