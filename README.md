@@ -144,13 +144,21 @@ program. See RFC-0001 §3.3 and D23.
 
 | | |
 |---|---|
-| **CASTLE** (Paper IV) | A practitioner's toolkit for topological two-sample testing, sample-size calculation and robustness certification · *in preparation* |
-| **Paper III** | A statistical-inference pipeline for persistence-landmark kernels: CLT, Berry–Esseen and functional limits · *in preparation* |
 | **PLACE** (Paper I) | A closed-form persistence-landmark pipeline for certified point-cloud and graph classification · [arXiv:2605.02836](https://arxiv.org/abs/2605.02836) · *TMLR 2026* |
-| **PALACE** (Paper II) | Adaptive landmark embeddings for persistence diagrams · [arXiv:2605.04046](https://arxiv.org/abs/2605.04046) · *JMLR, under review* |
+| **PALACE** (Paper II) | A closed-form adaptive-landmark kernel for certified point-cloud and graph classification · [arXiv:2605.04046](https://arxiv.org/abs/2605.04046) · *JMLR, under review* |
+| **Paper III** | Statistical inference for persistence diagrams via landmark embeddings: minimax theory and finite approximation · [arXiv:2609.07691](https://arxiv.org/abs/2609.07691) |
 
-CASTLE is the practitioner-facing product; the others are the machinery that
-makes its guarantees possible.
+The three are companions and are all public as of 2026-09-07. PLACE and PALACE
+build the embedding and certify it at the level of individual diagrams; Paper III
+is the inference layer over it — central limit theory, confidence sets for mean
+embeddings, and what a rejection does and does not certify about the underlying
+diagram populations.
+
+CASTLE is the practitioner-facing product and is **code rather than a paper**:
+`akriti.castle` ships the two-sample test, the sample-size calculator, the
+per-region map and the robustness certificate. Its statistical content is Paper
+III's, specified for the library by
+[RFC-0002](rfcs/0002-castle-inference-tools.md).
 
 ## Contributing
 
