@@ -246,7 +246,7 @@ jobs:
       # carries the same split next to the `test` extra).
       - name: Install backends and the giotto evidence environment
         run: |
-          pip install -e ".[numpy,rips,alpha,distances]" \
+          pip install -e ".[numpy,rips,alpha,distances,jax]" \
             "scikit-learn>=1.8" "scipy>=1.17"
           # giotto-tda 0.6.2's runtime dependencies, minus its scikit-learn pin.
           pip install "giotto-ph>=0.2.4" "pyflagser>=0.4.7" "igraph>=1.0.0" \
@@ -255,6 +255,16 @@ jobs:
           pip install --no-deps "giotto-tda==0.6.2"
       - name: Reproduce appendix measurements
         run: python rfcs/evidence/probe_backends.py --require-giotto
+      # Appendix A.11 (JAX), in both configurations. The default run covers
+      # the refusal, X.7a-f and the default half of X.8; only `--x64` reaches
+      # B7 in isolation. The script refuses to start if JAX_ENABLE_X64 or
+      # JAX_EXPLICIT_X64_DTYPES is set, so neither may be set in this job.
+      # A.11 was measured on CPython 3.14.6; the probes assert findings, not
+      # the interpreter, so this job's 3.12 does not move what they check.
+      - name: Reproduce Appendix A.11 (JAX)
+        run: |
+          python rfcs/evidence/jax_x64.py
+          python rfcs/evidence/jax_x64.py --x64
 
   build:
     runs-on: ubuntu-latest
