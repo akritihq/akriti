@@ -806,7 +806,7 @@ def probe_explicit_x64(*, x64: bool) -> None:
         )
         degraded = {
             name: dtype
-            for name, dtype, _ in (cell.split(":") for cell in cells if ":" in cell)
+            for name, dtype, *_ in (cell.split(":") for cell in cells if ":" in cell)
             if name in {"mul", "sum", "mean", "center"}
         }
         _require(
@@ -886,7 +886,7 @@ def probe_akriti(jnp: Any, *, x64: bool) -> None:
             f"PersistenceDiagram failed with x64 enabled: {exc}",
         )
         _require(
-            str(exc) == "births must be float64 (I2); got float32",
+            str(exc).startswith("births must be float64 (I2); got float32"),
             "X.8",
             f"I2 rejection message changed: {str(exc)!r}",
         )

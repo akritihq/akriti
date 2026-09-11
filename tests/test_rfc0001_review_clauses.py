@@ -937,7 +937,7 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 #
 # Entry 76: "the document becomes 1.1.0 ... `io.py`'s `_SPEC_VERSION` and the
 # four `spec_version` pins in the I/O tests follow." Quoted as written; the
-# document has moved twice since, and entry 77 records the minor.
+# document has moved twice since, and entry 78 records the minor.
 #
 #   "`spec_version` | `str` | ... `"1.2.0"` at time of writing."
 # --------------------------------------------------------------------------

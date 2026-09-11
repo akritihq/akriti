@@ -3632,7 +3632,7 @@ calls for — `xp = arr.__array_namespace__()`, then
 | `PersistenceDiagram` from JAX arrays | `ValueError`: `births must be float64 (I2); got float32` | constructs | constructs |
 | `DiagramBatch` from JAX arrays | same `ValueError` | constructs, `offsets` `int64` | constructs |
 
-**Four things this table settles that a citation would not have.**
+**Six things this table settles that a citation would not have.**
 
 - **I2's `int32` half is satisfied natively.** `dims` is `int32` under every
   configuration, so the truncation is a B7 problem and not an I2 one, and B7
@@ -3652,12 +3652,12 @@ calls for — `xp = arr.__array_namespace__()`, then
   restoring on exit. The narrow flag's is private (`jax._src.config`). An
   earlier revision of this appendix asserted that neither had a public scoped
   form and §3.3 rested its prohibition on that; the claim was false at this
-  same `jax 0.11.1`, and entry 79 records the correction.
+  same `jax 0.11.1`, and entry 78 records the correction.
 - **A scope can create an x64 array but cannot protect it, which is why the
   scoped form does not help.** The array survives the block with its dtype and
   its precision — `1 + 2^-40` held exactly, still `float64` — and then ordinary
   operations on it truncate. Measured 2026-08-30 by @ADSilberman, same
-  `jax 0.11.1`, CPython 3.14.6, CPU; reproduced by X.7e.
+  `jax 0.11.1`, CPython 3.14.6, CPU; reproduced by X.7f.
 
   | operation, applied outside the scope | built under `enable_x64` | built under `explicit_x64_dtypes` |
   |---|---|---|
