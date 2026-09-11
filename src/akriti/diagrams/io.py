@@ -22,7 +22,7 @@ from akriti.diagrams.core import (
 
 _FORMAT = "akriti.diagrams.akd"
 _SPEC = "RFC-0001"
-_SPEC_VERSION = "1.1.1"
+_SPEC_VERSION = "1.2.0"
 # Why _SPEC_VERSION trails RFC-0001's Version row, or None when it does not.
 # §10.2's spec_version is the revision this writer implemented, not the
 # document's: when a revision widens a requirement core.py does not yet
