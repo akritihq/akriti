@@ -107,6 +107,55 @@ and the script's own instruction to use "the pinned environment" under-specifies
 it.
 
 
+## `core.py` and `adapters.py` still enforce 1.1.1's I4 and I5
+
+*`src/akriti/diagrams/core.py`, `adapters.py` — RFC-0001 §2, §3.1, §3.2, §5,
+§6.3, §8, §10.3, §11, D25, D26.*
+
+RFC-0001 1.2.0 (#44, changelog entry 78) widened I4 and I5 to non-`NaN`, added
+I10, and normalised superlevel input at the adapter. **None of it has code
+behind it**, deliberately and visibly rather than by drift: `core.py` still
+raises on a `-inf` birth citing I4, and there is no I10, no `primordial`, no
+`source_coordinates`, and no `filtration_direction` anywhere. The document is
+therefore ahead of the implementation, which is what this entry is for.
+
+The gap, by site:
+
+- **`core.py` validation.** I4 drops "finite", I5 drops the `-inf`
+  prohibition, and I10 is a new check — `(births == -inf) & (deaths == -inf)`
+  and `(births == +inf) & (deaths == +inf)` each empty. I6's error message
+  gains `filtration_direction` (§3.1).
+- **Accessors.** `d.primordial` and `b.primordial` are new masks; `d.finite`
+  widens to drop primordial bars as well as essential ones and to record
+  `provenance["primordial_bars_dropped"]` (D26); `d.source_coordinates()` is
+  new and returns arrays rather than a diagram, because negating a valid
+  diagram violates I6 (§3.2).
+- **`allclose`.** The exact-match clause for infinite coordinates now binds
+  births as well as deaths (§6.3). Without it a diagram carrying a primordial
+  bar is not `allclose` to itself.
+- **`DiagramMeta`.** Two reserved keys to validate: `filtration_direction`
+  over `{"sublevel", "superlevel"}` and `primordial_bars_dropped` as a
+  non-negative `int`, neither carrying a presence rule (§8).
+- **Adapters.** `from_persim` and `from_array` take
+  `filtration_direction="sublevel"` keyword-only and negate before validating
+  and before clamping; the other three record `"sublevel"` from their input
+  form (§11). The clamp MUST NOT run before the negation.
+- **`to_csv` / `to_parquet`.** A `coordinates` argument defaulting to
+  `"source"`, a no-op on every diagram not sourced superlevel (§10.3).
+
+`core/distances.py` does not exist, so §9.1's four-class partition needs no
+code yet — which is the point of having specified it now.
+
+To close: implement the above, and add §11.2's new cases — the GUDHI cubical
+fixture from A.12's `mixed` grid, the exhaustive thirteen-pair surface with
+every accessor asserted `NaN`-free, `filtration_direction` refused in both
+directions, and `to_csv` round-tripping in both conventions.
+`rfcs/evidence/cubical_infinities.py` produces the fixture.
+
+**The tests are not to be written by whoever writes the checks** — CLAUDE.md's
+rule, and it applies squarely here: a test written alongside a widened
+invariant blesses whatever the widened check happens to do.
+
 ## `adapters.py` does not implement D20 or D21
 
 *`src/akriti/diagrams/adapters.py` — RFC-0001 §11, §11.2.*
