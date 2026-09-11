@@ -943,8 +943,7 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 # §10.2 -- the document is 1.2.0, and ``save`` writes what it implements
 #
-# Entry 78: "`io.py`'s `_SPEC_VERSION` does *not* follow ... §10.2 defines
-# `spec_version` as which revision *the writer implemented*."
+# §10.2 defines `spec_version` as which revision *the writer implemented*.
 #
 #   "`spec_version` | `str` | ... `"1.2.0"` at time of writing."
 # --------------------------------------------------------------------------
