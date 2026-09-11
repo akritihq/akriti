@@ -16,6 +16,8 @@ Reproduces the appendix of RFC-0001; see rfcs/evidence/probe_backends.py.
 
 from __future__ import annotations
 
+import warnings
+
 import numpy as np
 import pytest
 
@@ -196,6 +198,94 @@ def test_persim_warning_does_not_distinguish_right_from_wrong() -> None:
         "the correct case warns more loudly than the incorrect one; if this "
         "inverts, persim's warnings have become diagnostic -- update RFC-0001 A.4"
     )
+
+
+@pytest.mark.backend
+@pytest.mark.distances
+def test_persim_guard_reads_deaths_and_never_births() -> None:
+    """RFC-0001 §9.1 / A.4: the mechanism behind the other three tests here.
+
+    persim filters on a non-finite *death*. That drops a `(finite, +inf)` bar
+    and a `(-inf, +inf)` bar alike -- the second one's `-inf` birth leaving
+    with the rest of the bar -- and inspects no birth at all, so a
+    `(-inf, finite)` bar passes the filter untouched.
+
+    Pinning the mechanism rather than only its consequences means an upstream
+    fix is legible here: if persim starts filtering on births too, this fails
+    with the class it changed rather than with a number that moved.
+    """
+    persim = pytest.importorskip("persim")
+
+    primordial = np.array([[-np.inf, 0.5], [0.1, 0.5]])
+    both_infinite = np.array([[-np.inf, np.inf], [0.1, 0.5]])
+    all_finite = np.array([[0.0, 1.0], [0.1, 0.5]])
+
+    # A `+inf` death is seen and warned about, birth notwithstanding.
+    with pytest.warns(UserWarning, match="non-finite death times"):
+        assert persim.bottleneck(both_infinite, all_finite) == 0.5
+
+    # A `-inf` birth with a finite death is not seen at all.
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        persim.bottleneck(primordial, primordial)
+    assert not [w for w in caught if w.category is UserWarning], (
+        "persim now warns about non-finite births. If it also drops them, the "
+        "third class in RFC-0001 §9.1 has become the first -- re-measure A.4."
+    )
+
+
+@pytest.mark.backend
+@pytest.mark.distances
+def test_persim_returns_nan_between_identical_primordial_diagrams() -> None:
+    """RFC-0001 §9.1 / A.4: the failure that is worse than a wrong number.
+
+    A `(-inf, finite)` bar reaches persim's cost matrix, where its birth is
+    subtracted from the other diagram's `-inf` birth. The distance between a
+    diagram and *itself* comes back `nan`, silently, and `nan` compares False
+    against everything -- so a caller's `d < tol` reports "not similar" for two
+    identical diagrams.
+
+    This is the hazard `core/distances.py` guards by partitioning on all four
+    classes rather than on `essential` alone, and it is a distinct upstream
+    defect from scikit-tda/persim#105.
+    """
+    persim = pytest.importorskip("persim")
+
+    primordial = np.array([[-np.inf, 0.5], [0.1, 0.5]])
+    moved = np.array([[-np.inf, 2.0], [0.1, 0.5]])
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        against_itself = persim.bottleneck(primordial, primordial)
+        against_moved = persim.bottleneck(primordial, moved)
+
+    assert np.isnan(against_itself), (
+        "persim no longer returns nan for a diagram against itself. If it "
+        "returns 0.0, upstream has fixed the hazard in RFC-0001 §9.1 -- update "
+        "the spec, A.4, and simplify core/distances.py."
+    )
+    # The correct answer is |0.5 - 2.0| = 1.5: primordial bars pair by sorted
+    # death, their births agreeing at -inf (RFC-0001 §9.1).
+    assert np.isnan(against_moved)
+
+
+@pytest.mark.backend
+@pytest.mark.distances
+def test_persim_wasserstein_raises_on_a_primordial_bar() -> None:
+    """RFC-0001 §9.1 / A.4: the two delegates fail differently on one class.
+
+    `bottleneck` returns `nan` where `wasserstein` raises. §9.1's partition,
+    count rule and prohibition on delegating an infinity bind both, so neither
+    failure should ever be reachable from `core/distances.py`; this pins the
+    asymmetry so an upstream change to either is visible.
+    """
+    persim = pytest.importorskip("persim")
+
+    primordial = np.array([[-np.inf, 0.5], [0.1, 0.5]])
+    all_finite = np.array([[0.0, 1.0], [0.1, 0.5]])
+
+    with pytest.raises(ValueError, match=r"[Ii]nfinity"):
+        persim.wasserstein(primordial, all_finite)
 
 
 @pytest.mark.backend
