@@ -31,7 +31,9 @@ import akriti.diagrams as diagrams
 
 FORMAT = "akriti.diagrams.akd"
 SPEC = "RFC-0001"
-SPEC_VERSION = "1.3.0"
+#: What ``save`` writes: §10.2's ``spec_version`` is the revision the writer
+#: implemented, which trails the document while ``io.py`` declares a gap.
+SPEC_VERSION = "1.2.0"
 
 _ROOT = Path(__file__).resolve().parents[1]
 _RFC_PATH = _ROOT / "rfcs/0001-persistence-diagram-interchange.md"
