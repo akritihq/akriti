@@ -48,11 +48,12 @@ RFC_PATH = (
     / ("0001-persistence-diagram-interchange.md")
 )
 
-#: The document version (header row, and the value §10.2 requires ``save``
-#: to write as ``spec_version``). The review pass landed 1.1.0; #48 moved
-#: the patch. This literal is the independent witness the tests below
-#: compare the document and ``io.py`` against, so it moves by hand with
-#: every bump -- see the note on entry 76 about the pins that follow.
+#: The document version: RFC-0001's Version row. The review pass landed
+#: 1.1.0; #48 moved the patch. This literal is the independent witness the
+#: tests below compare the document against, so it moves by hand with every
+#: bump, and tests/test_rfc0001_spec_version_pins.py fails until it does. It
+#: is not necessarily what ``save`` writes: §10.2's ``spec_version`` is the
+#: revision the writer implemented, which may trail this one.
 SPEC_VERSION = "1.1.1"
 
 
@@ -933,12 +934,13 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 
 
 # --------------------------------------------------------------------------
-# §10.2 -- the document is 1.1.1, and ``save`` writes that
+# §10.2 -- the document is SPEC_VERSION, and ``save`` writes no later one
 #
 # Entry 76: "the document becomes 1.1.0 ... `io.py`'s `_SPEC_VERSION` and the
 # four `spec_version` pins in the I/O tests follow."
 #
-#   "`spec_version` | `str` | ... `"1.1.1"` at time of writing."
+#   "`spec_version` | `str` | Which revision of that specification the writer
+#   implemented, ... `"x.y.z"` at time of writing."
 # --------------------------------------------------------------------------
 
 
@@ -971,17 +973,29 @@ def test_s10_2_no_stale_version_survives_the_bump() -> None:
     assert '`"0.3.0"` at time of writing' not in text
 
 
-def test_s10_2_save_writes_the_document_version(tmp_path: Path) -> None:
-    """The implementation half of the same bump."""
+def version_key(version: str) -> tuple[int, int, int]:
+    major, minor, patch = (int(part) for part in version.split("."))
+    return major, minor, patch
+
+
+def test_s10_2_save_writes_no_later_version_than_the_document(
+    tmp_path: Path,
+) -> None:
+    """The implementation half of the same bump. ``spec_version`` is the
+    revision the writer implemented, so it may trail the document but never
+    lead it. The exact value is ``io.py``'s, pinned in the I/O tests.
+    """
     path = tmp_path / "version.akd"
     save(sample(), path)
-    assert read_meta_json(path)["spec_version"] == SPEC_VERSION
+    written = read_meta_json(path)["spec_version"]
+    assert version_key(written) <= version_key(SPEC_VERSION)
 
 
-def test_s10_2_save_writes_the_version_for_a_batch(tmp_path: Path) -> None:
+def test_s10_2_save_writes_no_later_version_for_a_batch(tmp_path: Path) -> None:
     path = tmp_path / "version-batch.akd"
     save(three_diagrams(), path)
-    assert read_meta_json(path)["spec_version"] == SPEC_VERSION
+    written = read_meta_json(path)["spec_version"]
+    assert version_key(written) <= version_key(SPEC_VERSION)
 
 
 def test_s10_2_load_does_not_branch_on_spec_version(tmp_path: Path) -> None:
