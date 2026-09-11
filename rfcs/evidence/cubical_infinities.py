@@ -24,14 +24,19 @@ Three things are measured:
      those bars the 1.1.1 invariant table admits.
   B. Whether any Python backend RFC-0001 adapts offers a sublevel/superlevel
      switch, which is what decides how narrowly §11's `filtration_direction`
-     argument has to be scoped.
+     argument has to be scoped. Every entry point §11 names is inspected, not
+     only the `CubicalComplex` section A uses: `from_gudhi` also takes the
+     sklearn-compatible form (D20) and a `SimplexTree`, and a switch would
+     most likely arrive as a constructor argument on one of those rather than
+     as a module-level name.
   C. Whether negation -- §11's normalising transform -- is exactly involutive
      in float64, which is what lets §11 normalise rather than condition.
 
-Measured 2026-09-09 with gudhi 3.13.0, numpy 2.5.1, Python 3.14. ripser and
-persim are inspected for (B) where importable; giotto-tda is not installable
-alongside a current scikit-learn (§9.2) and its row is reported as unmeasured
-rather than skipped silently.
+Measured 2026-09-09 with gudhi 3.13.0, numpy 2.5.1, Python 3.14; (B) widened
+to the full entry-point list and re-measured 2026-09-10, unchanged in its
+conclusion. ripser and persim are inspected for (B) where importable;
+giotto-tda is not installable alongside a current scikit-learn (§9.2) and its
+row is reported as unmeasured rather than skipped silently.
 
 Clean-room note: giotto-tda is AGPLv3. This script imports no giotto source
 and reads none.
@@ -112,16 +117,42 @@ def section_b() -> None:
     print("B. Does any adapted Python backend offer a superlevel switch?\n")
     try:
         import gudhi
+        import gudhi.sklearn.cubical_persistence
+        import gudhi.sklearn.rips_persistence
 
-        params = list(inspect.signature(gudhi.CubicalComplex.__init__).parameters)
-        print(f"   gudhi.CubicalComplex.__init__: {params}")
+        # Every GUDHI entry point §11 adapts, not only the one section A uses.
+        # A scan of top-level names would miss a constructor argument on a
+        # class, and `from_gudhi` takes the sklearn form (D20) as well as a
+        # `SimplexTree`, so a probe of `CubicalComplex` alone measures less
+        # than §11's claim needs.
+        for label, obj in (
+            ("gudhi.CubicalComplex.__init__", gudhi.CubicalComplex.__init__),
+            (
+                "gudhi.PeriodicCubicalComplex.__init__",
+                gudhi.PeriodicCubicalComplex.__init__,
+            ),
+            (
+                "gudhi.sklearn.cubical_persistence.CubicalPersistence.__init__",
+                gudhi.sklearn.cubical_persistence.CubicalPersistence.__init__,
+            ),
+            (
+                "gudhi.sklearn.rips_persistence.RipsPersistence.__init__",
+                gudhi.sklearn.rips_persistence.RipsPersistence.__init__,
+            ),
+        ):
+            print(f"   {label}: {_parameters(obj)}")
+        print(
+            f"   gudhi.SimplexTree methods containing 'level': "
+            f"{_level_names(gudhi.SimplexTree)}"
+        )
         print(f"   gudhi names containing 'level': {_level_names(gudhi)}")
     except ImportError:  # pragma: no cover - reported, not skipped
         print("   gudhi: not installed, unmeasured")
     try:
         import ripser
 
-        print(f"   ripser.ripser: {list(inspect.signature(ripser.ripser).parameters)}")
+        print(f"   ripser.ripser: {_parameters(ripser.ripser)}")
+        print(f"   ripser.Rips.__init__: {_parameters(ripser.Rips.__init__)}")
         print(f"   ripser names containing 'level': {_level_names(ripser)}")
         print(
             "   ripser.lower_star_img present: "
@@ -143,8 +174,26 @@ def section_b() -> None:
     print()
 
 
-def _level_names(module: object) -> list[str]:
-    return [name for name in dir(module) if "level" in name.lower()]
+def _level_names(namespace: object) -> list[str]:
+    """Names on a module or class mentioning a level, of either direction."""
+    return [name for name in dir(namespace) if "level" in name.lower()]
+
+
+def _parameters(callable_: Any) -> list[str]:
+    """A callable's parameter names, or a note where they are not inspectable.
+
+    GUDHI's classes are Cython-backed, so a signature is not guaranteed to be
+    recoverable; an unreadable one is reported rather than allowed to look
+    like an empty one.
+    """
+    try:
+        return [
+            name
+            for name in inspect.signature(callable_).parameters
+            if name not in ("self", "args", "kwargs")
+        ]
+    except (TypeError, ValueError) as error:  # pragma: no cover - reported
+        return [f"<signature not inspectable: {error}>"]
 
 
 def negate(x: Any) -> Any:

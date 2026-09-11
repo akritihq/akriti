@@ -937,9 +937,7 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 # §10.2 -- the document is SPEC_VERSION, and ``save`` writes no later one
 #
-# Entry 76: "the document becomes 1.1.0 ... `io.py`'s `_SPEC_VERSION` and the
-# four `spec_version` pins in the I/O tests follow." Quoted as written; the
-# document has moved three times since; entries 78 and 79 record the minors.
+# §10.2 defines `spec_version` as which revision *the writer implemented*.
 #
 #   "`spec_version` | `str` | Which revision of that specification the writer
 #   implemented, ... `"x.y.z"` at time of writing."

@@ -7,9 +7,9 @@ Sections A.1-A.4 measured 2026-07-29 with gudhi 3.11.0, ripser 0.6.14,
 persim 0.3.8, giotto-tda 0.6.2, numpy 2.4.4, scikit-learn 1.8.0,
 Python 3.12.11.
 
-A.4's primordial and both-infinite rows and its ground-metric comparison were
-added and measured 2026-09-10 with persim 0.3.8, numpy 2.5.1, Python 3.14.6.
-The four rows that predate them are unchanged from the 2026-07-29 run.
+A.4's primordial and both-infinite rows were added and measured 2026-09-10 with
+persim 0.3.8, numpy 2.5.1, Python 3.14.6. The four rows that predate them are
+unchanged from the 2026-07-29 run.
 
 Section A.5 (RFC-0001 D17) was added and measured 2026-08-06 with gudhi 3.13.0,
 ripser 0.6.15, persim 0.3.8, numpy 2.5.1, scikit-learn 1.9.0. giotto-tda is not
@@ -188,8 +188,15 @@ def _require_warnings(caught, expected, *, section: str, operation: str) -> None
     )
 
 
-def _require_measurement(observed, expected, *, section: str, label: str) -> None:
-    """Compare a measurement against a float, the NAN sentinel, or a raise."""
+def _require_measurement(
+    observed, expected, *, section: str, label: str, rtol: float, atol: float
+) -> None:
+    """Compare a measurement against a float, the NAN sentinel, or a raise.
+
+    The tolerance is the caller's because the two operations do not share one.
+    Every bottleneck value A.4 measures is exactly representable, so it is
+    compared exactly; `wasserstein` returns a Euclidean norm and cannot be.
+    """
     if isinstance(expected, type) and issubclass(expected, BaseException):
         _require(
             isinstance(observed, expected),
@@ -209,9 +216,7 @@ def _require_measurement(observed, expected, *, section: str, label: str) -> Non
     if np.isinf(expected):
         _require(value == expected, section, f"{label} changed: {value!r}")
         return
-    _require_close(
-        value, expected, section=section, label=label, rtol=A4_RTOL, atol=A4_ATOL
-    )
+    _require_close(value, expected, section=section, label=label, rtol=rtol, atol=atol)
 
 
 def _format_measurement(value) -> str:
@@ -786,14 +791,22 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     for case in cases:
         bn, bn_caught = _measure_with_warnings(persim.bottleneck, case.dgm1, case.dgm2)
-        wn, wn_caught = _measure_with_warnings(
-            persim.wasserstein, case.dgm1, case.dgm2
+        wn, wn_caught = _measure_with_warnings(persim.wasserstein, case.dgm1, case.dgm2)
+        _require_measurement(
+            bn,
+            case.bottleneck,
+            section="A.4",
+            label=f"{case.label} bottleneck",
+            rtol=0,
+            atol=0,
         )
         _require_measurement(
-            bn, case.bottleneck, section="A.4", label=f"{case.label} bottleneck"
-        )
-        _require_measurement(
-            wn, case.wasserstein, section="A.4", label=f"{case.label} wasserstein"
+            wn,
+            case.wasserstein,
+            section="A.4",
+            label=f"{case.label} wasserstein",
+            rtol=A4_RTOL,
+            atol=A4_ATOL,
         )
         _require_warnings(
             bn_caught,
