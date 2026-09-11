@@ -22,13 +22,17 @@ from akriti.diagrams.core import (
 
 _FORMAT = "akriti.diagrams.akd"
 _SPEC = "RFC-0001"
-_SPEC_VERSION = "1.3.0"
+_SPEC_VERSION = "1.2.0"
 # Why _SPEC_VERSION trails RFC-0001's Version row, or None when it does not.
 # §10.2's spec_version is the revision this writer implemented, not the
 # document's: when a revision widens a requirement core.py does not yet
 # enforce, _SPEC_VERSION stays behind and this says why. Checked by
 # tests/test_rfc0001_spec_version_pins.py.
-_SPEC_VERSION_GAP: str | None = None
+_SPEC_VERSION_GAP: str | None = (
+    "1.3.0 widens I4 and I5, adds I10 and normalises superlevel input at the "
+    "adapter; core.py still enforces 1.2.0's invariants, and stamping 1.3.0 "
+    "would claim a conformance this writer does not have"
+)
 _FORMAT_VERSION = 0
 _META_FIELDS = (
     "filtration",
