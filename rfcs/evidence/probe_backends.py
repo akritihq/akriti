@@ -7,6 +7,10 @@ Sections A.1-A.4 measured 2026-07-29 with gudhi 3.11.0, ripser 0.6.14,
 persim 0.3.8, giotto-tda 0.6.2, numpy 2.4.4, scikit-learn 1.8.0,
 Python 3.12.11.
 
+A.4's primordial and both-infinite rows and its ground-metric comparison were
+added and measured 2026-09-10 with persim 0.3.8, numpy 2.5.1, Python 3.14.6.
+The four rows that predate them are unchanged from the 2026-07-29 run.
+
 Section A.5 (RFC-0001 D17) was added and measured 2026-08-06 with gudhi 3.13.0,
 ripser 0.6.15, persim 0.3.8, numpy 2.5.1, scikit-learn 1.9.0. giotto-tda is not
 installed in that environment, so its A.5 row is unmeasured (RFC-0001 §9.2) and
@@ -23,6 +27,7 @@ import argparse
 import inspect
 import warnings
 from collections.abc import Sequence
+from typing import NamedTuple
 
 import numpy as np
 
@@ -43,6 +48,13 @@ A4_RTOL = 1e-12
 A4_ATOL = 1e-12
 DGM1_WARNING = "dgm1 has points with non-finite death times;ignoring those points"
 DGM2_WARNING = "dgm2 has points with non-finite death times;ignoring those points"
+#: numpy's, not persim's. On a pair of primordial bars persim subtracts one
+#: -inf birth from another; this is the only diagnostic emitted on that path
+#: (RFC-0001 A.4). Its wording is numpy's and may move; the point measured is
+#: that no persim UserWarning accompanies it.
+SUBTRACT_WARNING = "invalid value encountered in subtract"
+#: A returned float that is not a number, as distinct from a raised exception.
+NAN = "nan"
 
 
 class ProbeDriftError(RuntimeError):
@@ -139,37 +151,74 @@ def _require_close(
 
 
 def _measure_with_warnings(operation, *args):
-    """Run a backend operation and return its value with every warning emitted."""
+    """Run a backend operation and return its value with every warning emitted.
+
+    A.4 measures inputs on which persim raises rather than returns, so an
+    exception is a measured outcome here and is handed back in the value's
+    place instead of propagating.
+    """
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        value = operation(*args)
+        try:
+            value = operation(*args)
+        except Exception as error:  # the raise is the datum, not a failure
+            value = error
     return value, caught
 
 
-def _require_warnings(
-    caught, expected_messages, *, section: str, operation: str
-) -> None:
-    """Require persim's exact warning category and per-argument messages."""
-    if expected_messages:
-        _require(
-            bool(caught),
-            section,
-            f"{operation} stopped warning about non-finite death times",
-        )
-    for index, warning in enumerate(caught, start=1):
-        _require(
-            warning.category is UserWarning,
-            section,
-            f"{operation} warning {index} category changed: {warning.category!r}",
-        )
-    observed_messages = sorted(str(warning.message) for warning in caught)
-    expected = sorted(expected_messages)
-    _require(
-        observed_messages == expected,
-        section,
-        f"{operation} warning messages changed: "
-        f"observed={observed_messages!r}, expected={expected!r}",
+def _require_warnings(caught, expected, *, section: str, operation: str) -> None:
+    """Require the exact (category, message) pairs an operation emitted.
+
+    Category is part of the measurement rather than an implementation detail.
+    persim's own UserWarning names a class it dropped; numpy's RuntimeWarning
+    on ``-inf - -inf`` is the *only* diagnostic on the rows persim's guard
+    cannot see, and telling them apart is what RFC-0001 §9.1 turns on. A row
+    expecting no warning must emit none: silence is the measurement there.
+    """
+    if expected and not caught:
+        _fail(section, f"{operation} stopped warning entirely")
+    observed = sorted(
+        (warning.category.__name__, str(warning.message)) for warning in caught
     )
+    wanted = sorted((category.__name__, message) for category, message in expected)
+    _require(
+        observed == wanted,
+        section,
+        f"{operation} warnings changed: observed={observed!r}, expected={wanted!r}",
+    )
+
+
+def _require_measurement(observed, expected, *, section: str, label: str) -> None:
+    """Compare a measurement against a float, the NAN sentinel, or a raise."""
+    if isinstance(expected, type) and issubclass(expected, BaseException):
+        _require(
+            isinstance(observed, expected),
+            section,
+            f"{label} no longer raises {expected.__name__}: {observed!r}",
+        )
+        return
+    _require(
+        np.isscalar(observed),
+        section,
+        f"{label} is no longer a scalar result: {observed!r}",
+    )
+    value = float(observed)
+    if expected is NAN:
+        _require(np.isnan(value), section, f"{label} is no longer nan: {value!r}")
+        return
+    if np.isinf(expected):
+        _require(value == expected, section, f"{label} changed: {value!r}")
+        return
+    _require_close(
+        value, expected, section=section, label=label, rtol=A4_RTOL, atol=A4_ATOL
+    )
+
+
+def _format_measurement(value) -> str:
+    """Render a float or a raised exception for the A.4 table."""
+    if isinstance(value, BaseException):
+        return type(value).__name__
+    return f"{float(value):.4f}"
 
 
 def _coefficient_carriers(value) -> list[str]:
@@ -602,95 +651,178 @@ def main(argv: Sequence[str] | None = None) -> int:
     print("  => ripser returns float64 arrays holding float32-precision values.")
 
     # ---------------------------------------------------------------- A.4
-    rule("A.4  PERSIM — finite distance between infinitely distant diagrams")
+    rule("A.4  PERSIM — what it does with each non-finite class")
 
     import persim
 
-    inf_d = np.array([[0.0, np.inf], [0.1, 0.5]])
-    fin_d = np.array([[0.0, 1.0], [0.1, 0.5]])
+    # One diagram per class of RFC-0001 §9.1's partition, each carrying the
+    # same finite bar so the classes are what differ between rows.
+    ess_d = np.array([[0.0, np.inf], [0.1, 0.5]])  # (finite, +inf)
+    pri_d = np.array([[-np.inf, 0.5], [0.1, 0.5]])  # (-inf, finite)
+    pri_e = np.array([[-np.inf, 2.0], [0.1, 0.5]])  # (-inf, finite), moved
+    both_d = np.array([[-np.inf, np.inf], [0.1, 0.5]])  # (-inf, +inf)
+    fin_d = np.array([[0.0, 1.0], [0.1, 0.5]])  # (finite, finite)
     empty = np.zeros((0, 2))
 
+    dgm1_warned = ((UserWarning, DGM1_WARNING),)
+    both_warned = ((UserWarning, DGM1_WARNING), (UserWarning, DGM2_WARNING))
+    subtracted = ((RuntimeWarning, SUBTRACT_WARNING),)
+    silent = ()
+
+    class A4Case(NamedTuple):
+        """One row of RFC-0001 A.4.
+
+        `truth` is the correct distance, stated independently of persim; the
+        measured columns are what persim gives. Where they differ the row is
+        one of the defects §9.1 is written against.
+        """
+
+        label: str
+        dgm1: np.ndarray
+        dgm2: np.ndarray
+        bottleneck: object
+        bottleneck_warnings: tuple
+        wasserstein: object
+        wasserstein_warnings: tuple
+        truth: str
+
+    half = float(np.sqrt(0.5))
     cases = [
-        ("inf vs itself", inf_d, inf_d, "0.0"),
-        ("inf vs finite", inf_d, fin_d, "inf"),
-        ("empty vs empty", empty, empty, "0.0"),
-        ("empty vs finite", empty, fin_d, "0.5"),
+        A4Case(
+            "ess vs itself",
+            ess_d,
+            ess_d,
+            0.0,
+            both_warned,
+            0.0,
+            both_warned,
+            "0.0",
+        ),
+        A4Case(
+            "ess vs finite",
+            ess_d,
+            fin_d,
+            0.5,
+            dgm1_warned,
+            half,
+            dgm1_warned,
+            "inf",
+        ),
+        A4Case(
+            "both vs itself",
+            both_d,
+            both_d,
+            0.0,
+            both_warned,
+            0.0,
+            both_warned,
+            "0.0",
+        ),
+        A4Case(
+            "both vs finite",
+            both_d,
+            fin_d,
+            0.5,
+            dgm1_warned,
+            half,
+            dgm1_warned,
+            "inf",
+        ),
+        A4Case(
+            "pri vs itself",
+            pri_d,
+            pri_d,
+            NAN,
+            subtracted,
+            ValueError,
+            silent,
+            "0.0",
+        ),
+        A4Case(
+            "pri vs pri'",
+            pri_d,
+            pri_e,
+            NAN,
+            subtracted,
+            ValueError,
+            silent,
+            "1.5",
+        ),
+        A4Case(
+            "pri vs finite",
+            pri_d,
+            fin_d,
+            np.inf,
+            silent,
+            ValueError,
+            silent,
+            "inf",
+        ),
+        A4Case(
+            "empty vs empty",
+            empty,
+            empty,
+            0.0,
+            silent,
+            0.0,
+            silent,
+            "0.0",
+        ),
+        A4Case(
+            "empty vs finite",
+            empty,
+            fin_d,
+            0.5,
+            silent,
+            EMPTY_FINITE_WASSERSTEIN,
+            silent,
+            "0.5",
+        ),
     ]
-    expected_bottleneck = (0.0, 0.5, 0.0, 0.5)
-    expected_wasserstein = (0.0, np.sqrt(0.5), 0.0, EMPTY_FINITE_WASSERSTEIN)
-    expected_warning_messages = (
-        (DGM1_WARNING, DGM2_WARNING),
-        (DGM1_WARNING,),
-        (),
-        (),
+
+    print(
+        f"  {'case':<16}{'bottleneck':>12}{'wasserstein':>14}"
+        f"{'warns b/w':>12}   correct"
     )
-    header = f"  {'case':<18}{'bottleneck':>12}{'wasserstein':>14}"
-    print(f"{header}{'warns b/w':>11}   correct bottleneck")
-    first_warning_text: str | None = None
-    for index, (name, a, b, expected) in enumerate(cases):
-        bn, bn_caught = _measure_with_warnings(persim.bottleneck, a, b)
-        wn, wn_caught = _measure_with_warnings(persim.wasserstein, a, b)
-        _require(
-            np.isscalar(bn),
-            "A.4",
-            f"{name} bottleneck result is no longer scalar: {type(bn).__name__}",
+    for case in cases:
+        bn, bn_caught = _measure_with_warnings(persim.bottleneck, case.dgm1, case.dgm2)
+        wn, wn_caught = _measure_with_warnings(
+            persim.wasserstein, case.dgm1, case.dgm2
         )
-        _require(
-            np.isscalar(wn),
-            "A.4",
-            f"{name} wasserstein result is no longer scalar: {type(wn).__name__}",
+        _require_measurement(
+            bn, case.bottleneck, section="A.4", label=f"{case.label} bottleneck"
         )
-        bn_value = float(bn)
-        wn_value = float(wn)
-        _require_close(
-            bn_value,
-            expected_bottleneck[index],
-            section="A.4",
-            label=f"{name} bottleneck",
-            rtol=0,
-            atol=0,
+        _require_measurement(
+            wn, case.wasserstein, section="A.4", label=f"{case.label} wasserstein"
         )
-        _require_close(
-            wn_value,
-            expected_wasserstein[index],
-            section="A.4",
-            label=f"{name} wasserstein",
-            rtol=A4_RTOL,
-            atol=A4_ATOL,
-        )
-        expected_messages = expected_warning_messages[index]
         _require_warnings(
             bn_caught,
-            expected_messages,
+            case.bottleneck_warnings,
             section="A.4",
-            operation=f"{name} bottleneck",
+            operation=f"{case.label} bottleneck",
         )
         _require_warnings(
             wn_caught,
-            expected_messages,
+            case.wasserstein_warnings,
             section="A.4",
-            operation=f"{name} wasserstein",
+            operation=f"{case.label} wasserstein",
         )
-        if expected_messages and first_warning_text is None:
-            first_warning_text = str(bn_caught[0].message)
+        counts = f"{len(bn_caught)}/{len(wn_caught)}"
         print(
-            f"  {name:<18}{bn_value:>12.4f}{wn_value:>14.4f}"
-            f"{len(bn_caught)}/{len(wn_caught):>9}   {expected}"
+            f"  {case.label:<16}{_format_measurement(bn):>12}"
+            f"{_format_measurement(wn):>14}{counts:>12}   {case.truth}"
         )
 
-    _require(
-        first_warning_text is not None,
-        "A.4",
-        "no measured warning text was available for reporting",
-    )
-    print(f"\n  warning text: UserWarning: {first_warning_text}")
-    print("  => persim drops the essential bar and returns a plausible finite")
-    print("     number. It DOES warn -- but the warning names the mechanism, not")
-    print("     the consequence, and it fires twice on the case persim gets right")
-    print("     and once on the case it gets wrong. Presence or absence of the")
-    print("     warning cannot be used to detect the failure.")
-    print("     core/distances.py must partition on `essential` before")
-    print("     delegating (RFC-0001 §9.1).")
+    print(f"\n  warning text: UserWarning: {DGM1_WARNING}")
+    print("  => the guard reads DEATHS. It drops (finite, +inf) and (-inf, +inf)")
+    print("     alike -- a plausible finite number, warned about -- and never")
+    print("     inspects a birth, so (-inf, finite) reaches the cost matrix and")
+    print("     comes back as nan from bottleneck and a ValueError from")
+    print("     wasserstein, with no persim warning on either path. The warning")
+    print("     also fires twice where persim is right and once where it is")
+    print("     wrong, so its presence cannot certify a result and its absence")
+    print("     cannot condemn one. core/distances.py must partition on all four")
+    print("     classes, not on `essential` alone (RFC-0001 §9.1).")
 
     # ---------------------------------------------------------------- A.5
     rule("A.5  COEFFICIENT FIELD — is it recoverable from what a backend returns?")

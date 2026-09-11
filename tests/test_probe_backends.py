@@ -178,14 +178,39 @@ def test_warning_gate_checks_the_expected_message_multiset() -> None:
                 stacklevel=1,
             )
 
+    non_finite = "has points with non-finite death times;ignoring those points"
     expected = [
-        "dgm1 has points with non-finite death times;ignoring those points",
-        "dgm2 has points with non-finite death times;ignoring those points",
+        (UserWarning, f"dgm1 {non_finite}"),
+        (UserWarning, f"dgm2 {non_finite}"),
     ]
-    with pytest.raises(probe_backends.ProbeDriftError, match="messages changed"):
+    with pytest.raises(probe_backends.ProbeDriftError, match="warnings changed"):
         probe_backends._require_warnings(
             caught,
             expected,
+            section="A.4",
+            operation="bottleneck",
+        )
+
+
+def test_warning_gate_distinguishes_numpy_warnings_from_persim_warnings() -> None:
+    """Category is part of the measurement, not an implementation detail.
+
+    RFC-0001 A.4's two `nan` rows carry numpy's RuntimeWarning and *no* persim
+    UserWarning, and that difference is the mechanism §9.1 states. A gate
+    comparing messages alone would accept the day persim starts warning.
+    """
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.warn(
+            "invalid value encountered in subtract", RuntimeWarning, stacklevel=1
+        )
+
+    with pytest.raises(probe_backends.ProbeDriftError, match="warnings changed"):
+        probe_backends._require_warnings(
+            caught,
+            [(UserWarning, "invalid value encountered in subtract")],
             section="A.4",
             operation="bottleneck",
         )
@@ -196,9 +221,27 @@ def test_warning_gate_fails_diagnostically_before_indexing_an_empty_list() -> No
     with pytest.raises(probe_backends.ProbeDriftError, match="stopped warning"):
         probe_backends._require_warnings(
             [],
-            ["expected warning"],
+            [(UserWarning, "expected warning")],
             section="A.4",
             operation="bottleneck",
+        )
+
+
+def test_warning_gate_requires_silence_where_silence_was_measured() -> None:
+    """RFC-0001 A.4's `pri vs finite` row measures no warning at all.
+
+    An unexpected warning is drift in the same way a missing one is: it would
+    mean persim had started diagnosing a class it currently passes over.
+    """
+    import warnings
+
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        warnings.warn("a new persim diagnostic", UserWarning, stacklevel=1)
+
+    with pytest.raises(probe_backends.ProbeDriftError, match="warnings changed"):
+        probe_backends._require_warnings(
+            caught, (), section="A.4", operation="bottleneck"
         )
 
 
