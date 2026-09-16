@@ -1652,7 +1652,8 @@ def test_appendix_c_ids_are_unique() -> None:
 # §12 -- the header loses the clause contradicting the same sentence
 #
 # Entry 68: "§12's header loses a clause contradicting the same sentence."
-# Entry 71 opened D24; entry 75 closed it, so §12.1 now carries one row.
+# Entry 71 opened D24; entry 75 closed it. Entry 79 settled D27 without
+# opening anything, so §12.1 still carries one row.
 # --------------------------------------------------------------------------
 
 

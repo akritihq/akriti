@@ -8,8 +8,9 @@ persim 0.3.8, giotto-tda 0.6.2, numpy 2.4.4, scikit-learn 1.8.0,
 Python 3.12.11.
 
 A.4's primordial and both-infinite rows were added and measured 2026-09-10 with
-persim 0.3.8, numpy 2.5.1, Python 3.14.6. The four rows that predate them are
-unchanged from the 2026-07-29 run.
+persim 0.3.8, numpy 2.5.1, Python 3.14.6, and its three `(+inf, +inf)` rows
+(RFC-0001 D27) on 2026-09-13 in the same environment. The four rows that
+predate them are unchanged from the 2026-07-29 run.
 
 Section A.5 (RFC-0001 D17) was added and measured 2026-08-06 with gudhi 3.13.0,
 ripser 0.6.15, persim 0.3.8, numpy 2.5.1, scikit-learn 1.9.0. giotto-tda is not
@@ -666,6 +667,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     pri_d = np.array([[-np.inf, 0.5], [0.1, 0.5]])  # (-inf, finite)
     pri_e = np.array([[-np.inf, 2.0], [0.1, 0.5]])  # (-inf, finite), moved
     both_d = np.array([[-np.inf, np.inf], [0.1, 0.5]])  # (-inf, +inf)
+    top_d = np.array([[np.inf, np.inf], [0.1, 0.5]])  # (+inf, +inf), D27
     fin_d = np.array([[0.0, 1.0], [0.1, 0.5]])  # (finite, finite)
     empty = np.zeros((0, 2))
 
@@ -731,6 +733,38 @@ def main(argv: Sequence[str] | None = None) -> int:
             dgm1_warned,
             half,
             dgm1_warned,
+            "inf",
+        ),
+        A4Case(
+            "top vs itself",
+            top_d,
+            top_d,
+            0.0,
+            both_warned,
+            0.0,
+            both_warned,
+            "0.0",
+        ),
+        A4Case(
+            "top vs finite",
+            top_d,
+            fin_d,
+            0.5,
+            dgm1_warned,
+            half,
+            dgm1_warned,
+            "inf",
+        ),
+        # The one row where dropping both sides' non-finite bars returns a
+        # wrong *zero*: an essential bar born at +inf against one born at 0.
+        A4Case(
+            "top vs ess",
+            top_d,
+            ess_d,
+            0.0,
+            both_warned,
+            0.0,
+            both_warned,
             "inf",
         ),
         A4Case(
@@ -827,14 +861,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         )
 
     print(f"\n  warning text: UserWarning: {DGM1_WARNING}")
-    print("  => the guard reads DEATHS. It drops (finite, +inf) and (-inf, +inf)")
-    print("     alike -- a plausible finite number, warned about -- and never")
-    print("     inspects a birth, so (-inf, finite) reaches the cost matrix and")
-    print("     comes back as nan from bottleneck and a ValueError from")
-    print("     wasserstein, with no persim warning on either path. The warning")
-    print("     also fires twice where persim is right and once where it is")
-    print("     wrong, so its presence cannot certify a result and its absence")
-    print("     cannot condemn one. core/distances.py must partition on all four")
+    print("  => the guard reads DEATHS. It drops (finite, +inf), (-inf, +inf) and")
+    print("     (+inf, +inf) alike -- a plausible finite number, warned about --")
+    print("     and never inspects a birth, so (-inf, finite) reaches the cost")
+    print("     matrix and comes back as nan from bottleneck and a ValueError")
+    print("     from wasserstein, with no persim warning on either path. The")
+    print("     warning also fires twice where persim is right and once where it")
+    print("     is wrong, so its presence cannot certify a result and its absence")
+    print("     cannot condemn one. core/distances.py must partition on all five")
     print("     classes, not on `essential` alone (RFC-0001 §9.1).")
 
     # ---------------------------------------------------------------- A.5
