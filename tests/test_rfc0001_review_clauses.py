@@ -49,13 +49,13 @@ RFC_PATH = (
 )
 
 #: The document version: RFC-0001's Version row. The review pass landed
-#: 1.1.0; #48 moved the patch and #54 the minor. This literal is the
-#: independent witness the tests below compare the document against, so it
-#: moves by hand with every bump, and tests/test_rfc0001_spec_version_pins.py
-#: fails until it does. It is not necessarily what ``save`` writes: §10.2's
-#: ``spec_version`` is the revision the writer implemented, which may trail
-#: this one.
-SPEC_VERSION = "1.2.0"
+#: 1.1.0; #48 moved the patch, #54 the minor and #44 the minor again. This
+#: literal is the independent witness the tests below compare the document
+#: against, so it moves by hand with every bump, and
+#: tests/test_rfc0001_spec_version_pins.py fails until it does. It is not
+#: necessarily what ``save`` writes: §10.2's ``spec_version`` is the revision
+#: the writer implemented, which may trail this one.
+SPEC_VERSION = "1.3.0"
 
 
 def diagram(
@@ -937,9 +937,7 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 # §10.2 -- the document is SPEC_VERSION, and ``save`` writes no later one
 #
-# Entry 76: "the document becomes 1.1.0 ... `io.py`'s `_SPEC_VERSION` and the
-# four `spec_version` pins in the I/O tests follow." Quoted as written; the
-# document has moved twice since, and entry 78 records the minor.
+# §10.2 defines `spec_version` as which revision *the writer implemented*.
 #
 #   "`spec_version` | `str` | Which revision of that specification the writer
 #   implemented, ... `"x.y.z"` at time of writing."
@@ -1654,7 +1652,8 @@ def test_appendix_c_ids_are_unique() -> None:
 # §12 -- the header loses the clause contradicting the same sentence
 #
 # Entry 68: "§12's header loses a clause contradicting the same sentence."
-# Entry 71 opened D24; entry 75 closed it, so §12.1 now carries one row.
+# Entry 71 opened D24; entry 75 closed it. Entry 79 settled D27 without
+# opening anything, so §12.1 still carries one row.
 # --------------------------------------------------------------------------
 
 

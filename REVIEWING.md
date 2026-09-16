@@ -22,6 +22,12 @@ only what transfers to the next document.
 - **A wrong figure inside a review finding is the one least likely to be
   recomputed before it is written down.** Re-measure the findings, not just the
   document.
+- **A rationale reading "definitional" is a claim about every object the type
+  admits, and the way to check one is to name an object the evidence base does
+  not contain.** Ask what the evidence base is made of, then name something it
+  is not made of; the object need not exist yet. RFC-0001's I4 is the worked
+  case (D27, #44), and the revision that fixed it failed the same check on its
+  first review (changelog entry 79).
 
 ## Writing
 
@@ -31,6 +37,18 @@ only what transfers to the next document.
   passing by the branch that depends on it.
 - **Fix the class a finding belongs to, not the instance it named.**
 - **A trap a reader cannot see becomes a standing regression test, not prose.**
+- **A name is not a place to put a caveat.** Where an accessor's name promises
+  something its result no longer delivers, widen the operation or rename it;
+  documenting the exception leaves the trap in place and puts the warning where
+  a reader who trusts the name will never look. RFC-0001's `d.finite` is the
+  worked case (D26).
+- **A specification states what holds, not how it came to hold.** Which
+  commit refused a key, what the writer implemented first, what closed a
+  window from when: that is process narrative, and it goes stale the moment
+  the next version lands, when the reader has no earlier one to compare
+  against. It belongs in the changelog, the commit or a code comment; the body
+  carries the rule and the residual. RFC-0001 §8's reserved-key paragraph is
+  the worked case.
 - **Tables are for genuinely short, structured data.**
 - **D-numbers are stable identifiers, not a dense sequence.** Do not renumber
   to close a gap.
