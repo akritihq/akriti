@@ -4093,7 +4093,7 @@ def test_no_adapter_lets_a_caller_write_a_reserved_provenance_key(
 
     `backend` and `backend_version` are already refused on exactly this
     ground -- "a caller who could set them could produce a diagram that lies
-    about where it came from". §8's `provenance` table is seven more facts of
+    about where it came from". §8's `provenance` table is nine more facts of
     the same kind: `essential_bars` has two named writers and neither is a
     caller ("Both writers, `from_giotto` at construction and `finitize()`
     later, MUST be the only places that set this key"); `essential_bars_source`

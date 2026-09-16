@@ -65,6 +65,7 @@ akriti.compat.giotto (RFC-0001 §9.2).
 from __future__ import annotations
 
 import argparse
+import importlib.metadata
 import inspect
 import struct
 import sys
@@ -382,7 +383,6 @@ def section_b(*, require_giotto: bool) -> None:
 
     giotto_measured = False
     try:
-        import gtda
         import gtda.homology
 
         # Signatures only. Nothing is fitted, so §9.2's scikit-learn shim is
@@ -399,7 +399,9 @@ def section_b(*, require_giotto: bool) -> None:
             ("gtda.homology module names", _direction_names(gtda.homology))
         )
         giotto_measured = True
-        print(f"   giotto-tda {gtda.__version__}: measured")
+        # The distribution's own record rather than a module attribute the
+        # package is not known to expose.
+        print(f"   giotto-tda {importlib.metadata.version('giotto-tda')}: measured")
     except ImportError:
         print("   giotto-tda: not installable here (RFC-0001 §9.2), unmeasured")
     _require(
@@ -459,7 +461,7 @@ def section_c() -> None:
         -INF,
         1.0,
         -1.0,
-        2.0**53 + 1,
+        2.0**53,  # 2**53 + 1 is not a float64; it rounds to this
         5e-324,
         1.7976931348623157e308,
         0.1,
@@ -497,6 +499,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         section_c()
     except ProbeDriftError as error:
         print(f"\nDRIFT: {error}", file=sys.stderr)
+        return 1
+    except ImportError as error:
+        # Section A is the measurement; without its backend nothing here is
+        # evidence, so this is a failed run and not a skipped row. Section B
+        # reports its own missing backends as unmeasured, giotto's under
+        # `--require-giotto`.
+        print(f"\nUNMEASURED: {error.name} is not installed", file=sys.stderr)
         return 1
     return 0
 
