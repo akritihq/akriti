@@ -245,7 +245,7 @@ def test_persim_returns_nan_between_identical_primordial_diagrams() -> None:
     against everything -- so a caller's `d < tol` reports "not similar" for two
     identical diagrams.
 
-    This is the hazard `core/distances.py` guards by partitioning on all four
+    This is the hazard `core/distances.py` guards by partitioning on all five
     classes rather than on `essential` alone, and it is a distinct upstream
     defect from scikit-tda/persim#105.
     """

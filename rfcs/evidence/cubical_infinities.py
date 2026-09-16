@@ -34,13 +34,21 @@ them fails this script rather than reaching a reviewer.
      is measured through `min_persistence`: the default drops every
      zero-persistence pair and keeps this one, so the backend calls it
      essential rather than trivial -- the fact D27's resolution rests on.
+     The `peak` grid, `[0, +inf, 0]`, is what §2's definition of `essential`
+     is written against: its two `(0.0, inf)` bars are one class that never
+     dies and one that died when the +inf cell entered, which
+     `cofaces_of_persistence_pairs()` still tells apart and the bars do not.
+     Its pair structure is gated against the finite wall `[0, 5, 0]`'s.
   B. Whether any Python backend RFC-0001 adapts offers a sublevel/superlevel
      switch, which is what decides how narrowly §11's `filtration_direction`
      argument has to be scoped. Every entry point §11 names is inspected, not
      only the `CubicalComplex` section A uses: `from_gudhi` also takes the
      sklearn-compatible form (D20) and a `SimplexTree`, and a switch would
-     most likely arrive as a constructor argument on one of those rather than
-     as a module-level name. giotto-tda's homology estimators are inspected
+     most likely arrive as a constructor argument on one of those, or as a
+     parameter of the `persistence()` call itself, rather than as a
+     module-level name -- so the parameters of `persistence()` and
+     `compute_persistence()` are read on every GUDHI complex class too, not
+     only their names. giotto-tda's homology estimators are inspected
      the same way -- every public class of `gtda.homology`, by signature --
      and `--require-giotto` fails the run if that row is merely unimportable
      and therefore silently unmeasured.
@@ -52,9 +60,10 @@ to the full entry-point list and re-measured 2026-09-10, unchanged in its
 conclusion. The all-+inf and all--inf grids, ripser's `lower_star_img` rows and
 the giotto row were added and measured 2026-09-13 with gudhi 3.13.0, ripser
 0.6.15, numpy 2.5.1, Python 3.14.6, and the sklearn `CubicalPersistence` batch
-row on 2026-09-16 in that environment; the giotto row in the environment CI's
-`rfc-evidence` job builds -- giotto-tda 0.6.2, scikit-learn 1.9.1, numpy 2.5.3,
-Python 3.12.13.
+row, `peak`'s pair structure and `lower_star_img` row, and the `persistence()`
+parameter sweep on 2026-09-16 in that environment; the giotto row in the
+environment CI's `rfc-evidence` job builds -- giotto-tda 0.6.2, scikit-learn
+1.9.1, numpy 2.5.3, Python 3.12.13.
 
 Clean-room note: giotto-tda is AGPLv3. This script inspects the signatures of
 giotto's public estimators and calls nothing on them. No giotto source is
@@ -119,16 +128,31 @@ EXPECTED_BARS: dict[str, Bars] = {
     "all_neg_inf_2d": [(0, -INF, INF)],
 }
 
-# ripser's lower-star image filtration on the same two D27 shapes: the same
-# bar from a second backend, so D27 is not reopened against one library's
-# choice.
+# ripser's lower-star image filtration on the same two D27 shapes, and on
+# `peak`: the same bars from a second backend, so neither D27 nor §2's
+# definition of `essential` is reopened against one library's choice.
 LOWER_STAR_IMAGES: dict[str, list[list[float]]] = {
     "all_pos_inf": [[INF, INF, INF], [INF, INF, INF]],
     "all_neg_inf": [[-INF, -INF, -INF], [-INF, -INF, -INF]],
+    "peak": [[0.0, INF, 0.0], [0.0, INF, 0.0]],
 }
 EXPECTED_LOWER_STAR: dict[str, list[tuple[float, float]]] = {
     "all_pos_inf": [(INF, INF)],
     "all_neg_inf": [(-INF, INF)],
+    "peak": [(0.0, INF), (0.0, INF)],
+}
+
+# What §2's `essential` means once +inf is a value the filtration takes. On
+# `peak` the +inf cell enters at t = +inf and merges the two components, so one
+# of the two `(0.0, inf)` bars is a class that *died* there -- and GUDHI writes
+# it exactly as it writes the never-dying one. `cofaces_of_persistence_pairs()`
+# is where the two are still distinguishable: it returns the paired cells and
+# the unpaired (essential) cells separately, as top-cell indices. `wall` is the
+# same grid with a finite wall, whose pair structure `peak` must match.
+PAIRING_GRIDS: dict[str, tuple[list[float], list[list[int]], list[int]]] = {
+    #                 cells              paired (birth, death)   essential
+    "peak": ([0.0, INF, 0.0], [[0, 1]], [2]),
+    "wall": ([0.0, 5.0, 0.0], [[0, 1]], [2]),
 }
 
 # GUDHI's sklearn-compatible form (D20) on a batch with one fully-masked
@@ -296,12 +320,39 @@ def section_a() -> None:
     print("   => (inf, inf) is kept where (0.0, 0.0) is dropped: essential, not")
     print("      trivial, by GUDHI's own filter.\n")
 
+    print("   GUDHI's pair structure on peak, against a finite wall (§2)\n")
+    for name, (cells, expected_pairs, expected_essential) in PAIRING_GRIDS.items():
+        cc = gudhi.CubicalComplex(
+            top_dimensional_cells=np.asarray(cells, dtype=np.float64)
+        )
+        cc.compute_persistence(homology_coeff_field=2)
+        regular, essential = cc.cofaces_of_persistence_pairs()
+        # Degree 0 only: each is a list indexed by degree, empty where a
+        # degree has no pairs at all.
+        pairs = [[int(b), int(d)] for b, d in regular[0]] if regular else []
+        unpaired = [int(c) for c in essential[0]] if essential else []
+        bars = [
+            (float(b), float(d)) for b, d in cc.persistence_intervals_in_dimension(0)
+        ]
+        _require(
+            pairs == expected_pairs and unpaired == expected_essential,
+            "A.12",
+            f"GUDHI's pair structure for {name} changed: paired={pairs!r}, "
+            f"essential={unpaired!r}, expected {expected_pairs!r} / "
+            f"{expected_essential!r}",
+        )
+        print(f"   {name}: {cells}")
+        print(f"      bars {bars}  paired {pairs}  essential cells {unpaired}")
+    print("   => the same one paired class and one essential cell either way: on")
+    print("      peak, one of the two (0.0, inf) bars died when the +inf cell")
+    print("      entered, and is written like the class that never dies.\n")
+
     try:
         import ripser
     except ImportError:  # pragma: no cover - reported, not skipped
         print("   ripser: not installed; lower_star_img rows unmeasured\n")
         return
-    print(f"   ripser {ripser.__version__} lower_star_img, the same two shapes\n")
+    print(f"   ripser {ripser.__version__} lower_star_img, the same shapes\n")
     for name, image in LOWER_STAR_IMAGES.items():
         dgm = ripser.lower_star_img(np.asarray(image, dtype=np.float64))
         bars = [(float(b), float(d)) for b, d in np.asarray(dgm)]
@@ -335,7 +386,11 @@ def section_b(*, require_giotto: bool) -> None:
         # A scan of top-level names would miss a constructor argument on a
         # class, and `from_gudhi` takes the sklearn form (D20) as well as a
         # `SimplexTree`, so a probe of `CubicalComplex` alone measures less
-        # than §11's claim needs.
+        # than §11's claim needs. On the three complex classes the parameters
+        # of `persistence()` and `compute_persistence()` are read as well: a
+        # `superlevel=` keyword there is spelled inside the vocabulary and
+        # sits on the call that computes the diagram, and a scan of method
+        # *names* would never see it.
         for label, obj in (
             ("gudhi.CubicalComplex.__init__", gudhi.CubicalComplex.__init__),
             (
@@ -352,6 +407,23 @@ def section_b(*, require_giotto: bool) -> None:
             ),
         ):
             entry_points.append((label, _parameters(obj)))
+        for cls in (
+            gudhi.CubicalComplex,
+            gudhi.PeriodicCubicalComplex,
+            gudhi.SimplexTree,
+        ):
+            for method in ("persistence", "compute_persistence"):
+                _require(
+                    hasattr(cls, method),
+                    "A.12",
+                    f"gudhi.{cls.__name__}.{method} is gone; A.12 sweeps it",
+                )
+                entry_points.append(
+                    (
+                        f"gudhi.{cls.__name__}.{method}",
+                        _parameters(getattr(cls, method)),
+                    )
+                )
         entry_points.append(
             ("gudhi.SimplexTree methods", _direction_names(gudhi.SimplexTree))
         )
