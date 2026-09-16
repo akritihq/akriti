@@ -119,10 +119,12 @@ A **persistence diagram** is a finite multiset of **bars**. A bar is a triple
 - `birth`, `death` are **extended** real, with `birth <= death`.
 
 `death` MAY be `+inf` and `birth` MAY be either infinity. A bar MUST NOT be
-`(-inf, -inf)`: it is the one pair of infinities I6 admits and §3.1's I10
-refuses.
+`(-inf, -inf)`: of the three pairs of infinities that satisfy I6, it is the one
+§3.1's I10 refuses.
 
-A bar with `death == +inf` is **essential**: the class it represents never dies.
+A bar with `death == +inf` is **essential**: the class it represents has no
+finite death — the class that never dies, except on a filtration that takes
+the value `+inf`, where §5 states what else it covers.
 A bar with `birth == -inf` is **primordial**: it is present before the
 filtration's first finite value, and it is not the same thing as essential — a
 primordial bar may die, and an essential one may be born at a finite value.
@@ -138,8 +140,8 @@ never-dying class is §5's convention rather than a value anything computed. A
 cubical or lower-star filtration carries function values directly, and nothing
 stops one being infinite in either direction — measured, over GUDHI's own
 cubical complex, in Appendix A.12. §3.1's I4, I5 and I10 are where that lands,
-and the one place the convention and the value meet — a class born at `+inf`,
-which is then essential by the convention — is D27, which admits it.
+and the convention and the value meet in two places: a class born at `+inf`
+(D27) and a class dying there (§5).
 
 *Multiset*, not set: two bars with identical coordinates are two bars, and the
 multiplicity is meaningful. Any representation that deduplicates is wrong.
@@ -209,7 +211,7 @@ these at construction and MUST NOT permit an invalid instance to exist.
 | I1 | `len(births) == len(deaths) == len(dims)` | structural |
 | I2 | `births`, `deaths` are `float64`; `dims` is `int32` — tested by equality against the namespace's own `xp.float64` / `xp.int32` | §6.1 |
 | I3 | `dims >= 0` | homological degree |
-| I4 | `births` are non-`NaN`; either infinity permitted, `+inf` only where I6 then forces `death == +inf` | §2, D27 — the range of the filtration function, not a definition |
+| I4 | `births` are non-`NaN`; either infinity permitted | §2, D27 — the range of the filtration function, not a definition |
 | I5 | `deaths` are non-`NaN`; `+inf` permitted | §5, §2 |
 | I6 | `deaths >= births` elementwise | definitional |
 | I7 | all three arrays share one namespace — `namespace_of(births) is namespace_of(deaths) is namespace_of(dims)` | §3.3; resolved by the one rule, never by calling `__array_namespace__` here (D18); the `is` is identity by requirement (D16), verified in CI |
@@ -274,11 +276,14 @@ that ordering is what keeps it a repair.** §11 requires an adapter handed
 superlevel input to negate first; the clamp then sees bars already satisfying
 I6 except for float noise, and repairs them exactly as it does for any sublevel
 input. There is no mirrored clamp, and the threshold below is reasoned about
-once rather than once per convention. **Clamping before normalising would be
-destructive rather than repairing** — on a superlevel diagram every non-trivial
-bar is inverted, so a clamp applied in the wrong direction flattens real
-structure onto the diagonal and reports it as routine noise repair in
-`clamped_rows`. An implementation MUST NOT order the two the other way.
+once rather than once per convention. **Clamping before normalising would
+repair the wrong bars and refuse the right ones** — on a superlevel diagram
+every non-trivial bar is inverted, so a clamp applied before negation flattens
+exactly the bars within its threshold of the diagonal, which are the ones
+negation was about to make valid, and reports them as noise repair in
+`clamped_rows`; every bar beyond the threshold then fails I6 with an error
+about the backend, on a diagram that was fine. An implementation MUST NOT order
+the two the other way.
 
 **The residual the ordering does not close, stated rather than left to be
 found.** Superlevel bars handed in undeclared (§11's default is `"sublevel"`)
@@ -1321,12 +1326,24 @@ The alternatives, and why they lose:
 |---|---|
 | Replace `inf` with the max filtration value | Unrecoverable. The bar is now indistinguishable from a genuine bar that happened to die at that value. |
 | Replace `inf` with a large sentinel (`1e9`, `99`) | Same, plus it silently corrupts any distance or vectorisation that treats it as a real number. |
-| Drop essential bars | Discards the rank of the homology of the underlying space — for H0, the number of connected components. |
+| Drop essential bars | Discards the rank of the homology of the underlying space — for H0, the number of connected components — and, on a filtration that takes `+inf`, the classes that die there (below). |
 | Separate `essential` array | Defensible, but it splits every operation into two code paths and makes `len()` ambiguous. |
 
 `inf` is what GUDHI and Ripser both return natively (Appendix A.1), it is
 representable in float64, it propagates correctly through comparisons, and it is
 the only choice from which the other conventions can be *derived* on demand.
+
+**A `+inf` death is not always a class that never dies, and `essential` does
+not claim it is.** On a filtration that takes `+inf` as a value, a class can
+die when the `+inf` cells enter: A.12's `[0, +inf, 0]` grid returns two
+`(0.0, inf)` bars, and GUDHI pairs one of them with the `+inf` cell exactly as
+`[0, 5, 0]` pairs it with the `5`, writing the death cell's value in both.
+Ripser's `lower_star_img` returns the same two bars. No measured backend
+distinguishes the two and this type does not either: `essential` is
+`deaths == +inf`, and its count is the rank of $H(K_t)$ at every finite $t$
+past the last finite filtration value — the rank of $H(K_\infty)$ wherever the
+filtration takes no `+inf`, and one more than it on that grid. A.12 gates the
+pair structure of both grids.
 
 **The same argument carries to `-inf` births with the signs reversed, and this
 section is not widened to cover them.** A primordial bar (§2) is stored as
@@ -1334,11 +1351,12 @@ section is not widened to cover them.** A primordial bar (§2) is stored as
 opposite direction, and Appendix A.12 measures GUDHI returning one. What does
 *not* carry is finitization: the four rows above are about a value a backend
 substitutes for `+inf` on the way out, and no backend this document has
-measured substitutes anything for a `-inf` birth — GUDHI returns it natively
-(A.12), Ripser's point-cloud filtrations cannot produce one, and giotto is
-unmeasured on §9.2's terms. `finitize` is therefore about deaths and stays that
-way (D26); the paragraph below states the boundary, and `d.finite` (§3.2) is
-what removes a primordial bar.
+measured substitutes anything for a `-inf` birth — GUDHI's cubical complex and
+Ripser's `lower_star_img` both return it natively (A.12), Ripser's point-cloud
+filtrations cannot produce one, and giotto is unmeasured on §9.2's terms.
+`finitize` is therefore about deaths and stays that way (D26); the paragraph
+below states the boundary, and `d.finite` (§3.2) is what removes a primordial
+bar.
 
 **A superlevel source that writes its essential deaths as `-inf` lands here
 rather than beside here.** §11's normalisation negates on the way in, which
@@ -4406,7 +4424,8 @@ calls for — `xp = arr.__array_namespace__()`, then
 numpy 2.5.1, Python 3.14; the all-`+inf` and all-`-inf` grids, the
 `lower_star_img` rows and the giotto row added 2026-09-13 — the first three
 with ripser 0.6.15 in the same environment, and the sklearn `CubicalPersistence`
-batch row on 2026-09-16, likewise — the giotto row in the environment
+batch row, the pair structure of `[0, +inf, 0]`, its `lower_star_img` row and
+the `persistence()` parameter sweep on 2026-09-16, likewise — the giotto row in the environment
 CI's `rfc-evidence` job builds (giotto-tda 0.6.2, scikit-learn 1.9.1, numpy
 2.5.3, Python 3.12.13), which is where every figure here is re-run. **This is
 the first measurement in this appendix that is not a point cloud in
@@ -4439,6 +4458,19 @@ property of either bar — it is that `+inf` was the only infinity anyone here
 had seen. §3.1 removes it by widening both ends and adding I10 rather than by
 widening one.
 
+**The second row's two `(0.0, inf)` bars are not two classes that never die,
+and §5 states what `essential` covers against this row.** GUDHI's
+`cofaces_of_persistence_pairs()` separates the paired cells from the unpaired,
+and on `[0, +inf, 0]` it reports one paired H0 class whose death cell is the
+`+inf` cell and one essential cell — the same structure `[0, 5, 0]` reports,
+with the `5` as the death cell — writing the paired class's death as the death
+cell's value in both. One of the two bars is a component that died when the
+peak entered, and $H_0(K_\infty)$ has rank one where the diagram carries two
+bars with no finite death. Ripser's `lower_star_img` on the 2×3 image returns
+the same two bars. The script gates the pair structure of both grids, so a
+backend that starts writing such a class differently, or stops pairing it,
+fails A.12 rather than reaching §5.
+
 **The `mixed` grid is the one to test against.** It returns three of §3.1's
 five admissible shapes in one diagram: `(-inf, finite)`, `(-inf, +inf)` and
 `(finite, finite)`. `(finite, +inf)` is in the rows above and `(+inf, +inf)`
@@ -4466,28 +4498,30 @@ to define its persistence by.
 **No adapted Python backend offers a superlevel switch.** Measured on all
 four, and it is what scopes §11's `filtration_direction` to two adapters rather
 than five. **Every entry point §11 adapts is inspected, not one per backend**:
-a direction switch would arrive as a constructor argument on a class, where a
-scan of module-level names would not see it, and `from_gudhi` takes the
-sklearn-compatible form (D20) and a `SimplexTree` as well as the
-`CubicalComplex` the rows above use. giotto's seven public `gtda.homology`
-estimators are inspected the same way, by signature, in the environment CI
-builds for §9.2's rows; nothing is fitted, so the shim that job carries is not
-needed. A parameter or name *mentions a direction* when it contains `level`,
-`direction`, `orientation`, `revers`, `decreas`, `increas`, `negat`, `invert`,
-`flip`, `descend` or `ascend`, or carries `sign`, `sub`, `super`, `up` or `down`
-as a whole word between underscores. One name matches and is excluded by name:
-`SimplexTree.make_filtration_non_decreasing`, which raises each simplex to at
-least its faces' value — a monotonicity repair on a filtration already chosen,
-switching nothing. The script gates on that list, and a switch spelled outside
-it is what the gate cannot see.
+a direction switch would arrive as a constructor argument on a class, or as a
+parameter of the `persistence()` call itself, where a scan of module-level or
+method names would not see it, and `from_gudhi` takes the sklearn-compatible
+form (D20) and a `SimplexTree` as well as the `CubicalComplex` the rows above
+use. So on the three complex classes the parameters of `persistence()` and
+`compute_persistence()` are read as well as their names. giotto's seven public
+`gtda.homology` estimators are inspected the same way, by signature, in the
+environment CI builds for §9.2's rows; nothing is fitted, so the shim that job
+carries is not needed. A parameter or name *mentions a direction* when it
+contains `level`, `direction`, `orientation`, `revers`, `decreas`, `increas`,
+`negat`, `invert`, `flip`, `descend` or `ascend`, or carries `sign`, `sub`,
+`super`, `up` or `down` as a whole word between underscores. One name matches
+and is excluded by name: `SimplexTree.make_filtration_non_decreasing`, which
+raises each simplex to at least its faces' value — a monotonicity repair on a
+filtration already chosen, switching nothing. The script gates on that list,
+and a switch spelled outside it is what the gate cannot see.
 
 | Entry point | Direction argument | Parameters |
 |---|---|---|
-| `gudhi.CubicalComplex` | none | `top_dimensional_cells`, `vertices`, `dimensions`, `perseus_file` |
-| `gudhi.PeriodicCubicalComplex` | none | `dimensions`, `top_dimensional_cells`, `vertices`, `periodic_dimensions`, `perseus_file` |
+| `gudhi.CubicalComplex` | none | `top_dimensional_cells`, `vertices`, `dimensions`, `perseus_file`; `persistence()` and `compute_persistence()` take `homology_coeff_field`, `min_persistence` |
+| `gudhi.PeriodicCubicalComplex` | none | `dimensions`, `top_dimensional_cells`, `vertices`, `periodic_dimensions`, `perseus_file`; `persistence()` and `compute_persistence()` as `CubicalComplex`'s |
 | `gudhi.sklearn.cubical_persistence.CubicalPersistence` | none | `homology_dimensions`, `input_type`, `homology_coeff_field`, `min_persistence`, `n_jobs` |
 | `gudhi.sklearn.rips_persistence.RipsPersistence` | none | `homology_dimensions`, `threshold`, `input_type`, `num_collapses`, `homology_coeff_field`, `n_jobs` |
-| `gudhi.SimplexTree` | none | no method name mentions a direction, `make_filtration_non_decreasing` excluded as above |
+| `gudhi.SimplexTree` | none | no method name mentions a direction, `make_filtration_non_decreasing` excluded as above; `persistence()` and `compute_persistence()` take `homology_coeff_field`, `min_persistence`, `persistence_dim_max` |
 | `ripser.ripser` | none | `X`, `maxdim`, `thresh`, `coeff`, `distance_matrix`, `do_cocycles`, `metric`, `n_perm` |
 | `ripser.Rips` | none | `maxdim`, `thresh`, `coeff`, `do_cocycles`, `n_perm`, `verbose` |
 | `ripser.lower_star_img` | none | exists, and is lower-star by name |
@@ -4736,7 +4770,7 @@ either is a quotation of an obligation rather than one.
 |---|---|---|---|
 | `N1-1` | §1 | **MUST NOT** | This is not a deprecation path and MUST NOT be read as one. |
 | `N2-1` | §2 | **MAY** | `death` MAY be `+inf` and `birth` MAY be either infinity. |
-| `N2-2` | §2 | **MUST NOT** | A bar MUST NOT be `(-inf, -inf)`: it is the one pair of infinities I6 admits and §3.1's I10 refuses. |
+| `N2-2` | §2 | **MUST NOT** | A bar MUST NOT be `(-inf, -inf)`: of the three pairs of infinities that satisfy I6, it is the one §3.1's I10 refuses. |
 | `N2-3` | §2 | **MUST NOT** | The diagonal is implicit and MUST NOT be stored. |
 | `N3-1` | §3 | **MUST** | `core/` MUST be written against the array API rather than hard-coded NumPy, and `PersistenceDiagram` is the input to every function in `core/`. §3.3 states what this does and does not promise. |
 | `N3.1-1` | §3.1 | **MUST** | `core.py` MUST enforce these at construction and MUST NOT permit an invalid instance to exist. |
@@ -5084,4 +5118,4 @@ Full narrative: history document.
 - **2026-08-24 (76)** — **A human read of entries 68-75, and the document becomes 1.1.0.** Cut commentary on the document's revisions and compress. I8's permission to skip the copy on an immutable backend becomes normative; the MUST confining the revalidation bypass goes. One bump to the minor for the whole pass. `io.py`'s `_SPEC_VERSION` and the four `spec_version` pins in the I/O tests follow.
 - **2026-09-10 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly. §1 also gains the test that decides a non-goal — not one order, or a meaning the coordinates cannot carry — so the next case is applied rather than argued, and states that `death < birth` decides nothing by itself: superlevel has an exact invertible transform into this type and extended persistence has none, which is the difference the sign hides. Attribution for a raised issue lives here rather than in §1, on @ADSilberman's point that the normative text should carry the argument and the changelog the provenance. The rule is stated **before** the three instances rather than after them, also on his point: a reader meets the test and then its examples, instead of three arguments followed by the thing that would have made them one. Appendix A's preamble gains the scope of what it measured: every diagram in it is a point cloud in $\mathbb{R}^2$ under Rips, so no figure there says anything about cubical or lower-star values. #44 was found from outside because that limit was not written down; stating it is what makes the next one findable from inside.
 - **2026-09-10 (78)** — **A false claim in Appendix A, and the reason behind D23 replaced. The document becomes 1.2.0.** A.11's fourth bullet said neither 64-bit flag has a public scoped form; `jax.enable_x64` is public, thread-local and restores on exit, and it was public at the `jax 0.11.1` A.11 itself measured. **Entry 71 is wrong where it repeats that claim** and is left standing as the record of what that pass concluded; this entry is the correction. §3.3's and D23's prohibition survives on a ground that does not depend on JAX's config API: **a scope cannot outlive the object it builds**, and an x64 array created inside one truncates on every later operation — silently under the narrow lever this document tells callers to prefer. D23's reopen condition is **replaced** rather than narrowed, the old one having already fired without helping. §3.3 states the `jax >= 0.8.0` floor for `jax_explicit_x64_dtypes`, absent at tag `jax-v0.7.2` and present at `jax-v0.8.0`, which the document promised a caller could set and never bounded. A.11 gains the containment measurements and the self-inconsistent-constructor case; `rfcs/evidence/jax_x64.py` gains X.7e and X.7f — the first so the API-surface claim is measured rather than reasoned from `_contextmanager_flags`, the second so containment has the reproduction A.11 cites. **The bump is a minor, not a patch**: §3.3's `MUST NOT` is reworded, which D24 says is a minor by §10.2's rule whatever the wording did. Reported by @ADSilberman (#50).
-- **2026-09-16 (79)** — **Filtration values may be infinite at either end, and orientation may be reversed; the document becomes 1.3.0.** Two defects from one root, raised by @corybrunson (tdaverse) in the comment window (tdaverse/phutil#61, #44). New **A.12**, run in CI, measures GUDHI's cubical complex returning `-inf` and `+inf` births, and every adapted entry point — giotto's included — for a superlevel switch, finding none. **I4 and I5** reduce to non-`NaN`, **I10** forbids `(-inf, -inf)` alone, and the surface is five shapes — the first draft of this revision had I10 refuse `(+inf, +inf)` too, on a definitional claim of the kind it was retiring, until a review pass named a grid every cell of which is `+inf` and A.12 measured two backends returning that bar; **D27** carries what each infinity means, **D25** normalises superlevel input at the adapter and records the declaration in one `provenance` key, **D26** widens `d.finite` to mean what it says. New: `primordial`, `source_coordinates()`, `filtration_direction=` on `from_persim` and `from_array`, `coordinates=` on `to_csv()` and `to_parquet()` with no default for a superlevel diagram, and §11's rule for when an argument may default — a wrong default is caught, marked, or believed, and only the last is refused. **A.4** now measures every class: persim's guard reads deaths, so a `(-inf, finite)` bar comes back `nan` with no persim warning — distinct from persim#105 and **not yet filed**, which D5 requires before publication. `io.py` holds at 1.2.0; `spec_version` is the revision the writer implemented. 
+- **2026-09-16 (79)** — **Filtration values may be infinite at either end, and orientation may be reversed; the document becomes 1.3.0.** Two defects from one root, raised by @corybrunson (tdaverse) in the comment window (tdaverse/phutil#61, #44). New **A.12**, run in CI, measures GUDHI's cubical complex returning `-inf` and `+inf` births, and every adapted entry point — giotto's included — for a superlevel switch, finding none. **I4 and I5** reduce to non-`NaN`, **I10** forbids `(-inf, -inf)` alone, and the surface is five shapes — `(+inf, +inf)` is allowed on A.12 measuring two backends that return it. A.12 also measures a bar dying at `+inf` (`[0, +inf, 0]`); **§2 defines `essential` as "no finite death"** to match. §5 states what the count is the rank of, and A.12 gates GUDHI's pair structure; **D27** carries what each infinity means, **D25** normalises superlevel input at the adapter and records the declaration in one `provenance` key, **D26** widens `d.finite` to mean what it says. New: `primordial`, `source_coordinates()`, `filtration_direction=` on `from_persim` and `from_array`, `coordinates=` on `to_csv()` and `to_parquet()` with no default for a superlevel diagram, and §11's rule for when an argument may default — a wrong default is caught, marked, or believed, and only the last is refused. **A.4** now measures every class: persim's guard reads deaths, so a `(-inf, finite)` bar comes back `nan` with no persim warning — distinct from persim#105 and **not yet filed**, which D5 requires before publication. `io.py` holds at 1.2.0; `spec_version` is the revision the writer implemented.
