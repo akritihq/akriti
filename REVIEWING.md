@@ -42,6 +42,13 @@ only what transfers to the next document.
   documenting the exception leaves the trap in place and puts the warning where
   a reader who trusts the name will never look. RFC-0001's `d.finite` is the
   worked case (D26).
+- **A specification states what holds, not how it came to hold.** Which
+  commit refused a key, what the writer implemented first, what closed a
+  window from when: that is process narrative, and it goes stale the moment
+  the next version lands, when the reader has no earlier one to compare
+  against. It belongs in the changelog, the commit or a code comment; the body
+  carries the rule and the residual. RFC-0001 §8's reserved-key paragraph is
+  the worked case.
 - **Tables are for genuinely short, structured data.**
 - **D-numbers are stable identifiers, not a dense sequence.** Do not renumber
   to close a gap.

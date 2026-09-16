@@ -23,15 +23,17 @@ Three things are measured, and every figure is gated the way
 them fails this script rather than reaching a reviewer.
 
   A. What GUDHI returns for grids holding +inf, -inf, and both, and which of
-     those bars the 1.1.1 invariant table admits. Two grids hold *only* +inf,
-     which is the object the first 1.3.0 draft's evidence base did not
-     contain: their essential class is born at +inf, and that draft's I10
-     refused it (D27). Two hold only -inf, the mirror image, and neither
-     GUDHI nor ripser reports a `(-inf, -inf)` bar for them. GUDHI's own
-     reading of the `(inf, inf)` bar is measured through `min_persistence`:
-     the default drops every zero-persistence pair and keeps this one, so the
-     backend calls it essential rather than trivial -- the fact D27's
-     resolution rests on.
+     those bars I4 and I5 admitted as of 1.2.x. Two grids hold
+     *only* +inf, which is the object the first 1.3.0 draft's evidence base
+     did not contain: their essential class is born at +inf, and that draft's
+     I10 refused it (D27). The same bar is measured by the route a batch of
+     images takes -- GUDHI's sklearn `CubicalPersistence` on a batch with one
+     all-+inf member -- and from ripser's `lower_star_img`. Two grids hold
+     only -inf, the mirror image, and neither GUDHI nor ripser reports a
+     `(-inf, -inf)` bar for them. GUDHI's own reading of the `(inf, inf)` bar
+     is measured through `min_persistence`: the default drops every
+     zero-persistence pair and keeps this one, so the backend calls it
+     essential rather than trivial -- the fact D27's resolution rests on.
   B. Whether any Python backend RFC-0001 adapts offers a sublevel/superlevel
      switch, which is what decides how narrowly §11's `filtration_direction`
      argument has to be scoped. Every entry point §11 names is inspected, not
@@ -49,7 +51,8 @@ Measured 2026-09-09 with gudhi 3.13.0, numpy 2.5.1, Python 3.14; (B) widened
 to the full entry-point list and re-measured 2026-09-10, unchanged in its
 conclusion. The all-+inf and all--inf grids, ripser's `lower_star_img` rows and
 the giotto row were added and measured 2026-09-13 with gudhi 3.13.0, ripser
-0.6.15, numpy 2.5.1, Python 3.14.6; the giotto row in the environment CI's
+0.6.15, numpy 2.5.1, Python 3.14.6, and the sklearn `CubicalPersistence` batch
+row on 2026-09-16 in that environment; the giotto row in the environment CI's
 `rfc-evidence` job builds -- giotto-tda 0.6.2, scikit-learn 1.9.1, numpy 2.5.3,
 Python 3.12.13.
 
@@ -127,6 +130,19 @@ EXPECTED_LOWER_STAR: dict[str, list[tuple[float, float]]] = {
     "all_neg_inf": [(-INF, INF)],
 }
 
+# GUDHI's sklearn-compatible form (D20) on a batch with one fully-masked
+# member: the `(inf, inf)` bar by the route a batch of images actually takes
+# into `from_gudhi`, not only from a `CubicalComplex` built by hand. One
+# `(n, 2)` block per member, degree 0 only.
+SKLEARN_BATCH: list[list[list[float]]] = [
+    [[0.0, 1.0], [0.0, 1.0]],
+    [[INF, INF], [INF, INF]],
+]
+EXPECTED_SKLEARN_BATCH: list[list[tuple[float, float]]] = [
+    [(0.0, INF)],
+    [(INF, INF)],
+]
+
 # GUDHI's reading of the D27 bar, through the one knob that separates trivial
 # from essential. `min_persistence=0.0` (the default) drops every pair of zero
 # persistence and keeps every essential class; `-1.0` keeps the zero-persistence
@@ -143,14 +159,44 @@ READING_GRIDS: dict[str, tuple[list[float], dict[float, Bars]]] = {
     ),
 }
 
-# Parameter-name fragments a level-set orientation switch would carry. `sub`
-# and `super` are deliberately not on the list: they match `subsample` and
-# nothing this document is looking for.
-DIRECTION_FRAGMENTS = ("level", "direction", "orientation")
+# What a level-set orientation switch would be called. Fragments are matched
+# as substrings; the short words only as a whole `_`-separated token, because
+# `sub` and `sign` as substrings match `subsample` and `design` and nothing
+# this document is looking for. A switch spelled outside both lists is what
+# this gate cannot see, and A.12 says so.
+DIRECTION_FRAGMENTS = (
+    "level",
+    "direction",
+    "orientation",
+    "revers",
+    "decreas",
+    "increas",
+    "negat",
+    "invert",
+    "flip",
+    "descend",
+    "ascend",
+)
+DIRECTION_WORDS = ("sign", "sub", "super", "up", "down")
+# Names the lists match that are not switches, excluded by name so the gate
+# still fires on a new one. `make_filtration_non_decreasing` raises each
+# simplex to at least its faces' value -- a monotonicity repair on a filtration
+# already chosen, in one direction only.
+NOT_A_SWITCH = frozenset({"make_filtration_non_decreasing"})
 
 
-def admitted_at_1_1_1(birth: float, death: float) -> str:
-    """The 1.1.1 invariant table's verdict on one bar, by rule.
+def _mentions_direction(name: str) -> bool:
+    """Whether a parameter, method or module name reads as a direction switch."""
+    if name in NOT_A_SWITCH:
+        return False
+    lowered = name.lower()
+    return any(fragment in lowered for fragment in DIRECTION_FRAGMENTS) or any(
+        word in lowered.split("_") for word in DIRECTION_WORDS
+    )
+
+
+def verdict_as_of_1_2_x(birth: float, death: float) -> str:
+    """I4, I5 and I6's verdict on one bar as of 1.2.x, by rule.
 
     I4: births finite and non-NaN.  I5: deaths non-NaN, +inf ok, -inf not.
     I6: death >= birth.  Reported per rule so the appendix can say which one
@@ -180,7 +226,7 @@ def section_a() -> None:
     import gudhi
 
     print(f"A. GUDHI {gudhi.__version__} cubical persistence, sublevel, Z/2")
-    print("   grid -> bars, and the 1.1.1 verdict on each\n")
+    print("   grid -> bars, and the verdict as of 1.2.x on each\n")
     for name, cells in GRIDS.items():
         cc = gudhi.CubicalComplex(
             top_dimensional_cells=np.asarray(cells, dtype=np.float64)
@@ -199,9 +245,33 @@ def section_a() -> None:
         for dim, birth, death in bars:
             print(
                 f"      dim {dim}  birth {birth!r:>7}  death {death!r:>7}  "
-                f"{shape(birth, death):<18} {admitted_at_1_1_1(birth, death)}"
+                f"{shape(birth, death):<18} {verdict_as_of_1_2_x(birth, death)}"
             )
         print()
+
+    from gudhi.sklearn.cubical_persistence import CubicalPersistence
+
+    print("   sklearn CubicalPersistence, a batch with one all-+inf member\n")
+    transformed = CubicalPersistence(homology_dimensions=[0]).fit_transform(
+        [np.asarray(image, dtype=np.float64) for image in SKLEARN_BATCH]
+    )
+    for image, per_degree, expected in zip(
+        SKLEARN_BATCH, transformed, EXPECTED_SKLEARN_BATCH, strict=True
+    ):
+        bars = [(float(b), float(d)) for b, d in np.asarray(per_degree[0])]
+        _require(
+            bars == expected,
+            "A.12",
+            f"CubicalPersistence's bars for {image} changed: {bars!r}, "
+            f"expected {expected!r}",
+        )
+        print(f"   {image}")
+        for birth, death in bars:
+            print(
+                f"      dim 0  birth {birth!r:>7}  death {death!r:>7}  "
+                f"{shape(birth, death):<18} {verdict_as_of_1_2_x(birth, death)}"
+            )
+    print("   => the same (inf, inf) bar, by the route a batch of images takes.\n")
 
     print("   GUDHI's reading of (inf, inf), by min_persistence\n")
     for name, (cells, expected_by_threshold) in READING_GRIDS.items():
@@ -244,7 +314,7 @@ def section_a() -> None:
         for birth, death in bars:
             print(
                 f"      dim 0  birth {birth!r:>7}  death {death!r:>7}  "
-                f"{shape(birth, death):<18} {admitted_at_1_1_1(birth, death)}"
+                f"{shape(birth, death):<18} {verdict_as_of_1_2_x(birth, death)}"
             )
         print()
     print("   => the essential class of an all-+inf grid is born at +inf, from")
@@ -282,9 +352,9 @@ def section_b(*, require_giotto: bool) -> None:
         ):
             entry_points.append((label, _parameters(obj)))
         entry_points.append(
-            ("gudhi.SimplexTree methods", _level_names(gudhi.SimplexTree))
+            ("gudhi.SimplexTree methods", _direction_names(gudhi.SimplexTree))
         )
-        entry_points.append(("gudhi module names", _level_names(gudhi)))
+        entry_points.append(("gudhi module names", _direction_names(gudhi)))
     except ImportError:  # pragma: no cover - reported, not skipped
         print("   gudhi: not installed, unmeasured")
     try:
@@ -292,7 +362,7 @@ def section_b(*, require_giotto: bool) -> None:
 
         entry_points.append(("ripser.ripser", _parameters(ripser.ripser)))
         entry_points.append(("ripser.Rips.__init__", _parameters(ripser.Rips.__init__)))
-        entry_points.append(("ripser module names", _level_names(ripser)))
+        entry_points.append(("ripser module names", _direction_names(ripser)))
         _require(
             hasattr(ripser, "lower_star_img"),
             "A.12",
@@ -306,7 +376,7 @@ def section_b(*, require_giotto: bool) -> None:
     try:
         import persim
 
-        entry_points.append(("persim module names", _level_names(persim)))
+        entry_points.append(("persim module names", _direction_names(persim)))
     except ImportError:  # pragma: no cover
         print("   persim: not installed, unmeasured")
 
@@ -325,7 +395,9 @@ def section_b(*, require_giotto: bool) -> None:
             entry_points.append(
                 (f"gtda.homology.{name}.__init__", _parameters(cls.__init__))
             )
-        entry_points.append(("gtda.homology module names", _level_names(gtda.homology)))
+        entry_points.append(
+            ("gtda.homology module names", _direction_names(gtda.homology))
+        )
         giotto_measured = True
         print(f"   giotto-tda {gtda.__version__}: measured")
     except ImportError:
@@ -338,11 +410,7 @@ def section_b(*, require_giotto: bool) -> None:
 
     for label, names in entry_points:
         print(f"   {label}: {names}")
-        hits = [
-            n
-            for n in names
-            if any(fragment in n.lower() for fragment in DIRECTION_FRAGMENTS)
-        ]
+        hits = [n for n in names if _mentions_direction(n)]
         _require(
             not hits,
             "A.12",
@@ -352,9 +420,9 @@ def section_b(*, require_giotto: bool) -> None:
     print()
 
 
-def _level_names(namespace: object) -> list[str]:
-    """Names on a module or class mentioning a level, of either direction."""
-    return [name for name in dir(namespace) if "level" in name.lower()]
+def _direction_names(namespace: object) -> list[str]:
+    """Names on a module or class that read as a direction switch."""
+    return [name for name in dir(namespace) if _mentions_direction(name)]
 
 
 def _parameters(callable_: Any) -> list[str]:
