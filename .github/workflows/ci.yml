@@ -212,9 +212,10 @@ jobs:
         with:
           # 3.12 is load-bearing here, not inherited: giotto-tda 0.6.2 and
           # every runtime dependency installed below ship cp312 manylinux
-          # wheels, and Appendix A.1-A.4 were themselves measured on Python
-          # 3.12.11 with giotto-tda 0.6.2 installed -- see the header of
-          # rfcs/evidence/probe_backends.py. Moving this job off 3.12 moves it
+          # wheels, and Appendix A.1-A.4's original rows were measured on
+          # Python 3.12.11 with giotto-tda 0.6.2 installed -- see the header
+          # of rfcs/evidence/probe_backends.py (A.4's later rows and A.12
+          # state their own environments). Moving this job off 3.12 moves it
           # off the environment the appendix records.
           python-version: "3.12"
           cache: pip
@@ -255,6 +256,12 @@ jobs:
           pip install --no-deps "giotto-tda==0.6.2"
       - name: Reproduce appendix measurements
         run: python rfcs/evidence/probe_backends.py --require-giotto
+      # Appendix A.12: infinite filtration values, and the entry-point sweep
+      # that scopes §11's `filtration_direction`. giotto is installed above,
+      # so its row is measured here rather than reported unmeasured; the
+      # sweep reads signatures only and fits nothing, so it needs no shim.
+      - name: Reproduce Appendix A.12 (cubical infinities)
+        run: python rfcs/evidence/cubical_infinities.py --require-giotto
       # Appendix A.11 (JAX), in both configurations. The default run covers
       # the refusal, X.7a-f and the default half of X.8; only `--x64` reaches
       # B7 in isolation. The script refuses to start if JAX_ENABLE_X64 or

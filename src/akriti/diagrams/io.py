@@ -29,9 +29,18 @@ _SPEC_VERSION = "1.2.0"
 # enforce, _SPEC_VERSION stays behind and this says why. Checked by
 # tests/test_rfc0001_spec_version_pins.py.
 _SPEC_VERSION_GAP: str | None = (
-    "1.3.0 widens I4 and I5, adds I10 and normalises superlevel input at the "
-    "adapter; core.py still enforces 1.2.0's invariants, and stamping 1.3.0 "
-    "would claim a conformance this writer does not have"
+    "1.3.0 widens I4 and I5 and adds I10 (primordial bars construct); adds "
+    "d.primordial, d.source_coordinates() and provenance['primordial_bars_"
+    "dropped'], widens d.finite to drop primordial bars, matches -inf births "
+    "exactly in allclose, validates filtration_direction in DiagramMeta, "
+    "normalises superlevel input in from_persim and from_array, and gives "
+    "to_csv/to_parquet a coordinates= argument with no default for a "
+    "superlevel diagram. "
+    "core.py still enforces 1.2.0's invariants and none of that surface "
+    "exists, so stamping 1.3.0 would claim a conformance this writer does "
+    "not have. The two 1.3.0 provenance keys are already refused from "
+    "callers (adapters._ADAPTER_OWNED_PROVENANCE) so no file this writer "
+    "stamps can carry one a 1.3.0 reader would act on."
 )
 _FORMAT_VERSION = 0
 _META_FIELDS = (

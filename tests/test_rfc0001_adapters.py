@@ -4059,6 +4059,11 @@ _RESERVED_PROVENANCE_KEYS = (
     "source_dtype",
     "clamped_rows",
     "padding_removed",
+    # Reserved by 1.3.0 and refused ahead of the writer implementing it: a
+    # caller-stamped `filtration_direction` is exactly the file a 1.3.0
+    # `source_coordinates()` would negate wrongly (§8, §11).
+    "filtration_direction",
+    "primordial_bars_dropped",
 )
 
 
@@ -4296,11 +4301,16 @@ _ADAPTER_NAMES = list(_one_bar_calls(0.0, 1.0))
     [
         (0.0, math.nan, "I5"),
         (math.nan, 1.0, "I4"),
+        # The three rows below pin the **1.2.0 writer** (`io._SPEC_VERSION_GAP`),
+        # not the document. RFC-0001 1.3.0 reduces I4 and I5 to non-`NaN` and
+        # adds I10: `(0, -inf)` is then refused by I6/I10 rather than I5, and
+        # `(inf, inf)` and `(-inf, 1)` are admitted (D27). When the writer
+        # moves, the first row's invariant name moves with it and the other
+        # two rows go, the strict xfails in
+        # `test_the_1_3_0_surface_is_not_yet_constructible` below flipping
+        # first.
         (0.0, -math.inf, "I5"),
         (math.inf, math.inf, "I4"),
-        # I4 is two claims -- finite *and* non-`NaN` -- and the rows above
-        # reach the finiteness half only through `inf`. `-inf` is the other
-        # spelling, and the one an underflowing filtration produces.
         (-math.inf, 1.0, "I4"),
     ],
 )
@@ -4310,6 +4320,36 @@ def test_every_adapter_refuses_invalid_coordinates(
     """§3.1/§11: an invalid diagram MUST NOT be constructible by any route."""
     with pytest.raises(ValueError, match=invariant):
         _one_bar_calls(birth, death)[adapter]()
+
+
+@pytest.mark.parametrize("adapter", _ADAPTER_NAMES)
+@pytest.mark.parametrize(
+    ("birth", "death"),
+    [
+        # §3.1's two primordial shapes, `(-inf, finite)` and `(-inf, +inf)`,
+        # and D27's `(+inf, +inf)`, each of which GUDHI's cubical complex
+        # returns from an ordinary call (A.12).
+        (-math.inf, 1.0),
+        (-math.inf, math.inf),
+        (math.inf, math.inf),
+    ],
+)
+@pytest.mark.xfail(
+    strict=True,
+    raises=ValueError,
+    reason="RFC-0001's current revision admits primordial bars and a bar born at "
+    "+inf (I4, I10, D27); the "
+    "writer is held at the revision io._SPEC_VERSION names, and "
+    "io._SPEC_VERSION_GAP says why. Remove this marker when core.py moves.",
+)
+def test_the_1_3_0_surface_is_not_yet_constructible(
+    adapter: str, birth: float, death: float
+) -> None:
+    """The declared gap between document and writer, as a failing test rather
+    than only as a string in `io.py`: a green suite must not read as
+    conformance to a revision it does not implement (§3.1, D27)."""
+    d = _one_bar_calls(birth, death)[adapter]()
+    assert d.n_bars == 1
 
 
 @pytest.mark.parametrize("adapter", _ADAPTER_NAMES)

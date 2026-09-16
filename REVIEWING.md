@@ -24,14 +24,10 @@ only what transfers to the next document.
   document.
 - **A rationale reading "definitional" is a claim about every object the type
   admits, and the way to check one is to name an object the evidence base does
-  not contain.** RFC-0001's invariant table said births are finite because "a
-  class that is never born is not a class", which reads as a definition and was
-  an assumption about the range of the filtration function. It survived every
-  review pass because the appendix behind it was entirely Vietoris-Rips and
-  alpha over point clouds, where the assumption happens to hold; one cubical
-  grid broke it, and the finding came from outside the project (#44). The check
-  is cheap and does not need the object to exist yet -- ask what the evidence
-  base is made of, then name something it is not made of.
+  not contain.** Ask what the evidence base is made of, then name something it
+  is not made of; the object need not exist yet. RFC-0001's I4 is the worked
+  case (D27, #44), and the revision that fixed it failed the same check on its
+  first review (changelog entry 79).
 
 ## Writing
 

@@ -122,13 +122,24 @@ _FLOAT64_SMALLEST_NORMAL = float.fromhex("0x1.0p-1022")
 _INT32_MIN = -(2**31)
 _INT32_MAX = 2**31 - 1
 
-# §8's reserved `provenance` keys, in full -- eight of them. Every one names
+# §8's reserved `provenance` keys, in full -- ten of them. Every one names
 # the writer that measured it: two adapter-time counts (`clamped_rows`,
 # `padding_removed`), a dtype (`source_dtype`), two source keys
-# (`essential_bars_source`, `coeff_field_source`), and the three remaining
-# `essential_bars*` keys whose writers §8 lists by name. None of those writers
-# is a caller. They are refused in `_build_meta` on exactly the ground
-# `backend` and `backend_version` already are.
+# (`essential_bars_source`, `coeff_field_source`), the three remaining
+# `essential_bars*` keys whose writers §8 lists by name, and the two keys
+# RFC-0001 1.3.0 reserves -- `filtration_direction`, which every adapter
+# writes, and `primordial_bars_dropped`, which `d.finite` alone writes. None
+# of those writers is a caller. They are refused in `_build_meta` on exactly
+# the ground `backend` and `backend_version` already are.
+#
+# The 1.3.0 keys are refused before this writer implements 1.3.0
+# (`io._SPEC_VERSION_GAP`), deliberately: a 1.3.0 reader's
+# `source_coordinates()` negates on `filtration_direction == "superlevel"`
+# and `load` MUST NOT branch on `spec_version` (§10.2), so a file this writer
+# let a caller stamp with that key would be re-interpreted by the next
+# writer with nothing in the file to say the negation never happened.
+# Refusing the name now closes that window from this commit forward; §8
+# states the residual for files written before it.
 #
 # Named as a set rather than checked one adapter at a time because the defect
 # this closes was that the refusal *was* per-adapter, by accident: a caller's
@@ -145,6 +156,8 @@ _ADAPTER_OWNED_PROVENANCE = frozenset(
         "source_dtype",
         "clamped_rows",
         "padding_removed",
+        "filtration_direction",
+        "primordial_bars_dropped",
     }
 )
 
@@ -768,7 +781,7 @@ def _build_meta(
 ) -> DiagramMeta:
     """Merge the adapter's recorded facts with the caller's metadata. §8.
 
-    The caller's `provenance` and `params` are kept, **except for §8's eight
+    The caller's `provenance` and `params` are kept, **except for §8's ten
     reserved `provenance` keys, which are refused outright**
     (`_ADAPTER_OWNED_PROVENANCE`). Each of those names the writer that measured
     it and none of those writers is a caller: `essential_bars` has two, "`from_giotto`
