@@ -1,7 +1,7 @@
-"""CASTLE — applied-statistics tools over persistence diagrams.
+"""Inference over persistence diagrams.
 
 Four tools and a reporting card, specified by RFC-0002 and resting on Paper III
-(arXiv:2609.07691). CASTLE is code rather than a paper: its inference is Paper
+(arXiv:2609.07691). This module is code rather than a paper: its inference is Paper
 III's, and what lives here are the decisions Paper III does not make — the
 default protocol, the calibrations reported, what a result object carries, and
 what a caller may claim about it.
@@ -12,7 +12,7 @@ written. Every numerical body raises ``NotImplementedError``.
 
 from __future__ import annotations
 
-from akriti.castle.two_sample import (
+from akriti.inference.two_sample import (
     Calibration,
     InferenceSampleFitError,
     TwoSampleResult,

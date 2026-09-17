@@ -1,4 +1,4 @@
-"""CASTLE Tool 1 — two-sample testing on persistence diagrams.
+"""Tool 1 — two-sample testing on persistence diagrams.
 
 Answers the question this library exists for: *given two groups of samples, do
 they differ topologically, and what may I say about the answer?*
@@ -16,7 +16,7 @@ than a retraction when Paper III's final form withdrew the guarantee it was
 built on. Bodies are ported once RFC-0002 §3 has been reviewed.
 
 NumPy-backed by decision: see onboarding §9's dated deviation of 2026-08-09.
-``diagrams/`` remains array-API-pure (RFC-0001 §3.3); ``core/`` and ``castle/``
+``diagrams/`` remains array-API-pure (RFC-0001 §3.3); ``core/`` and ``inference/``
 land on NumPy.
 """
 
@@ -113,12 +113,14 @@ class TwoSampleResult:
 
         It requires only the additive Lipschitz interface: no distortion-floor
         assumption, no structured population model, no restriction on P and Q.
-    transport_bound_is_informative:
-        Whether ``transport_lower_bound`` is large enough to act on. Paper III
-        states the caveat and this module propagates it rather than suppressing
-        the number: the bound's strength depends on ``n * lipschitz``, and **a
-        zero or small value is inconclusive rather than evidence that the mean
-        measures are close**.
+
+        **A zero or small value is inconclusive, not evidence that the mean
+        measures are close** (Paper III). The bound's strength depends on
+        ``n * lipschitz``, and a large cardinality bound or a conservative
+        Lipschitz constant makes it small. Deliberately, there is no field
+        judging whether it is large enough to act on: RFC-0002 §3.5 prohibits
+        one, because its threshold would be this library deciding whether a
+        separation of this size matters, which is the reader's question.
     calibrations:
         One :class:`Calibration` per calibration run. Never a bare p-value.
     estimand:
@@ -149,7 +151,6 @@ class TwoSampleResult:
     delta_lower: float
     delta_upper: float
     transport_lower_bound: float
-    transport_bound_is_informative: bool
     calibrations: tuple[Calibration, ...]
     estimand: str
     truncation: int
@@ -237,7 +238,7 @@ def two_sample(
         "into pilot and inference splits; fit nu and K on the pilot; embed the "
         "inference split with the additive Phi; form delta-hat; run the "
         "requested calibrations; form the confidence interval; derive the "
-        "transport bound and decide whether it is informative."
+        "transport bound."
     )
 
 
@@ -273,20 +274,5 @@ def _transport_lower_bound(
 
     What this returns bounds ``W_inf,0`` between padded *mean measures*, at
     confidence ``1 - alpha``. Nothing about individual diagrams follows from it.
-    """
-    raise NotImplementedError
-
-
-def _is_informative(bound: float, scale: float) -> bool:  # pragma: no cover
-    """Whether the transport bound is large enough for a caller to act on.
-
-    RFC-0002 §3.5. Paper III states that a large cardinality bound or a
-    conservative Lipschitz constant makes the certificate small, and that a
-    small certificate is **inconclusive** rather than evidence of closeness.
-
-    The threshold is not yet specified and must not be invented here. Deciding
-    it by picking a number that makes the chemistry results look good is exactly
-    the failure this module exists to prevent, so it wants either a defensible
-    scale from the paper or an explicit caller-supplied one.
     """
     raise NotImplementedError
