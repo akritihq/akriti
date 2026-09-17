@@ -1,14 +1,14 @@
-# RFC-0002 — CASTLE Inference Tools
+# RFC-0002 — Inference Tools
 
 | Field | Value |
 |---|---|
 | **Status** | Draft |
-| **Version** | 0.2.0 — `major.minor.patch`, on RFC-0001 §10.2's bump condition |
+| **Version** | 0.3.0 — `major.minor.patch`, on RFC-0001 §10.2's bump condition |
 | **Authors** | Sushovan Majhi |
 | **Created** | 2026-09-08 |
-| **Last Edited** | 2026-09-08 |
-| **Target** | Tool 1 signature frozen 2026-09-14 (D1); Tool 1 live for AMS 2026-10-03 |
-| **Implements** | `akriti.castle` |
+| **Last Edited** | 2026-09-16 |
+| **Target** | Tool 1 signature frozen 2026-09-21 (D1, moved from 2026-09-14); Tool 1 live for AMS 2026-10-03 |
+| **Implements** | `akriti.inference` |
 | **Rests on** | Paper III — [arXiv:2609.07691](https://arxiv.org/abs/2609.07691), posted 2026-09-07. Results are cited by label rather than by number, numbers moving with every revision; the labels are `\label`s in the source |
 
 Key words **MUST**, **MUST NOT**, **SHOULD**, **SHOULD NOT**, **MAY** are to be
@@ -19,7 +19,7 @@ they appear in all capitals.
 
 ## 1. Why this document exists
 
-`akriti.castle` ships four tools and a reporting card. Its statistical content
+`akriti.inference` ships four tools and a reporting card. Its statistical content
 is Paper III's; its *library* content is a set of choices Paper III does not
 make — which protocol is the default, which calibration, what a result object
 returns, and what a caller is entitled to say about the number they got back.
@@ -102,6 +102,47 @@ An implementation **MUST** raise rather than warn. The result is not degraded,
 it is invalid, and a caller who filters warnings gets a number with no property
 at all.
 
+### 2.4 `Configuration` is the object ν denotes
+
+§3.1 takes one as its first keyword argument, so this section defines it rather
+than leaving the freeze to fix a type nothing specifies. Defined in
+`akriti.core` (§8).
+
+```python
+@dataclass(frozen=True)
+class Configuration:
+    positions: Array   # (K, 2) landmark positions in the diagram frame
+    radii: Array       # (K,)   landmark radii, positive
+    weights: Array     # (K,)   configuration weights, unit sum of squares
+    frame: float       # L, the frame size
+    truncation: int    # K, the number of retained coordinates
+    fitted_on: str     # provenance: how this configuration was obtained
+```
+
+The first five fields are the state of the embedding PLACE and PALACE define,
+and nothing here is new. Two properties are:
+
+**It MUST be immutable.** Every guarantee in §3 is stated for a configuration held
+fixed across the inference split. One that can be mutated after diagrams have
+been embedded through it invalidates the interval computed from them, and nothing
+downstream would report it — RFC-0001 I8's argument, reaching this layer
+unchanged.
+
+**It MUST carry `fitted_on`.** §2.3 requires an implementation to raise when a
+configuration would be fitted on the inference sample, and a bundle of arrays
+cannot answer the question that rule asks. Provenance is what makes §2.3 a check
+rather than an instruction the caller is trusted to follow. The intended spelling
+is a content hash of the pilot diagrams, RFC-0001 §8's instrument.
+
+**Holding a configuration and fitting one are separate.** Embedding through a
+`Configuration` needs numpy alone; `fit_configuration` needs `akriti[core]`. A
+caller handed a fitted configuration — by a collaborator, or out of a file —
+uses it on a default install.
+
+Serialisation of a `Configuration` is not specified here and is RFC-0001 §10's
+territory. It is not needed for Tool 1 and it is needed before anyone publishes a
+result that cites one.
+
 ---
 
 ## 3. Tool 1 — two-sample test
@@ -114,7 +155,7 @@ def two_sample(
     group_b: DiagramBatch,
     *,
     alpha: float = 0.05,
-    nu: Configuration | None = None,      # fitted on the pilot if None
+    nu: Configuration | None = None,      # §2.4; fitted on the pilot if None
     truncation: int | None = None,        # K; selected on the pilot if None
     pilot_fraction: float = 1 / 3,
     calibration: Literal["spectral", "permutation", "chebyshev", "all"] = "all",
@@ -196,6 +237,14 @@ cardinality bound or a conservative Lipschitz constant makes it small, and **a
 zero or small certificate is inconclusive rather than evidence of geometric
 closeness**. That is D3's answer in the paper's own words — the number is
 reported with its interpretation attached, not suppressed.
+
+**A result object MUST NOT carry a boolean judging whether the bound is large
+enough to act on.** An earlier revision of #61 had one, and its threshold could
+not be written: nothing in Paper III supplies a scale, and a constant chosen here
+would be the library answering a scientific question — whether a separation of
+this size matters — on the caller's behalf. The bound is returned with the
+caveat above attached, and the judgement stays with the reader who knows what
+their data are.
 
 ### 3.6 The upper endpoint — structured exclusion
 
@@ -334,7 +383,15 @@ the interchange layer and adds no requirement to it, with one exception recorded
 there: RFC-0001 §9.1 binds `core/distances.py`, which this module uses and does
 not implement.
 
-`castle/` is NumPy-backed by the dated deviation of 2026-08-09; `diagrams/`
+**`inference` depends on `core`.** The embedding this module's statistics are
+computed in — `Configuration` (§2.4) — is defined in `akriti.core`, and so is
+the fitting that produces one. That is the structure rather than a convenience:
+this module consumes an embedding and does not define it. Holding a configuration
+and embedding with it needs numpy alone; fitting one needs `akriti[core]`, so
+`two_sample` with `nu=None` requires that extra and `two_sample` handed a fitted
+configuration does not.
+
+`inference/` is NumPy-backed by the dated deviation of 2026-08-09; `diagrams/`
 remains array-API-pure.
 
 ---
@@ -366,10 +423,10 @@ That direction is what inference needs and it was never in doubt.
 
 | # | Decision | Needed by | Position |
 |---|---|---|---|
-| D1 | Split as the default protocol | **2026-09-14**, Tool 1 freeze | **Resolved: split** (§2.2) |
+| D1 | Split as the default protocol | **2026-09-21**, Tool 1 freeze (moved from 2026-09-14: the freeze follows §2.4's type rather than preceding it) | **Resolved: split** (§2.2) |
 | D2 | Default feature space | after E0 | Additive $\Phi$; the transfer interface is stated for it, and the gram has no geometric certificate |
 | D3 | Certificate on the card when small | resolved by the paper | **On the card, with its caveat.** Paper III states that a small certificate is inconclusive rather than evidence of closeness; the library propagates that rather than suppressing the number (§3.5) |
-| D4 | Package identity | resolved | `akriti.castle`, Apache-2.0 |
+| D4 | Package identity | **resolved 2026-09-16, overturning the earlier resolution** | **`akriti.inference`**, Apache-2.0. D4 first resolved `akriti.castle` while CASTLE was the product of a paper; that paper was dissolved, no paper now defines the name, and every other module is named for what it contains. Nothing was released under the old name, so the change cost a directory. *The CASTLE toolkit* survives as a project name; it is not a module name |
 | D5 | Ship the fixed-direction statistic with $h$ pilot-estimated? | Tool 1 freeze | Option, not default |
 | D6 | Is structured exclusion (§3.6) exposed in v1? | Tool 1 freeze | Open. It needs $g_r(\tau)$'s constants to be defensible and numerically available, and where they are not the feature cannot be offered at all |
 | D7 | How is $K$ selected, and does the object expose $\epsilon_K$? | Tool 1 freeze | Open, and §4.1's side condition makes it consequential rather than presentational |
