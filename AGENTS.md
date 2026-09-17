@@ -21,7 +21,7 @@ only what nobody else offers.
 - **NEVER read or reproduce giotto-tda source** (AGPLv3), including via a model
   prompt. The compat shim is clean-room from public API docs only.
 - **Numerical code in `core/` and `castle/` must cite a specific equation in
-  Papers I–IV** in its docstring. Do not derive formulas.
+  Papers I–III** in its docstring. Do not derive formulas.
 - **Never write a numerical function and its test in the same session.** A test
   written by whoever just wrote the function blesses that function's bugs.
 
@@ -62,7 +62,7 @@ get wrong:
 
 ## Verification
 
-- **Acceptance = `repro/` reproduces the Paper IV tables.** If the tables
+- **Acceptance = `repro/` reproduces the Paper III tables.** If the tables
   reproduce, the code is right regardless of who or what typed it.
 - **Property-based tests** for numerical code — stability bounds and
   invariances. They catch what example-based tests miss.

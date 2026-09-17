@@ -103,7 +103,15 @@ def test_explicit_x64_dtypes_allow_is_enough_to_build_one() -> None:
 
 
 def test_this_library_never_sets_either_flag() -> None:
-    """§3.3, D23: both flags are process-global, so setting one reaches outside.
+    """§3.3, D23: the library sets neither flag, globally or inside a scope.
+
+    Set globally, a flag is process-global and reaches every array in the
+    process. Set inside a scope, it cannot protect what it builds: an array
+    created there outlives the scope, and ordinary operations on it truncate
+    afterwards (A.11). Matching the bare names `enable_x64` and
+    `explicit_x64_dtypes` catches both spellings of each flag -- the
+    `jax_`-prefixed config key and the scoped context manager
+    (`jax.enable_x64`, `jax._src.config.explicit_x64_dtypes`).
 
     A grep rather than a behavioural assertion, deliberately: the prohibition
     is on the source, and a runtime check would pass on a library that set the
@@ -115,7 +123,6 @@ def test_this_library_never_sets_either_flag() -> None:
     offenders = [
         path
         for path in src.rglob("*.py")
-        if "jax_enable_x64" in path.read_text()
-        or "jax_explicit_x64_dtypes" in path.read_text()
+        if "enable_x64" in path.read_text() or "explicit_x64_dtypes" in path.read_text()
     ]
     assert offenders == []
