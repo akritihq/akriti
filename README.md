@@ -32,7 +32,7 @@ We would rather be accurate than impressive, so:
 | Module | What it is | State |
 |---|---|---|
 | `akriti.diagrams` | One persistence-diagram type, with adapters for GUDHI, Ripser, giotto-tda, persim and plain arrays — specified by [RFC-0001](rfcs/0001-persistence-diagram-interchange.md) | **building** |
-| `akriti.castle` | Two-sample test, sample-size calculator, per-region significance map, robustness certificate, reporting card | planned — scaffold in review |
+| `akriti.inference` | Two-sample test, sample-size calculator, per-region significance map, robustness certificate, reporting card | planned — scaffold in review |
 | `akriti.core` | Landmark embeddings (PLACE / PALACE), closed-form selectors, certificate radii | planned — `core/distances.py` is specified by RFC-0001 §9.1 and not yet written |
 | `akriti.compute` | Diagrams from point clouds, images, time series and graphs — delegated, with defended defaults | planned |
 | `akriti.vectorise` | Persistence images, landscapes, Betti curves, landmark embeddings, plus a maintained benchmark | planned |
@@ -154,11 +154,12 @@ is the inference layer over it — central limit theory, confidence sets for mea
 embeddings, and what a rejection does and does not certify about the underlying
 diagram populations.
 
-CASTLE is the practitioner-facing product and is **code rather than a paper**:
-`akriti.castle` ships the two-sample test, the sample-size calculator, the
-per-region map and the robustness certificate. Its statistical content is Paper
-III's, specified for the library by
-[RFC-0002](rfcs/0002-castle-inference-tools.md).
+`akriti.inference` is the practitioner-facing layer and is **code rather than
+a paper**: the two-sample test, the sample-size calculator, the per-region map
+and the robustness certificate. Its statistical content is Paper III's, and
+[RFC-0002](rfcs/0002-inference-tools.md) specifies what the library adds —
+which protocol is the default, what a result carries, and what a caller may
+claim about it.
 
 ## Contributing
 
