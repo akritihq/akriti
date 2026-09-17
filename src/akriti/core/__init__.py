@@ -1,7 +1,7 @@
 """Shared numerical primitives: embeddings, selectors, distances.
 
 `core` holds what more than one product needs. The landmark embedding of PLACE
-and PALACE lives here rather than in per-paper modules because `akriti.castle`
+and PALACE lives here rather than in per-paper modules because `akriti.inference`
 consumes it and does not define it, and `core/distances.py` — specified by
 RFC-0001 §9.1 and not yet written — is the other resident.
 

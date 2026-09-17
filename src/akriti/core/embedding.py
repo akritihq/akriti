@@ -2,7 +2,7 @@
 
 A :class:`Configuration` is a fixed set of landmarks. Embedding a diagram
 through one turns a multiset of intervals into a vector, and every statistical
-claim `akriti.castle` makes is a claim about those vectors, transferred back to
+claim `akriti.inference` makes is a claim about those vectors, transferred back to
 diagram space through the additive interface (Paper III,
 ``prop:mean-embedding-transfer``).
 
