@@ -146,6 +146,16 @@ jax = ["jax>=0.8.0"]
 # Apache-2.0 Parquet escape hatch (RFC-0001 §10.3).
 parquet = ["pyarrow>=25.0.0"]
 
+# The landmark embedding (PLACE, PALACE) and what fits one. Holding a
+# `Configuration` and embedding with it needs numpy alone and stays in the
+# default install; *fitting* one needs scipy -- `cdist` for the class-aware
+# farthest-point sampling, and nothing heavier. Every scipy use is a lazy,
+# function-scoped import on §10.1 requirement 2's terms.
+#
+# A caller who receives a fitted configuration -- from a collaborator, or from
+# a file -- can embed with it without installing this.
+core = ["scipy>=1.10"]
+
 # Domain integration.
 bio = ["anndata>=0.10"]
 
