@@ -4059,11 +4059,15 @@ _RESERVED_PROVENANCE_KEYS = (
     "source_dtype",
     "clamped_rows",
     "padding_removed",
-    # Reserved by 1.3.0 and refused ahead of the writer implementing it: a
-    # caller-stamped `filtration_direction` is exactly the file a 1.3.0
-    # `source_coordinates()` would negate wrongly (§8, §11).
+    # Reserved by 1.3.0 and 1.4.0 and refused ahead of the writer implementing
+    # either: a caller-stamped `filtration_direction` is exactly the file a
+    # 1.3.0 `source_coordinates()` would negate wrongly (§8, §11), and a
+    # caller-stamped `primordial_bars*` is a finitization claim no
+    # `finitize_births` made (§5, §8).
     "filtration_direction",
-    "neginf_birth_bars_dropped",
+    "primordial_bars",
+    "primordial_bars_dropped",
+    "primordial_bars_finitized_at",
 )
 
 
@@ -4093,7 +4097,7 @@ def test_no_adapter_lets_a_caller_write_a_reserved_provenance_key(
 
     `backend` and `backend_version` are already refused on exactly this
     ground -- "a caller who could set them could produce a diagram that lies
-    about where it came from". §8's `provenance` table is nine more facts of
+    about where it came from". §8's `provenance` table is eleven more facts of
     the same kind: `essential_bars` has two named writers and neither is a
     caller ("Both writers, `from_giotto` at construction and `finitize()`
     later, MUST be the only places that set this key"); `essential_bars_source`

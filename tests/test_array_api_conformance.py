@@ -156,11 +156,14 @@ def test_dtype_checks_must_not_use_numpy_dtype_objects() -> None:
 
 
 def test_filtering_is_data_dependent_and_therefore_eager_only() -> None:
-    """RFC-0001 §3.3: `.finite` and `.dim(k)` cannot run under jit.
+    """RFC-0001 §3.3: boolean-mask selection cannot run under jit.
 
     Boolean-mask selection works on eager backends and is explicitly not
     guaranteed on lazy or compiled ones, because the output shape depends on
-    the values. Documented as a limit rather than discovered later.
+    the values. Documented as a limit rather than discovered later. At 1.2.0
+    that list is `.finite` and `.dim(k)`; at 1.4.0 `.finite` is a mask (D28)
+    and the list is `.dim(k)` and the two `finitize_*(at="drop")` modes. The
+    array-level fact below is the same at both.
     """
     deaths = xps.asarray([1.0, xps.inf, 0.5])
     finite = deaths[~xps.isinf(deaths)]
@@ -210,6 +213,8 @@ def test_accessors_and_canonical_order_under_strict() -> None:
     assert np.asarray(d.essential).tolist() == [False, False, True]
     assert np.asarray(d.dimensions).tolist() == [0, 1]
     assert d.dim(0).n_bars == 2
+    # Pins the 1.2.0 writer (`io._SPEC_VERSION_GAP`): at 1.4.0 `d.finite` is
+    # a mask and this line becomes `int(xps.sum(d.finite)) == 2`.
     assert d.finite.n_bars == 2
 
     c = d.canonical()

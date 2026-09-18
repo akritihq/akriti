@@ -540,6 +540,13 @@ def test_no_essential_bars_returns_the_diagram_untouched() -> None:
 
 
 # -- §3.2 `meta` propagation through the derived diagrams -----------------
+#
+# The `d.finite` tests in this section pin the 1.2.0 writer
+# (`io._SPEC_VERSION_GAP`). At 1.4.0 `d.finite` is a mask and records nothing
+# (D28); the diagram-valued drop and its record are `finitize_deaths(at="drop")`
+# and `finitize_births(at="drop")` under §5. When `core.py` moves, these
+# become tests of those two functions and `tests/test_rfc0001_review_clauses.py`'s
+# strict xfails flip first.
 
 
 def test_finite_records_the_drop_it_performs() -> None:

@@ -49,13 +49,13 @@ RFC_PATH = (
 )
 
 #: The document version: RFC-0001's Version row. The review pass landed
-#: 1.1.0; #48 moved the patch, #54 the minor and #44 the minor again. This
-#: literal is the independent witness the tests below compare the document
-#: against, so it moves by hand with every bump, and
+#: 1.1.0; #48 moved the patch, #54 the minor, #44 the minor again and D28 the
+#: minor once more. This literal is the independent witness the tests below
+#: compare the document against, so it moves by hand with every bump, and
 #: tests/test_rfc0001_spec_version_pins.py fails until it does. It is not
 #: necessarily what ``save`` writes: §10.2's ``spec_version`` is the revision
 #: the writer implemented, which may trail this one.
-SPEC_VERSION = "1.3.0"
+SPEC_VERSION = "1.4.0"
 
 
 def diagram(
@@ -410,7 +410,11 @@ def test_s3_2_batch_item_carries_the_members_own_meta() -> None:
 
 
 # --------------------------------------------------------------------------
-# §3.2 -- N3.2-2, N3.2-3: ``d.finite`` MUST record the drop it performs
+# §3.2 at 1.2.0 -- ``d.finite`` MUST record the drop it performs
+#
+# **Every test from here to the 1.4.0 block below pins the 1.2.0 writer**
+# (``io._SPEC_VERSION_GAP``), not the document. The clauses quoted are
+# 1.2.0's, under the ids 1.2.0's Appendix C gave them:
 #
 #   N3.2-2: "`d.finite` MUST record the drop it performs, on exactly the terms
 #    §5 sets for `finitize(at="drop")`: `provenance["essential_bars"] =
@@ -419,6 +423,12 @@ def test_s3_2_batch_item_carries_the_members_own_meta() -> None:
 #    untouched."
 #   N3.2-3: "The two produce the same diagram bar for bar, so they MUST produce
 #    the same provenance."
+#
+# RFC-0001 1.4.0 (D28) retires every one of them: ``d.finite`` is a bool mask,
+# ``finitize`` is ``finitize_deaths``, and what the diagram-valued drop
+# records is §5's, under the record-follows-the-bars rule. When ``core.py``
+# moves, this block goes and the strict xfails in
+# ``test_the_1_4_0_surface_does_not_yet_exist`` below flip first.
 # --------------------------------------------------------------------------
 
 
@@ -524,15 +534,19 @@ def test_s3_2_finite_is_idempotent_without_a_false_second_claim() -> None:
 
 
 # --------------------------------------------------------------------------
-# §3.2 -- ``d.essential`` and ``d.finite`` are not complements
+# §3.2 at 1.2.0 -- ``d.essential`` and ``d.finite`` are not complements
 #
-# Entry 74: "§3.2 states that `d.essential` and `d.finite` are not
-# complements."
+# Still the 1.2.0 writer. Entry 74: "§3.2 states that `d.essential` and
+# `d.finite` are not complements."
 #
 #   "`d.essential` is a **mask** over bars, shape `(n_bars,)`; `d.finite` is a
 #    **diagram**. The complement of `d.essential` is `~d.essential`, another
 #    mask, and that is the mask `d.finite` selects on".
 #   "There is no `d.finite_mask` and none is needed".
+#
+# 1.4.0 keeps the first sentence's *fact* -- `~d.essential` is not the finite
+# mask -- and reverses the type: `d.finite` is the mask, and there is no
+# `finite_mask` because `finite` is one (D28).
 # --------------------------------------------------------------------------
 
 
@@ -560,6 +574,74 @@ def test_s3_2_finite_selects_on_the_complement_of_essential() -> None:
 def test_s3_2_there_is_no_finite_mask_accessor() -> None:
     """ "There is no `d.finite_mask` and none is needed"."""
     assert not hasattr(PersistenceDiagram, "finite_mask")
+
+
+# --------------------------------------------------------------------------
+# §3.2, §4.3, §5 at 1.4.0 -- the surface D28 specifies, as strict xfails
+#
+#   N3.2-1: "`d.essential`, `d.primordial` and `d.finite` are three masks
+#    over bars with shape `(n_bars,)`, and `d.finite` MUST be the complement
+#    of the other two's union".
+#   §4.3: "b.finite  # -> bool mask, shape (total_bars,), ~(essential | primordial)".
+#   §5: "d.finitize_deaths(at="max_finite_death")   # or at=<float>, or at="drop"
+#        d.finitize_births(at="min_finite_birth")   # or at=<float>, or at="drop"".
+#
+# The declared gap between document and writer, as failing tests rather than
+# only as a string in `io.py`: a green suite must not read as conformance to
+# a revision it does not implement. Each is built on the 1.2.0-constructible
+# surface -- no primordial bar, so I5 admits every fixture -- because what is
+# being pinned is the *type* of the accessor and the *names* of the two
+# functions, which the 1.2.0 writer gets wrong on any diagram at all.
+# --------------------------------------------------------------------------
+
+_NOT_YET_1_4_0 = pytest.mark.xfail(
+    strict=True,
+    raises=(AssertionError, AttributeError),
+    reason="RFC-0001's current revision (D28) makes d.finite a bool mask, adds "
+    "b.finite and splits finitize into finitize_deaths and finitize_births; "
+    "the writer is "
+    "held at the revision io._SPEC_VERSION names, and io._SPEC_VERSION_GAP "
+    "says why. Remove this marker when core.py moves.",
+)
+
+
+@_NOT_YET_1_4_0
+def test_the_1_4_0_surface_does_not_yet_exist_finite_is_a_mask() -> None:
+    d = sample()
+    mask = np.asarray(d.finite)
+    assert mask.dtype == np.bool_
+    assert mask.shape == (d.n_bars,)
+    expected = ~(np.asarray(d.essential) | ~np.isfinite(np.asarray(d.births)))
+    np.testing.assert_array_equal(mask, expected)
+
+
+@_NOT_YET_1_4_0
+def test_the_1_4_0_surface_does_not_yet_exist_batch_finite() -> None:
+    b = batch_of(sample(), sample())
+    mask = np.asarray(b.finite)
+    assert mask.dtype == np.bool_
+    assert mask.shape == (int(b.dims.shape[0]),)
+
+
+@_NOT_YET_1_4_0
+def test_the_1_4_0_surface_does_not_yet_exist_finitize_deaths() -> None:
+    d = tagged()
+    dropped = d.finitize_deaths(at="drop")
+    assert dropped.meta.provenance["essential_bars"] == "finitized_dropped"
+
+
+@_NOT_YET_1_4_0
+def test_the_1_4_0_surface_does_not_yet_exist_finitize_births() -> None:
+    d = sample()
+    # No primordial bar is constructible at 1.2.0, so the one 1.4.0 behaviour
+    # reachable here is §5's return-unchanged rule.
+    assert d.finitize_births(at="drop") == d
+
+
+@_NOT_YET_1_4_0
+def test_the_1_4_0_surface_does_not_yet_exist_finitize_is_renamed() -> None:
+    """§5 names two functions and neither is `finitize`."""
+    assert not hasattr(PersistenceDiagram, "finitize")
 
 
 # --------------------------------------------------------------------------
@@ -1652,8 +1734,8 @@ def test_appendix_c_ids_are_unique() -> None:
 # §12 -- the header loses the clause contradicting the same sentence
 #
 # Entry 68: "§12's header loses a clause contradicting the same sentence."
-# Entry 71 opened D24; entry 75 closed it. Entry 79 settled D27 without
-# opening anything, so §12.1 still carries one row.
+# Entry 71 opened D24; entry 75 closed it. Entry 79 settled D27 and entry 80
+# D28 without opening anything, so §12.1 still carries one row.
 # --------------------------------------------------------------------------
 
 
