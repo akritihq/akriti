@@ -97,10 +97,11 @@ def _strip_code_blocks(lines: list[str]) -> list[str]:
         if not in_fence and re.match(r"^\s*[-*] ", line):
             # A list item is its own clause. Without this, a bulleted
             # requirement is glued to the paragraph above it and the row
-            # reports two obligations under the first one's wording.
+            # reports two obligations under the first one's wording. Only the
+            # item's start is marked: its continuation lines join it, and it
+            # ends at the next blank line or the next marker (#62).
             out.append("")
             out.append(line)
-            out.append("")
             continue
         out.append("" if in_fence else line)
     return out
