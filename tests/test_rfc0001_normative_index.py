@@ -199,3 +199,53 @@ def test_no_clause_starts_mid_sentence(index: ModuleType) -> None:
         assert not opening[:1].islower() or opening.startswith(_LOWERCASE_OPENINGS), (
             requirement.text
         )
+
+
+_TWO_SECTIONS = (
+    "## 3. A\n"
+    "\n"
+    "`alpha` SHOULD be tested.\n"
+    "\n"
+    "`beta` MUST be sorted.\n"
+    "\n"
+    "A clause naming nothing MUST still be indexed.\n"
+    "\n"
+    "## 11. B\n"
+    "\n"
+    "`alpha` MUST be tested.\n"
+)
+
+
+def test_clauses_about_one_subject_are_adjacent_across_sections(
+    index: ModuleType,
+) -> None:
+    """#63: a rule stated in one section and contradicted in another shows up
+    as two adjacent rows that disagree.
+
+    `beta` has one clause and nothing to be read against, and the unnamed
+    clause has no subject, so neither is repeated in the subject table.
+    """
+    rendered = index.render(index.extract(_TWO_SECTIONS))
+    grouped = rendered.split(index.SUBJECT_HEADING, 1)[1]
+
+    assert [line for line in grouped.splitlines() if line.startswith("| `")] == [
+        "| `alpha` | `N3-1` | **SHOULD** | `alpha` SHOULD be tested. |",
+        "| `alpha` | `N11-1` | **MUST** | `alpha` MUST be tested. |",
+    ]
+
+
+def test_the_document_order_table_is_unchanged_by_grouping(
+    index: ModuleType,
+) -> None:
+    """Ids stay document-order and per section: the tests cite them."""
+    rendered = index.render(index.extract(_TWO_SECTIONS))
+    ordered = rendered.split(index.SUBJECT_HEADING, 1)[0]
+
+    assert [
+        line.split(" | ")[0] for line in ordered.splitlines() if line.startswith("| `N")
+    ] == [
+        "| `N3-1`",
+        "| `N3-2`",
+        "| `N3-3`",
+        "| `N11-1`",
+    ]
