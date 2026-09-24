@@ -68,7 +68,7 @@ These are short, and they are load-bearing.
    only. This applies to prompting an AI model as much as to reading with your
    own eyes. AGPL-derived code in an Apache-2.0 codebase would be a serious
    problem for every downstream user.
-4. **Numerical code cites its source.** Anything in `core/` or `castle/` must
+4. **Numerical code cites its source.** Anything in `core/` or `inference/` must
    trace to a specific equation in the papers, cited in the docstring. Do not
    derive formulas in a pull request.
 5. **Every docstring states its assumptions.** A domain scientist and their
