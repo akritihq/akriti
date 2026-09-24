@@ -20,7 +20,7 @@ only what nobody else offers.
   enters `pyproject.toml`; hallucinated names are a typosquatting target.
 - **NEVER read or reproduce giotto-tda source** (AGPLv3), including via a model
   prompt. The compat shim is clean-room from public API docs only.
-- **Numerical code in `core/` and `castle/` must cite a specific equation in
+- **Numerical code in `core/` and `inference/` must cite a specific equation in
   Papers I–III** in its docstring. Do not derive formulas.
 - **Never write a numerical function and its test in the same session.** A test
   written by whoever just wrote the function blesses that function's bugs.

@@ -16,10 +16,10 @@
 /rfcs/                  @sushovan4
 
 # Correctness-critical statistical core. Every function here traces to an
-# equation in Papers I-IV, and someone has to defend it to a referee.
+# equation in Papers I-III, and someone has to defend it to a referee.
 # See CLAUDE.md, "AI assistance -- three tiers".
 /src/akriti/core/       @sushovan4
-/src/akriti/castle/     @sushovan4
+/src/akriti/inference/  @sushovan4
 
 # Licensing and supply chain. A change here can silently widen the default
 # install closure -- the exact failure DEPENDENCIES.md exists to prevent.
