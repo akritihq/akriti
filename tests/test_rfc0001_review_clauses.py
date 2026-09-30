@@ -1572,7 +1572,9 @@ def appendix_c_rows() -> list[list[str]]:
         if line.startswith("## Appendix C"):
             inside = True
             continue
-        if inside and line.startswith("## Appendix D"):
+        if inside and line.startswith(("## Appendix D", "### ")):
+            # The subject table repeats these rows, and its first cell is a
+            # subject, which can itself start with N (`NaN`).
             break
         if inside and line.startswith("| `N"):
             rows.append([cell.strip() for cell in line.split("|")[1:-1]])
