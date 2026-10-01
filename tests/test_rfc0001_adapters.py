@@ -4097,12 +4097,14 @@ def test_no_adapter_lets_a_caller_write_a_reserved_provenance_key(
 
     `backend` and `backend_version` are already refused on exactly this
     ground -- "a caller who could set them could produce a diagram that lies
-    about where it came from". §8's `provenance` table is eleven more facts of
-    the same kind: `essential_bars` has two named writers and neither is a
-    caller ("Both writers, `from_giotto` at construction and `finitize()`
-    later, MUST be the only places that set this key"); `essential_bars_source`
-    is "Written only by `from_*`"; the rest are counts and dtypes the adapter
-    measured while reading the backend's output.
+    about where it came from". §8's `provenance` table is twelve more facts of
+    the same kind, each with a named writer that is not the caller:
+    `essential_bars` is `from_giotto`'s and the two `finitize_*` functions'
+    ("Those MUST be the only places that set this key");
+    `essential_bars_source` is "Written only by `from_*`"; the other
+    `essential_bars*` keys and the three `neginf_birth_bars*` keys are the
+    `finitize_*` functions'; the rest are facts the adapter recorded while
+    reading the backend's output.
 
     Parametrised over every adapter and every key, because the defect this
     replaces was that protection depended on which keys an adapter happened to

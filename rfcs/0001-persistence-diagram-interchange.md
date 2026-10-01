@@ -6,7 +6,7 @@
 | **Version** | 1.4.0 — `major.minor.patch`, on the bump condition §10.2 states. A writer records the revision it implemented as `spec_version`, which may trail this one |
 | **Authors** | Sushovan Majhi, A. D. Silberman, Edward Bae |
 | **Created** | 2026-07-29 |
-| **Last Edited** | 2026-09-22 |
+| **Last Edited** | 2026-10-01 |
 | **Target** | M0 (2026-08-01) drafted — met, initial draft 2026-07-29 · published for comment 2026-08-23 — met · M1 follows |
 | **Implements** | `akriti.diagrams` |
 
@@ -419,7 +419,10 @@ d.source_coordinates()   # -> (dims, births, deaths) in the source's own values
 
 `d.essential`, `d.neginf_birth` and `d.finite` are three masks over bars with
 shape `(n_bars,)`, and `d.finite` MUST be the complement of the other two's
-union. A mask indexes the arrays — `d.births[d.neginf_birth]`,
+union. That is the same set of bars as the code block's "births and deaths
+both finite": by I6 a `+inf` birth forces a `+inf` death, and by I6 and I10
+no death is `-inf`, so `d.essential | d.neginf_birth` is exactly the bars with
+a non-finite coordinate. A mask indexes the arrays — `d.births[d.neginf_birth]`,
 `d.deaths[d.neginf_birth]` — not the diagram itself, as by `d[mask]`, because of
 this section's propagation rule: §5's rule for a drop — the record follows
 the bars removed — is mechanical enough to apply to any mask, and applying it
@@ -429,14 +432,14 @@ and two diagrams with identical bars would disagree in `provenance`; carrying
 the field §8 exists to make auditable. The diagram-valued restrictions this
 document offers are the ones whose propagation is decidable — `dim(k)`, a
 restriction the keys survive conservatively, and the two `at="drop"` modes of
-§5, each of which removes a whole mask and records exactly that.
+§5, each of which removes a whole mask and records the bars it removed
+against every mask they lie on.
 
 **The diagram with the non-finite bars removed is not an accessor.** It is
 `d.finitize_births(at="drop").finitize_deaths(at="drop")` (§5), in either
 order, and it is reached through those two calls rather than through a
 property because removing a bar is a transformation `provenance` has to
-record, on the terms §5 sets, and a property that rewrote `provenance` was
-the shape D26 chose and D28 retires. §5 requires the two orders to agree bar
+record, on the terms §5 sets (D28). §5 requires the two orders to agree bar
 for bar and in provenance, and §11.2 requires the agreement to be asserted.
 
 **`d.persistence` is `+inf` where `d.essential` and `deaths - births`
@@ -460,8 +463,8 @@ is a legitimate answer to "what are the 7-dimensional cycles".
 derivation invalidates what `provenance` says about the bars.** Stated once
 here rather than per accessor, because the failure it rules out is the same
 one every time: two diagrams with identical bars and contradictory
-provenance. Only `essential_bars`, `neginf_birth_bars` and their qualifiers
-(§8) are in that position — every other reserved key records a fact about
+provenance. Only `essential_bars`, `neginf_birth_bars` and the keys §8 sets
+beside them are in that position — every other reserved key records a fact about
 the adapter call, which no derivation changes.
 
 | Derivation | `meta` | Why |
@@ -549,19 +552,21 @@ test.
 **Filtering produces data-dependent shapes.** `d.dim(k)`, the two
 `finitize_*(at="drop")` modes of §5 and any boolean-mask selection give an
 output shape that depends on the *values* in the array. **`d.dimensions` is on
-this list too**, and it is worth naming separately because it is neither a boolean-mask selection nor one of the
-`bool`/`str` returns below: it reduces through `unique_values`, so how many
-degrees come back is a property of the values, and a reader checking the two
-categories named here would not find it in either. The standard permits this on eager backends and explicitly does not
+this list too**, and it is worth naming separately because it is neither a
+boolean-mask selection nor one of the `bool`/`str` returns below: it reduces
+through `unique_values`, so how many degrees come back is a property of the
+values, and a reader checking the two categories named here would not find it in
+either. The standard permits this on eager backends and explicitly does not
 guarantee it on lazy or JIT ones — under `jax.jit` these operations fail. They
 are therefore **eager-only accessors**, and MUST be documented as such. They are
 not available inside a traced or compiled region.
 
 This is a real constraint on the neural-network path, and it is better to know
 now: a topological layer inside a network cannot call `d.dim(k)` or drop a bar.
-It must operate on the full arrays with a mask, which is why §5 keeps
-`essential`, `neginf_birth`, and `finite` as derivable masks rather than splitting
-the storage, and why `finite` is a mask rather than a diagram (D28):
+It must operate on the full arrays with a mask, which is why §5 stores both
+infinities in place rather than splitting the storage, why §3.2's `essential`
+and `neginf_birth` are derivable masks, and why `finite` is a mask rather
+than a diagram (D28):
 `d.births[d.finite]` is a boolean-mask selection and not traceable either, but
 `xp.where(d.finite, ...)` is, and that is the form a layer uses.
 
@@ -1224,7 +1229,8 @@ such rather than left for a reader to discover by searching:
   sorted, and would inherit the diagram-level versions' eager-only
   restriction (§3.3). The two `finitize_*` would additionally have to rewrite
   each `metas[i]` per segment, on §5's terms, since what each dropped or
-  substituted differs per diagram. Straightforward generalizations; nobody has written them down yet.
+  substituted differs per diagram. Straightforward generalizations; nobody has
+  written them down yet.
 - **No batch-level `source_coordinates()`.** The diagram-level accessor
   (§3.2) reads one `provenance` key; a batch counterpart would read
   `metas[i]`'s per segment, which is exactly what §10.3 requires `to_csv()`
@@ -1274,19 +1280,19 @@ filtration takes no `+inf`, and one more than it on that grid. A.12 gates the
 pair structure of both grids.
 
 **The same argument carries to `-inf` births with the signs reversed.** A bar
-born at $-\infty$ (§2) is stored as `births[i] == -xp.inf`, for every reason in the
-table above read in the opposite direction, and Appendix A.12 measures GUDHI
+born at $-\infty$ (§2) is stored as `births[i] == -xp.inf`, for every reason in
+the table above read in the opposite direction, and Appendix A.12 measures GUDHI
 returning one. What does *not* carry is the upstream hazard: the four rows above
 are about a value a backend substitutes for `+inf` on the way out, and no
 backend this document has measured substitutes anything for a `-inf` birth —
-GUDHI's cubical complex and Ripser's `lower_star_img` both return it
-natively (A.12), Ripser's point-cloud filtrations cannot produce one, and giotto
-is unmeasured on §9.2's terms. So there is no `"lost_upstream"` to record for the
-bars born at $-\infty$ and no adapter-time verdict on them (§8). What does carry is the
-caller's operation: `finitize_births` below is `finitize_deaths` with the signs
-reversed, and it is one function per coordinate rather than one function with a
-second argument because each mode's validation, its record and its error are
-about one coordinate, and a name that says which one is the guarantee (D28).
+GUDHI's cubical complex and Ripser's `lower_star_img` both return it natively
+(A.12), Ripser's point-cloud filtrations cannot produce one, and giotto is
+unmeasured on §9.2's terms. So there is no `"lost_upstream"` to record for the
+bars born at $-\infty$ and no adapter-time verdict on them (§8). What does carry
+is the caller's operation: `finitize_births` below is `finitize_deaths` with the
+signs reversed, and it is one function per coordinate rather than one function
+with a second argument because each mode's validation, its record and its error
+are about one coordinate, and a name that says which one is the guarantee (D28).
 
 **A superlevel source that writes its essential deaths as `-inf` lands here
 rather than beside here.** §11's normalisation negates on the way in, which
@@ -1331,21 +1337,21 @@ d.finitize_births(at="min_finite_birth")   # or at=<float>, or at="drop"
 ```
 
 `finitize_deaths` acts on the `essential` mask and writes deaths;
-`finitize_births` acts on the `neginf_birth` mask and writes births. Each returns
-a new diagram, records what it did in `meta.provenance`, and is never applied
-implicitly by an adapter, a constructor, or an I/O routine. **Each MUST NOT
-touch the other coordinate, in any mode**: `finitize_deaths` leaves `births` as
-it found them and `finitize_births` leaves `deaths`. A caller who finitizes the
-deaths of a diagram holding `(-inf, +inf)` gets `(-inf, at)` back — still
-infinite persistence, still born at $-\infty$, and correctly so, because `at` named a
-death; the births call is the one that reaches the other end, and the function's
-name says which end that is. The paragraphs below are written for
-`finitize_deaths`, and every requirement in them MUST hold for
-`finitize_births` **with the signs reversed**, the mirror being stated
-explicitly wherever it is not a bare substitution of words: `essential` for
-`neginf_birth`, `+inf` for `-inf`, `"max_finite_death"` for
-`"min_finite_birth"`, `essential_bars*` for `neginf_birth_bars*` (§8), and the
-lower bound on a substituted death for an upper bound on a substituted birth.
+`finitize_births` acts on the `neginf_birth` mask and writes births. Each
+returns a new diagram, records what it did in `meta.provenance`, and is never
+applied implicitly by an adapter, a constructor, or an I/O routine. **Each MUST
+NOT touch the other coordinate, in any mode**: `finitize_deaths` leaves `births`
+as it found them and `finitize_births` leaves `deaths`. A caller who finitizes
+the deaths of a diagram holding `(-inf, +inf)` gets `(-inf, at)` back — still
+infinite persistence, still born at $-\infty$, and correctly so, because `at`
+named a death; the births call is the one that reaches the other end, and the
+function's name says which end that is. The paragraphs below are written for
+`finitize_deaths`, and every requirement in them MUST hold for `finitize_births`
+**with the signs reversed**, the mirror being stated explicitly wherever it is
+not a bare substitution of words: `essential` for `neginf_birth`, `+inf` for
+`-inf`, `"max_finite_death"` for `"min_finite_birth"`, `essential_bars*` for
+`neginf_birth_bars*` (§8), and the lower bound on a substituted death for an
+upper bound on a substituted birth.
 
 **`at="drop"` is not a substitution and MUST NOT be recorded as one.** The
 other two modes replace `inf` with a finite value in place, the bar survives,
@@ -1356,32 +1362,32 @@ correctly describes what happened. `at="drop"` removes the bar entirely:
 `"finitized_at"` with some placeholder would misrepresent a cardinality
 change as a value change, exactly the kind of clean-plausible-wrong signal §9
 exists to rule out. `finitize_deaths(at="drop")` MUST instead set
-`provenance["essential_bars"] = "finitized_dropped"` and
-`provenance["essential_bars_dropped"]` to the count of bars on the `essential`
-mask it removed (§8); `finitize_births(at="drop")` sets `neginf_birth_bars` and
-`neginf_birth_bars_dropped` the same way over the `neginf_birth` mask.
+`provenance["essential_bars"] = "finitized_dropped"` and count the bars it
+removed under `provenance["essential_bars_dropped"]` (§8);
+`finitize_births(at="drop")` does the same with `neginf_birth_bars` and
+`neginf_birth_bars_dropped` over the `neginf_birth` mask.
 
 **The record follows the bars removed, not the function that removed them.**
 The two masks overlap: a `(-inf, +inf)` bar (§3.1) is on both, so
 `finitize_deaths(at="drop")` removes it as an essential bar and has thereby
-removed one born at $-\infty$, and `finitize_births(at="drop")` the reverse. A drop
-in either function MUST write, under each of `essential_bars` and
-`neginf_birth_bars`, the count of the bars it removed that lie on that key's mask,
-and MUST write nothing under a key whose mask none of them lies on. A count
-already present under a key MUST be added to rather than replaced: it is a count
-over the diagram's life, and the second of two drops that each removed an
-`(-inf, +inf)` bar is not the first drop's erasure. **A substitution MUST leave
-a count it finds standing**, for the same reason and in the one order that
-reaches it: a drop in either function can remove some of the bars on a mask
-and leave others — `finitize_births(at="drop")` takes a `(-inf, +inf)` bar off
-the `essential` mask while a `(0, +inf)` bar stays on it — so the value beside
-the count can still move to `"finitized_at"` afterwards. §8 states the rule as
-the type enforces it: the two `*_dropped` keys are tallies rather than
-qualifiers, and only the two `*_finitized_at` keys are dropped when the value
-they qualify changes. `"finitized_dropped"` is accordingly a claim that bars on
-this mask were dropped and not that none survives, the conservative reading
-§3.2 already states for what `d.dim(k)` inherits. Two items follow, and §11.2
-requires both to be asserted:
+removed one born at $-\infty$, and `finitize_births(at="drop")` the reverse. A
+drop in either function MUST, for each mask a bar it removed lies on, set that
+mask's key — `essential_bars` or `neginf_birth_bars` — to
+`"finitized_dropped"` and write under its `*_dropped` key the count of the
+removed bars on that mask, and MUST write nothing under the keys of a mask
+none of them lies on. A count already present under a `*_dropped` key MUST be
+added to rather than replaced: it is a count over the diagram's life, and the
+second of two drops that each removed an `(-inf, +inf)` bar is not the first
+drop's erasure. **A substitution MUST leave a count it finds standing**, for the
+same reason and in the one order that reaches it: a drop in either function can
+remove some of the bars on a mask and leave others —
+`finitize_births(at="drop")` takes a `(-inf, +inf)` bar off the `essential` mask
+while a `(0, +inf)` bar stays on it — so the value beside the count can still
+move to `"finitized_at"` afterwards; §8 states what the type enforces.
+`"finitized_dropped"` is accordingly a claim that bars on this mask were dropped
+and not that none survives, the conservative reading §3.2 already states for
+what `d.dim(k)` inherits. Two items follow, and §11.2 requires both to be
+asserted:
 1. `d.finitize_births(at="drop").finitize_deaths(at="drop")` and the same two
    calls in the other order MUST return the same diagram, bar for bar and in
    `provenance`. That composed diagram is the one whose bars are exactly those
@@ -1464,9 +1470,8 @@ NOT exceed the death of any bar it replaces, the check is
 `substituted <= xp.min(deaths[neginf_birth])`, and `finitize_births` MUST raise
 `ValueError` when it does. That minimum is finite or `+inf` and never `-inf`,
 by I10, so every finite `at` clears a set of `(-inf, +inf)` bars and no `at`
-above `d` clears a `(-inf, d)` one; and because `at` is finite a substitution
-can produce `(at, +inf)` but never `(+inf, +inf)`, so no shape §2 does not
-already admit is reachable from here either.
+above `d` clears a `(-inf, d)` one. A substitution here replaces a `-inf`
+birth, so unlike the deaths side it has no I10 case to rule out.
 
 **An essential bar may itself be born at $-\infty$ or at `+inf`, and the check
 stands unaltered.** `xp.max(births[essential])` may be `-inf` — when every
@@ -1502,9 +1507,9 @@ are all essential**, with an error naming the mode and the absence of any finite
 death, and `at="min_finite_birth"` MUST likewise raise on a diagram that holds
 a bar born at $-\infty$ and no finite birth — its other bars, if any, born at
 $-\infty$ too or at `+inf` — naming the mode and the absence. A diagram with no
-finite birth and no bar born at $-\infty$ is the return-unchanged case above, reached
-before this one. This is the separate case where there is no maximum to take
-rather than one that lands too low. I5 guarantees no `NaN`; it does not
+finite birth and no bar born at $-\infty$ is the return-unchanged case above,
+reached before this one. This is the separate case where there is no maximum to
+take rather than one that lands too low. I5 guarantees no `NaN`; it does not
 guarantee that a finite death exists at all. `d.dim(k)` on a degree whose only
 class is essential reaches this directly, and so does any H0 diagram of a
 filtration whose complex is connected from its first value — a cubical or
@@ -1813,10 +1818,11 @@ compares equal at both levels" three paragraphs up, and does so on the common
 case rather than a corner: `|inf - inf|` evaluates to `NaN`, every comparison
 against `NaN` is `False`, and a diagram carrying an essential bar is therefore
 not `allclose` to itself — nor, by the same IEEE rule on `|-inf - -inf|`, is a
-diagram carrying a bar born at $-\infty$ (§2). `NaN` cannot occur on either coordinate
-(I4, I5), so this is the whole of the non-finite handling `allclose` requires.
-`==` needs no clause at all: IEEE equality gives `inf == inf` directly, which is
-why the contradiction was reachable only on the approximate side.
+diagram carrying a bar born at $-\infty$ (§2). `NaN` cannot occur on either
+coordinate (I4, I5), so this is the whole of the non-finite handling `allclose`
+requires. `==` needs no clause at all: IEEE equality gives `inf == inf`
+directly, which is why the contradiction was reachable only on the approximate
+side.
 
 **`allclose` is reflexive and symmetric but not transitive, and MUST be
 documented as not an equivalence relation.** `==` is one, and callers will
@@ -2051,9 +2057,8 @@ present *iff* `essential_bars == "finitized_at"`, so a writer that changes
 `essential_bars` MUST remove it in the same operation where it no longer
 applies; `neginf_birth_bars_finitized_at` is under the same rule one key over.
 `essential_bars_dropped` and `neginf_birth_bars_dropped` are the tallies, and a
-writer that changes the value beside one MUST carry it through unchanged: how
-many bars a drop removed stays true however the mask is described afterwards,
-and §5 requires the next drop to add to it rather than replace it. Merging a
+writer that changes the value beside one MUST NOT remove it: how many bars a
+drop removed stays true however the mask is described afterwards. Merging a
 new value into an existing `provenance` mapping and leaving the rest alone —
 the obvious implementation — breaks the first half wherever the mapping came
 from somewhere other than the writer merging into it:
@@ -3653,37 +3658,39 @@ suite MUST include, at minimum:
 - An empty diagram, and a diagram empty in one degree but not another.
 - A diagram with repeated identical bars — multiplicity MUST survive.
 - A diagram with a genuine zero-persistence bar.
-- **A diagram carrying bars born at $-\infty$, from a real backend call** — GUDHI's
-  cubical complex over a grid holding `-inf` produces one, and A.12 gives the
-  grids. `mixed` is the fixture worth committing: it returns `(-inf, finite)`,
-  `(-inf, +inf)` and `(finite, finite)` in one diagram, so a single round trip
-  covers three of §3.1's five shapes. This is the case no Rips or alpha
-  fixture in this suite can produce. **`d.finite` on it MUST be asserted to
-  be `True` on exactly one bar, and
+- **A diagram carrying bars born at $-\infty$, from a real backend call** —
+  GUDHI's cubical complex over a grid holding `-inf` produces one, and A.12
+  gives the grids. `mixed` is the fixture worth committing: it returns
+  `(-inf, finite)`, `(-inf, +inf)` and `(finite, finite)` in one diagram, so a
+  single round trip covers three of §3.1's five shapes. This is the case no Rips
+  or alpha fixture in this suite can produce. **`d.finite` on it MUST be
+  asserted to be `True` on exactly one bar, and
   `d.finitize_births(at="drop").finitize_deaths(at="drop")` MUST be asserted
   against all three numbers** — `essential_bars_dropped == 1`,
-  `neginf_birth_bars_dropped == 2`, and one bar surviving out of three — since the
-  two keys overlap on its `(-inf, +inf)` bar and a suite checking either alone
-  would pass against a sum (§5, §8). **The two orders of that composition MUST
-  be asserted equal**, under `==` and under `same_provenance`, on this fixture:
-  it is the one in the suite on which the record-follows-the-bars rule (§5) has
-  something to decide. **A tally surviving the value beside it MUST be asserted
-  here too**, the fixture reaching that case on its `neginf_birth` side:
-  `mixed.finitize_deaths(at="drop")` removes the `(-inf, +inf)` bar and writes
-  `neginf_birth_bars_dropped == 1` while a `(-inf, finite)` bar stays on that mask,
-  so the `finitize_births(at=-5.0)` that follows moves `neginf_birth_bars` to
-  `"finitized_at"` and MUST leave that count standing (§5, §8). The obvious
-  implementation — merge the new value, drop the neighbouring keys — passes
-  every other assertion in this bullet and fails this one.
+  `neginf_birth_bars_dropped == 2`, and one bar surviving out of three — since
+  the two keys overlap on its `(-inf, +inf)` bar and a suite checking either
+  alone would pass against a sum (§5, §8). **The two orders of that composition
+  MUST be asserted equal**, under `==` and under `same_provenance`, on this
+  fixture: it is the one in the suite on which the record-follows-the-bars rule
+  (§5) has something to decide. **A tally surviving the value beside it MUST be
+  asserted here too**, the fixture reaching that case on its `neginf_birth`
+  side: `mixed.finitize_deaths(at="drop")` removes the `(-inf, +inf)` bar and
+  writes `neginf_birth_bars_dropped == 1` while a `(-inf, finite)` bar stays on
+  that mask, so the `finitize_births(at=-5.0)` that follows moves
+  `neginf_birth_bars` to `"finitized_at"` and MUST leave that count standing
+  (§5, §8). The obvious implementation — merge the new value, drop the
+  neighbouring keys — passes every other assertion in this bullet and fails this
+  one.
 - **A diagram carrying a `(+inf, +inf)` bar, from a real backend call** —
   GUDHI's cubical complex over a grid every cell of which is `+inf`, or
   Ripser's `lower_star_img` on such an image (A.12, D27). It MUST construct;
-  `essential` MUST be `True` on it and `neginf_birth` `False`; `persistence` MUST
-  be `+inf`; `finite` MUST be `False` on it; `finitize_deaths(at="drop")` MUST
-  remove it with `essential_bars_dropped == 1` and no `neginf_birth_bars` written;
-  and `finitize_deaths(at=0.0)` and `finitize_deaths(at="max_finite_death")`
-  MUST each raise `ValueError` naming the bar (§5). `finitize_births` in every
-  mode MUST return it unchanged: it is not on the `neginf_birth` mask.
+  `essential` MUST be `True` on it and `neginf_birth` `False`; `persistence`
+  MUST be `+inf`; `finite` MUST be `False` on it; `finitize_deaths(at="drop")`
+  MUST remove it with `essential_bars_dropped == 1` and no `neginf_birth_bars`
+  written; and `finitize_deaths(at=0.0)` and
+  `finitize_deaths(at="max_finite_death")` MUST each raise `ValueError` naming
+  the bar (§5). `finitize_births` in every mode MUST return it unchanged: it is
+  not on the `neginf_birth` mask.
 - **The admissible surface, exhaustively** (§3.1). Over a five-value probe —
   `-inf`, a negative finite, `0.0`, a positive finite, `+inf` — twenty-five
   ordered pairs, of which fifteen satisfy I6 and fourteen survive I10, the one
@@ -4064,14 +4071,14 @@ rows again, a `(-inf, +inf)` bar being dropped whole by its `+inf` death, its
 birth never examined. Rows 5 through 7 are the class that survives the filter,
 and the only diagnostic on the two `nan` rows is numpy's own
 `RuntimeWarning: invalid value encountered in subtract` — the $-\infty$ births
-of two matched bars born at $-\infty$, subtracted. Row 7's `bottleneck` is right for
-the wrong reason — one side's birth is finite, so no subtraction of like
+of two matched bars born at $-\infty$, subtracted. Row 7's `bottleneck` is right
+for the wrong reason — one side's birth is finite, so no subtraction of like
 infinities occurs and `inf` falls out of the arithmetic rather than out of a
-rule — and its `wasserstein` raises as rows 5 and 6 do. Rows 8
-through 10 are D27's `(+inf, +inf)` bar, dropped by the same guard; row 10
-is the one place in this table where dropping both sides returns a wrong
-*zero* — an essential bar born at `+inf` against one born at `0`, infinitely
-apart on the coordinate persim never compared.
+rule — and its `wasserstein` raises as rows 5 and 6 do. Rows 8 through 10 are
+D27's `(+inf, +inf)` bar, dropped by the same guard; row 10 is the one place in
+this table where dropping both sides returns a wrong *zero* — an essential bar
+born at `+inf` against one born at `0`, infinitely apart on the coordinate
+persim never compared.
 
 ### A.5 Coefficient field — recoverability from backend output
 
@@ -4793,7 +4800,7 @@ records decisions and points at the sections carrying them, and
 the appendices hold evidence and rationale, so a keyword in
 either is a quotation of an obligation rather than one.
 
-267 clauses: MAY 12, MUST 210, MUST NOT 42, SHOULD 2, SHOULD NOT 1.
+267 clauses: MAY 12, MUST 209, MUST NOT 43, SHOULD 2, SHOULD NOT 1.
 
 | # | Section | Keyword | Clause |
 |---|---|---|---|
@@ -4878,10 +4885,10 @@ either is a quotation of an obligation rather than one.
 | `N5-3` | §5 | **MUST NOT** | Each MUST NOT touch the other coordinate, in any mode: |
 | `N5-4` | §5 | **MUST** | The paragraphs below are written for `finitize_deaths`, and every requirement in them MUST hold for `finitize_births` with the signs reversed, the mirror being stated explicitly wherever it is not a bare substitution of words: |
 | `N5-5` | §5 | **MUST NOT** | `at="drop"` is not a substitution and MUST NOT be recorded as one. The other two modes replace `inf` with a finite value in place, the bar survives, only its death time changes, so `"finitized_at"` together with `provenance["essential_bars_finitized_at"]`, the substituted death (§8), correctly describes what happened. |
-| `N5-6` | §5 | **MUST** | `finitize_deaths(at="drop")` MUST instead set `provenance["essential_bars"] = "finitized_dropped"` and `provenance["essential_bars_dropped"]` to the count of bars on the `essential` mask it removed (§8); `finitize_births(at="drop")` sets `neginf_birth_bars` and `neginf_birth_bars_dropped` the same way over the `neginf_birth` mask. |
-| `N5-7` | §5 | **MUST** | A drop in either function MUST write, under each of `essential_bars` and `neginf_birth_bars`, the count of the bars it removed that lie on that key's mask, and MUST write nothing under a key whose mask none of them lies on. |
-| `N5-8` | §5 | **MUST** | A count already present under a key MUST be added to rather than replaced: it is a count over the diagram's life, and the second of two drops that each removed an `(-inf, +inf)` bar is not the first drop's erasure. |
-| `N5-9` | §5 | **MUST** | A substitution MUST leave a count it finds standing, for the same reason and in the one order that reaches it: a drop in either function can remove some of the bars on a mask and leave others — `finitize_births(at="drop")` takes a `(-inf, +inf)` bar off the `essential` mask while a `(0, +inf)` bar stays on it — so the value beside the count can still move to `"finitized_at"` afterwards. §8 states the rule as the type enforces it: the two `*_dropped` keys are tallies rather than qualifiers, and only the two `*_finitized_at` keys are dropped when the value they qualify changes. |
+| `N5-6` | §5 | **MUST** | `finitize_deaths(at="drop")` MUST instead set `provenance["essential_bars"] = "finitized_dropped"` and count the bars it removed under `provenance["essential_bars_dropped"]` (§8); `finitize_births(at="drop")` does the same with `neginf_birth_bars` and `neginf_birth_bars_dropped` over the `neginf_birth` mask. |
+| `N5-7` | §5 | **MUST** | A drop in either function MUST, for each mask a bar it removed lies on, set that mask's key — `essential_bars` or `neginf_birth_bars` — to `"finitized_dropped"` and write under its `*_dropped` key the count of the removed bars on that mask, and MUST write nothing under the keys of a mask none of them lies on. |
+| `N5-8` | §5 | **MUST** | A count already present under a `*_dropped` key MUST be added to rather than replaced: it is a count over the diagram's life, and the second of two drops that each removed an `(-inf, +inf)` bar is not the first drop's erasure. |
+| `N5-9` | §5 | **MUST** | A substitution MUST leave a count it finds standing, for the same reason and in the one order that reaches it: a drop in either function can remove some of the bars on a mask and leave others — `finitize_births(at="drop")` takes a `(-inf, +inf)` bar off the `essential` mask while a `(0, +inf)` bar stays on it — so the value beside the count can still move to `"finitized_at"` afterwards; §8 states what the type enforces. |
 | `N5-10` | §5 | **MUST** | `d.finitize_births(at="drop").finitize_deaths(at="drop")` and the same two calls in the other order MUST return the same diagram, bar for bar and in `provenance`. |
 | `N5-11` | §5 | **MUST NOT** | The two counts MUST NOT be summed: a `(-inf, +inf)` bar is removed once and counted under both keys, each of which is correct about the mask it names, and no key counts what was removed altogether — `provenance` does not reconstruct a bar count before the drop, the silence §3.2's derivation table already keeps for `d.dim(k)`. |
 | `N5-12` | §5 | **MUST** | A diagram with no bar on the function's mask MUST be returned unchanged, provenance included — no essential bar for `finitize_deaths`, no bar born at $-\infty$ for `finitize_births`. |
@@ -4936,7 +4943,7 @@ either is a quotation of an obligation rather than one.
 | `N8-10` | §8 | **MUST** | Those MUST be the only places that set this key, so the derived value and its source never have the chance to drift apart. |
 | `N8-11` | §8 | **MUST** | `essential_bars_source` has one writer, and neither `finitize_*` function is it. Every `from_*` adapter that records `essential_bars` MUST record `essential_bars_source` with the same value in the same construction, and it MUST NOT be written afterwards. §5 carries the justification. |
 | `N8-12` | §8 | **MUST** | A key that qualifies `essential_bars` MUST be kept consistent with it, not merely written alongside it; a key that tallies is not a qualifier and MUST NOT be dropped with one. `essential_bars_finitized_at` is a qualifier, present *iff* `essential_bars == "finitized_at"`, so a writer that changes `essential_bars` MUST remove it in the same operation where it no longer applies; `neginf_birth_bars_finitized_at` is under the same rule one key over. |
-| `N8-13` | §8 | **MUST** | `essential_bars_dropped` and `neginf_birth_bars_dropped` are the tallies, and a writer that changes the value beside one MUST carry it through unchanged: how many bars a drop removed stays true however the mask is described afterwards, and §5 requires the next drop to add to it rather than replace it. |
+| `N8-13` | §8 | **MUST NOT** | `essential_bars_dropped` and `neginf_birth_bars_dropped` are the tallies, and a writer that changes the value beside one MUST NOT remove it: how many bars a drop removed stays true however the mask is described afterwards. |
 | `N8-14` | §8 | **MUST** | `DiagramMeta` MUST enforce the two rules above, and the reserved-key table's own vocabulary, at construction, for the reason §3.1 gives one type over: a rule stated only as an obligation on writers is one every future writer has to remember independently, and `finitize_deaths` is not the only writer — every `from_*` adapter (§11) sets these keys through this constructor and none of them passes through either `finitize_*` function's code path. |
 | `N8-15` | §8 | **MUST** | Concretely, constructing a `DiagramMeta` MUST raise `ValueError` when `essential_bars` holds anything but the four values the table above lists; when `essential_bars_dropped` is absent with `essential_bars == "finitized_dropped"`, or present with `essential_bars` holding `"faithful"` or `"lost_upstream"` or holding nothing at all, or is present and is not a non-negative `int` — a tally with no finitization beside it records a drop of a diagram nothing was dropped from, and the one value it may legitimately sit beside other than its own is `"finitized_at"`, the drop-then-substitute order §5 admits; when `essential_bars_finitized_at` is present without `essential_bars == "finitized_at"` or absent with it; and when `essential_bars_source` holds anything but `"faithful"` or `"lost_upstream"` — the copy-forward §5 rejects, caught where it would have to be written rather than left to a reader to notice. |
 | `N8-16` | §8 | **MUST** | It MUST raise `ValueError` when `neginf_birth_bars` holds anything but the two values the table above lists; when `neginf_birth_bars_dropped` is absent with `neginf_birth_bars == "finitized_dropped"`, or present with `neginf_birth_bars` absent, or is present and is not a non-negative `int`; and when `neginf_birth_bars_finitized_at` is present without `neginf_birth_bars == "finitized_at"` or absent with it — the same checks one key over, both of that key's values being finitizations. |
@@ -5155,4 +5162,4 @@ Full narrative: history document.
 - **2026-09-10 (77)** — Editorial; **no BCP 14 clause altered, so the patch moves and the document becomes 1.1.1**. §1 gains a zigzag persistence non-goal beside the multiparameter and extended ones. Raised by @corybrunson (tdaverse) in the comment window: the document mentioned zigzag zero times, and Dionysus — which provides it — zero times, so a caller holding a zigzag module learned it was out of scope only from a rejected construction. Excluding something silently is worse than excluding it explicitly. §1 also gains the test that decides a non-goal — not one order, or a meaning the coordinates cannot carry — so the next case is applied rather than argued, and states that `death < birth` decides nothing by itself: superlevel has an exact invertible transform into this type and extended persistence has none, which is the difference the sign hides. Attribution for a raised issue lives here rather than in §1, on @ADSilberman's point that the normative text should carry the argument and the changelog the provenance. The rule is stated **before** the three instances rather than after them, also on his point: a reader meets the test and then its examples, instead of three arguments followed by the thing that would have made them one. Appendix A's preamble gains the scope of what it measured: every diagram in it is a point cloud in $\mathbb{R}^2$ under Rips, so no figure there says anything about cubical or lower-star values. #44 was found from outside because that limit was not written down; stating it is what makes the next one findable from inside.
 - **2026-09-10 (78)** — **A false claim in Appendix A, and the reason behind D23 replaced. The document becomes 1.2.0.** A.11's fourth bullet said neither 64-bit flag has a public scoped form; `jax.enable_x64` is public, thread-local and restores on exit, and it was public at the `jax 0.11.1` A.11 itself measured. **Entry 71 is wrong where it repeats that claim** and is left standing as the record of what that pass concluded; this entry is the correction. §3.3's and D23's prohibition survives on a ground that does not depend on JAX's config API: **a scope cannot outlive the object it builds**, and an x64 array created inside one truncates on every later operation — silently under the narrow lever this document tells callers to prefer. D23's reopen condition is **replaced** rather than narrowed, the old one having already fired without helping. §3.3 states the `jax >= 0.8.0` floor for `jax_explicit_x64_dtypes`, absent at tag `jax-v0.7.2` and present at `jax-v0.8.0`, which the document promised a caller could set and never bounded. A.11 gains the containment measurements and the self-inconsistent-constructor case; `rfcs/evidence/jax_x64.py` gains X.7e and X.7f — the first so the API-surface claim is measured rather than reasoned from `_contextmanager_flags`, the second so containment has the reproduction A.11 cites. **The bump is a minor, not a patch**: §3.3's `MUST NOT` is reworded, which D24 says is a minor by §10.2's rule whatever the wording did. Reported by @ADSilberman (#50).
 - **2026-09-16 (79)** — **Filtration values may be infinite at either end, and orientation may be reversed; the document becomes 1.3.0.** Two defects from one root, raised by @corybrunson (tdaverse) in the comment window (tdaverse/phutil#61, #44). New **A.12**, run in CI, measures GUDHI's cubical complex returning `-inf` and `+inf` births, and every adapted entry point — giotto's included — for a superlevel switch, finding none. **I4 and I5** reduce to non-`NaN`, **I10** forbids `(-inf, -inf)` alone, and the surface is five shapes — `(+inf, +inf)` is allowed on A.12 measuring two backends that return it. A.12 also measures a bar dying at `+inf` (`[0, +inf, 0]`); **§2 defines `essential` as "no finite death"** to match. §5 states what the count is the rank of, and A.12 gates GUDHI's pair structure; **D27** carries what each infinity means, **D25** normalises superlevel input at the adapter and records the declaration in one `provenance` key, **D26** widens `d.finite` to mean what it says. New: `neginf_birth`, `source_coordinates()`, `filtration_direction=` on `from_persim` and `from_array`, `coordinates=` on `to_csv()` and `to_parquet()` with no default for a superlevel diagram, and §11's rule for when an argument may default — a wrong default is caught, marked, or believed, and only the last is refused. **A.4** now measures every class: persim's guard reads deaths, so a `(-inf, finite)` bar comes back `nan` with no persim warning — distinct from persim#105 and **not yet filed**, which D5 requires before publication. `io.py` holds at 1.2.0; `spec_version` is the revision the writer implemented.
-- **2026-09-22 (80)** — **`d.finite` becomes a mask and `finitize` splits by coordinate; the document becomes 1.4.0.** D26 is superseded by **D28**. `d.finite` is `~(d.essential | d.neginf_birth)`, shape-preserving, available under `jax.jit`, and carried to the batch as `b.finite`, which closes the gap §4.3 declared (§3.2, §3.3, §4.3). `finitize` becomes `finitize_deaths` — the same three modes, renamed — and `finitize_births`, its mirror over the `neginf_birth` mask with `at="min_finite_birth"`, an upper bound on the substituted birth, and `neginf_birth_bars` / `neginf_birth_bars_dropped` / `neginf_birth_bars_finitized_at` in §8, with no `_source` (§5, §8). The all-finite diagram is the two `at="drop"` modes composed, and §5's new rule — the record follows the bars removed, so a drop that removes a `(-inf, +inf)` bar writes both key sets and adds to a count already present — is what makes the two orders agree in `provenance`; §11.2 asserts it on A.12's `mixed`. 1.3.0's `neginf_birth_bars_dropped` presence rule, its `0`, and every clause about what `d.finite` recorded go with the diagram-valued accessor. `io.py` holds at 1.2.0 and `_SPEC_VERSION_GAP` now names both revisions; the adapters refuse the two new §8 keys from callers ahead of implementing them. From the review of this revision: the sentence carrying §5's requirements to `finitize_births` is itself a MUST; `essential_bars_dropped` gains the non-negative-`int` rule `neginf_birth_bars_dropped` already had; both `finitize_*` functions, not `finitize_deaths` alone, are barred from `essential_bars_source` (§5, §8, §11); `at="min_finite_birth"`'s no-finite-birth error is scoped to diagrams that hold a bar born at $-\infty$, the rest being the return-unchanged case; and D28's reopen condition no longer offers a traced `finitize_*` mode §3.3 rules out. **The two `*_dropped` keys become tallies rather than qualifiers**, which is the one normative change of that review: a drop can now remove part of a mask and leave the rest, so the value beside a count can still move to `"finitized_at"`, and §8's qualifier rule was erasing the count when it did — a key §8 calls "summed over the diagram's life" that the next call deleted. Only the two `*_finitized_at` keys are dropped with the value they qualify; a substitution MUST leave a count standing (§5, §8), `DiagramMeta` enforces the weaker presence rule, and §11.2 requires the surviving tally to be asserted on A.12's `mixed`, where a deaths-drop leaves a bar born at $-\infty$ for a later `finitize_births` to substitute. **D28 also takes a position it had left implicit**: the substituting birth modes arrive with D26's "reopen when a caller wants one" unfired, because a function shipped with one of its three modes defers the argument rather than avoiding it.
+- **2026-10-01 (80)** — **`d.finite` becomes a mask and `finitize` splits by coordinate; the document becomes 1.4.0.** D26 is superseded by **D28**. `d.finite` is `~(d.essential | d.neginf_birth)`, shape-preserving, available under `jax.jit`, and carried to the batch as `b.finite`, which closes the gap §4.3 declared (§3.2, §3.3, §4.3). `finitize` becomes `finitize_deaths` — the same three modes, renamed — and `finitize_births`, its mirror over the `neginf_birth` mask with `at="min_finite_birth"`, an upper bound on the substituted birth, and `neginf_birth_bars` / `neginf_birth_bars_dropped` / `neginf_birth_bars_finitized_at` in §8, with no `_source` (§5, §8). The all-finite diagram is the two `at="drop"` modes composed, and §5's new rule — the record follows the bars removed, so a drop that removes a `(-inf, +inf)` bar writes both key sets and adds to a count already present — is what makes the two orders agree in `provenance`; §11.2 asserts it on A.12's `mixed`. 1.3.0's `neginf_birth_bars_dropped` presence rule, its `0`, and every clause about what `d.finite` recorded go with the diagram-valued accessor. `io.py` holds at 1.2.0 and `_SPEC_VERSION_GAP` now names both revisions; the adapters refuse the two new §8 keys from callers ahead of implementing them. From the review of this revision: the sentence carrying §5's requirements to `finitize_births` is itself a MUST; `essential_bars_dropped` gains the non-negative-`int` rule `neginf_birth_bars_dropped` already had; both `finitize_*` functions, not `finitize_deaths` alone, are barred from `essential_bars_source` (§5, §8, §11); `at="min_finite_birth"`'s no-finite-birth error is scoped to diagrams that hold a bar born at $-\infty$, the rest being the return-unchanged case; and D28's reopen condition no longer offers a traced `finitize_*` mode §3.3 rules out. **The two `*_dropped` keys become tallies rather than qualifiers**, which is the one normative change of that review: a drop can now remove part of a mask and leave the rest, so the value beside a count can still move to `"finitized_at"`, and §8's qualifier rule was erasing the count when it did — a key §8 calls "summed over the diagram's life" that the next call deleted. Only the two `*_finitized_at` keys are dropped with the value they qualify; a substitution MUST leave a count standing (§5, §8), `DiagramMeta` enforces the weaker presence rule, and §11.2 requires the surviving tally to be asserted on A.12's `mixed`, where a deaths-drop leaves a bar born at $-\infty$ for a later `finitize_births` to substitute. **D28 also takes a position it had left implicit**: the substituting birth modes arrive with D26's "reopen when a caller wants one" unfired, because a function shipped with one of its three modes defers the argument rather than avoiding it. **A second review pass removes three conflicts the tally rule left between clauses.** §8 had a writer that changes the value beside a tally carry it through "unchanged" where §5's next drop adds to it, and now only forbids removing it; §5's own-mask drop rule *set* the count where the next sentence adds to one; and the record-follows-the-bars clause named `essential_bars` and `neginf_birth_bars` as where a count goes, so read alone it wrote a tally §8's constructor rejects for want of the value beside it, and it now sets that value as well (§5, §8). §3.2 states again why its two definitions of `d.finite` agree (I6, I10).
