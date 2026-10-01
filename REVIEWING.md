@@ -51,7 +51,7 @@ only what transfers to the next document.
   in #69 before anyone searched for it.
 - **When one member of a name-family differs in type from the others, the
   prose spent warning readers is the cost of the type, not of the name.**
-  `d.essential` and `d.primordial` were masks and `d.finite` a diagram; §3.2
+  `d.essential` and `d.neginf_birth` were masks and `d.finite` a diagram; §3.2
   needed two paragraphs saying the three were not the same kind of thing,
   §3.3 a caveat that a layer could not call it, and §4.3 a stated gap. Ask
   which consumers actually want the odd type out before paying to explain it
@@ -59,7 +59,7 @@ only what transfers to the next document.
 - **"None is needed: that expression is two operators" is a claim about the
   current width of the type.** RFC-0001 §3.2 refused a `finite_mask` on that
   ground when the expression was `~d.essential`; one revision later it was
-  `~(d.essential | d.primordial)` and the sentence had been edited to say
+  `~(d.essential | d.neginf_birth)` and the sentence had been edited to say
   "two operators" instead of one. Test a "trivially derivable" refusal against
   the next widening, not the current one.
 - **A specification states what holds, not how it came to hold.** Which

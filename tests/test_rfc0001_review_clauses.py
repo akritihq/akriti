@@ -579,17 +579,17 @@ def test_s3_2_there_is_no_finite_mask_accessor() -> None:
 # --------------------------------------------------------------------------
 # §3.2, §4.3, §5 at 1.4.0 -- the surface D28 specifies, as strict xfails
 #
-#   N3.2-1: "`d.essential`, `d.primordial` and `d.finite` are three masks
+#   N3.2-1: "`d.essential`, `d.neginf_birth` and `d.finite` are three masks
 #    over bars with shape `(n_bars,)`, and `d.finite` MUST be the complement
 #    of the other two's union".
-#   §4.3: "b.finite  # -> bool mask, shape (total_bars,), ~(essential | primordial)".
+#   §4.3: "b.finite  # -> bool mask, shape (total_bars,), ~(essential | neginf_birth)".
 #   §5: "d.finitize_deaths(at="max_finite_death")   # or at=<float>, or at="drop"
 #        d.finitize_births(at="min_finite_birth")   # or at=<float>, or at="drop"".
 #
 # The declared gap between document and writer, as failing tests rather than
 # only as a string in `io.py`: a green suite must not read as conformance to
 # a revision it does not implement. Each is built on the 1.2.0-constructible
-# surface -- no primordial bar, so I5 admits every fixture -- because what is
+# surface -- no bar born at -inf, so I5 admits every fixture -- because what is
 # being pinned is the *type* of the accessor and the *names* of the two
 # functions, which the 1.2.0 writer gets wrong on any diagram at all.
 # --------------------------------------------------------------------------
@@ -633,7 +633,7 @@ def test_the_1_4_0_surface_does_not_yet_exist_finitize_deaths() -> None:
 @_NOT_YET_1_4_0
 def test_the_1_4_0_surface_does_not_yet_exist_finitize_births() -> None:
     d = sample()
-    # No primordial bar is constructible at 1.2.0, so the one 1.4.0 behaviour
+    # No bar born at -inf is constructible at 1.2.0, so the one 1.4.0 behaviour
     # reachable here is §5's return-unchanged rule.
     assert d.finitize_births(at="drop") == d
 

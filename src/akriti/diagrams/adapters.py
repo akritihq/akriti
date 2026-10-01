@@ -128,7 +128,7 @@ _INT32_MAX = 2**31 - 1
 # (`essential_bars_source`, `coeff_field_source`), the three remaining
 # `essential_bars*` keys whose writers §8 lists by name, the key RFC-0001
 # 1.3.0 reserves -- `filtration_direction`, which every adapter writes --
-# and the three `primordial_bars*` keys 1.4.0 reserves, which §5 has the two
+# and the three `neginf_birth_bars*` keys 1.4.0 reserves, which §5 has the two
 # `finitize_*` functions alone write. None of those writers is a caller. They
 # are refused in `_build_meta` on exactly the ground `backend` and
 # `backend_version` already are.
@@ -139,7 +139,7 @@ _INT32_MAX = 2**31 - 1
 # and `load` MUST NOT branch on `spec_version` (§10.2), so a file an adapter
 # let a caller stamp with that key would be re-interpreted by the next
 # writer with nothing in the file to say the negation never happened; a
-# caller-stamped `primordial_bars` is a finitization claim about bars no
+# caller-stamped `neginf_birth_bars` is a finitization claim about bars no
 # `finitize_births` touched, the same shape one key over. Refusing the name
 # closes the adapter path only: `DiagramMeta` accepts any `provenance` key,
 # so a hand-built diagram still carries any of them into a file. §8 states
@@ -161,9 +161,9 @@ _ADAPTER_OWNED_PROVENANCE = frozenset(
         "clamped_rows",
         "padding_removed",
         "filtration_direction",
-        "primordial_bars",
-        "primordial_bars_dropped",
-        "primordial_bars_finitized_at",
+        "neginf_birth_bars",
+        "neginf_birth_bars_dropped",
+        "neginf_birth_bars_finitized_at",
     }
 )
 

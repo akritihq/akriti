@@ -4062,12 +4062,12 @@ _RESERVED_PROVENANCE_KEYS = (
     # Reserved by 1.3.0 and 1.4.0 and refused ahead of the writer implementing
     # either: a caller-stamped `filtration_direction` is exactly the file a
     # 1.3.0 `source_coordinates()` would negate wrongly (§8, §11), and a
-    # caller-stamped `primordial_bars*` is a finitization claim no
+    # caller-stamped `neginf_birth_bars*` is a finitization claim no
     # `finitize_births` made (§5, §8).
     "filtration_direction",
-    "primordial_bars",
-    "primordial_bars_dropped",
-    "primordial_bars_finitized_at",
+    "neginf_birth_bars",
+    "neginf_birth_bars_dropped",
+    "neginf_birth_bars_finitized_at",
 )
 
 
