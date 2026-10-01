@@ -29,9 +29,9 @@ _SPEC_VERSION = "1.2.0"
 # enforce, _SPEC_VERSION stays behind and this says why. Checked by
 # tests/test_rfc0001_spec_version_pins.py.
 _SPEC_VERSION_GAP: str | None = (
-    "1.3.0 widens I4 and I5 and adds I10 (primordial bars construct); adds "
-    "d.primordial, d.source_coordinates() and provenance['primordial_bars_"
-    "dropped'], widens d.finite to drop primordial bars, matches -inf births "
+    "1.3.0 widens I4 and I5 and adds I10 (bars born at -inf construct); adds "
+    "d.neginf_birth, d.source_coordinates() and provenance['neginf_birth_"
+    "bars_dropped'], widens d.finite to drop those bars, matches -inf births "
     "exactly in allclose, validates filtration_direction in DiagramMeta, "
     "normalises superlevel input in from_persim and from_array, and gives "
     "to_csv/to_parquet a coordinates= argument with no default for a "

@@ -128,7 +128,7 @@ _INT32_MAX = 2**31 - 1
 # (`essential_bars_source`, `coeff_field_source`), the three remaining
 # `essential_bars*` keys whose writers §8 lists by name, and the two keys
 # RFC-0001 1.3.0 reserves -- `filtration_direction`, which 1.3.0 has every
-# adapter write, and `primordial_bars_dropped`, which it has `d.finite` alone
+# adapter write, and `neginf_birth_bars_dropped`, which it has `d.finite` alone
 # write. None of those writers is a caller. They are refused in `_build_meta`
 # on exactly the ground `backend` and `backend_version` already are.
 #
@@ -158,7 +158,7 @@ _ADAPTER_OWNED_PROVENANCE = frozenset(
         "clamped_rows",
         "padding_removed",
         "filtration_direction",
-        "primordial_bars_dropped",
+        "neginf_birth_bars_dropped",
     }
 )
 

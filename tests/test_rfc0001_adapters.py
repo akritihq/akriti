@@ -4063,7 +4063,7 @@ _RESERVED_PROVENANCE_KEYS = (
     # caller-stamped `filtration_direction` is exactly the file a 1.3.0
     # `source_coordinates()` would negate wrongly (§8, §11).
     "filtration_direction",
-    "primordial_bars_dropped",
+    "neginf_birth_bars_dropped",
 )
 
 
@@ -4326,7 +4326,7 @@ def test_every_adapter_refuses_invalid_coordinates(
 @pytest.mark.parametrize(
     ("birth", "death"),
     [
-        # §3.1's two primordial shapes, `(-inf, finite)` and `(-inf, +inf)`,
+        # §3.1's two shapes born at -inf, `(-inf, finite)` and `(-inf, +inf)`,
         # and D27's `(+inf, +inf)`, each of which GUDHI's cubical complex
         # returns from an ordinary call (A.12).
         (-math.inf, 1.0),
@@ -4337,8 +4337,8 @@ def test_every_adapter_refuses_invalid_coordinates(
 @pytest.mark.xfail(
     strict=True,
     raises=ValueError,
-    reason="RFC-0001's current revision admits primordial bars and a bar born at "
-    "+inf (I4, I10, D27); the "
+    reason="RFC-0001's current revision admits bars born at -inf and a bar born "
+    "at +inf (I4, I10, D27); the "
     "writer is held at the revision io._SPEC_VERSION names, and "
     "io._SPEC_VERSION_GAP says why. Remove this marker when core.py moves.",
 )

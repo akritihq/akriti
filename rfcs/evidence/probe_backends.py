@@ -7,7 +7,7 @@ Sections A.1-A.4 measured 2026-07-29 with gudhi 3.11.0, ripser 0.6.14,
 persim 0.3.8, giotto-tda 0.6.2, numpy 2.4.4, scikit-learn 1.8.0,
 Python 3.12.11.
 
-A.4's primordial and both-infinite rows were added and measured 2026-09-10 with
+A.4's `-inf`-birth and both-infinite rows were added and measured 2026-09-10 with
 persim 0.3.8, numpy 2.5.1, Python 3.14.6, and its three `(+inf, +inf)` rows
 (RFC-0001 D27) on 2026-09-13 in the same environment. The four rows that
 predate them are unchanged from the 2026-07-29 run.
@@ -49,7 +49,7 @@ A4_RTOL = 1e-12
 A4_ATOL = 1e-12
 DGM1_WARNING = "dgm1 has points with non-finite death times;ignoring those points"
 DGM2_WARNING = "dgm2 has points with non-finite death times;ignoring those points"
-#: numpy's, not persim's. On a pair of primordial bars persim subtracts one
+#: numpy's, not persim's. On a pair of bars born at -inf persim subtracts one
 #: -inf birth from another; this is the only diagnostic emitted on that path
 #: (RFC-0001 A.4). Its wording is numpy's and may move; the point measured is
 #: that no persim UserWarning accompanies it.

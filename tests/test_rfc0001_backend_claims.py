@@ -216,7 +216,7 @@ def test_persim_guard_reads_deaths_and_never_births() -> None:
     """
     persim = pytest.importorskip("persim")
 
-    primordial = np.array([[-np.inf, 0.5], [0.1, 0.5]])
+    neginf_birth = np.array([[-np.inf, 0.5], [0.1, 0.5]])
     both_infinite = np.array([[-np.inf, np.inf], [0.1, 0.5]])
     all_finite = np.array([[0.0, 1.0], [0.1, 0.5]])
 
@@ -227,7 +227,7 @@ def test_persim_guard_reads_deaths_and_never_births() -> None:
     # A `-inf` birth with a finite death is not seen at all.
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
-        persim.bottleneck(primordial, primordial)
+        persim.bottleneck(neginf_birth, neginf_birth)
     assert not [w for w in caught if w.category is UserWarning], (
         "persim now warns about non-finite births. If it also drops them, the "
         "third class in RFC-0001 §9.1 has become the first -- re-measure A.4."
@@ -236,7 +236,7 @@ def test_persim_guard_reads_deaths_and_never_births() -> None:
 
 @pytest.mark.backend
 @pytest.mark.distances
-def test_persim_returns_nan_between_identical_primordial_diagrams() -> None:
+def test_persim_returns_nan_between_identical_neginf_birth_diagrams() -> None:
     """RFC-0001 §9.1 / A.4: the failure that is worse than a wrong number.
 
     A `(-inf, finite)` bar reaches persim's cost matrix, where its birth is
@@ -251,27 +251,27 @@ def test_persim_returns_nan_between_identical_primordial_diagrams() -> None:
     """
     persim = pytest.importorskip("persim")
 
-    primordial = np.array([[-np.inf, 0.5], [0.1, 0.5]])
+    neginf_birth = np.array([[-np.inf, 0.5], [0.1, 0.5]])
     moved = np.array([[-np.inf, 2.0], [0.1, 0.5]])
 
     with warnings.catch_warnings():
         warnings.simplefilter("ignore", RuntimeWarning)
-        against_itself = persim.bottleneck(primordial, primordial)
-        against_moved = persim.bottleneck(primordial, moved)
+        against_itself = persim.bottleneck(neginf_birth, neginf_birth)
+        against_moved = persim.bottleneck(neginf_birth, moved)
 
     assert np.isnan(against_itself), (
         "persim no longer returns nan for a diagram against itself. If it "
         "returns 0.0, upstream has fixed the hazard in RFC-0001 §9.1 -- update "
         "the spec, A.4, and simplify core/distances.py."
     )
-    # The correct answer is |0.5 - 2.0| = 1.5: primordial bars pair by sorted
+    # The correct answer is |0.5 - 2.0| = 1.5: bars born at -inf pair by sorted
     # death, their births agreeing at -inf (RFC-0001 §9.1).
     assert np.isnan(against_moved)
 
 
 @pytest.mark.backend
 @pytest.mark.distances
-def test_persim_wasserstein_raises_on_a_primordial_bar() -> None:
+def test_persim_wasserstein_raises_on_a_bar_born_at_neginf() -> None:
     """RFC-0001 §9.1 / A.4: the two delegates fail differently on one class.
 
     `bottleneck` returns `nan` where `wasserstein` raises. §9.1's partition,
@@ -281,11 +281,11 @@ def test_persim_wasserstein_raises_on_a_primordial_bar() -> None:
     """
     persim = pytest.importorskip("persim")
 
-    primordial = np.array([[-np.inf, 0.5], [0.1, 0.5]])
+    neginf_birth = np.array([[-np.inf, 0.5], [0.1, 0.5]])
     all_finite = np.array([[0.0, 1.0], [0.1, 0.5]])
 
     with pytest.raises(ValueError, match=r"[Ii]nfinity"):
-        persim.wasserstein(primordial, all_finite)
+        persim.wasserstein(neginf_birth, all_finite)
 
 
 @pytest.mark.backend

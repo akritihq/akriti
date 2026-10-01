@@ -42,6 +42,13 @@ only what transfers to the next document.
   documenting the exception leaves the trap in place and puts the warning where
   a reader who trusts the name will never look. RFC-0001's `d.finite` is the
   worked case (D26).
+- **A term the field does not use is described, not defined.** Before a word
+  gets a bold definition, search the literature for it; if it is not there,
+  write what the object is and name identifiers after that description. A
+  coined noun defined beside an established one reads as borrowed vocabulary,
+  and the first reader to look it up finds nothing. RFC-0001 coined
+  "primordial" for a bar born at `-inf`; it reached §2 and 67 lines of the RFC
+  in #69 before anyone searched for it.
 - **A specification states what holds, not how it came to hold.** Which
   commit refused a key, what the writer implemented first, what closed a
   window from when: that is process narrative, and it goes stale the moment
