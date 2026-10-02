@@ -23,6 +23,7 @@ import hashlib
 import json
 import math
 import struct
+import warnings
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+import akriti.diagrams.io as diagrams_io
 from akriti.diagrams import (
     DiagramBatch,
     DiagramMeta,
@@ -584,7 +586,9 @@ def test_s3_2_there_is_no_finite_mask_accessor() -> None:
 #    of the other two's union".
 #   §4.3: "b.finite  # -> bool mask, shape (total_bars,), ~(essential | neginf_birth)".
 #   §5: "d.finitize_deaths(at="max_finite_death")   # or at=<float>, or at="drop"
-#        d.finitize_births(at="min_finite_birth")   # or at=<float>, or at="drop"".
+#        d.finitize_births(at="min_finite_birth")   # or at=<float>, or at="drop"",
+#    and "`finitize` is `finitize_deaths`'s former name, and an implementation
+#    MUST keep it as an alias that emits a `DeprecationWarning`".
 #
 # The declared gap between document and writer, as failing tests rather than
 # only as a string in `io.py`: a green suite must not read as conformance to
@@ -639,9 +643,105 @@ def test_the_1_4_0_surface_does_not_yet_exist_finitize_births() -> None:
 
 
 @_NOT_YET_1_4_0
-def test_the_1_4_0_surface_does_not_yet_exist_finitize_is_renamed() -> None:
-    """§5 names two functions and neither is `finitize`."""
-    assert not hasattr(PersistenceDiagram, "finitize")
+def test_the_1_4_0_surface_does_not_yet_exist_finitize_is_a_deprecated_alias() -> None:
+    """§5: "`finitize` is `finitize_deaths`'s former name, and an
+    implementation MUST keep it as an alias that emits a `DeprecationWarning`
+    naming `finitize_deaths` on every call"."""
+    d = tagged()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        via_alias = d.finitize(at="drop")
+    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert deprecations, "finitize must warn that it is deprecated"
+    assert "finitize_deaths" in str(deprecations[0].message)
+    via_name = d.finitize_deaths(at="drop")
+    assert via_alias == via_name
+    assert via_alias.same_provenance(via_name)
+
+
+# --------------------------------------------------------------------------
+# §5 and §8 at 1.4.0 -- the tally rule, which reverses a check
+#
+#   §5: "A substitution MUST leave a count it finds standing".
+#   §8: "a key that tallies is not a qualifier and MUST NOT be dropped with
+#    one".
+#
+# Unlike the block above, this is not a name the 1.2.0 writer lacks but a
+# check it enforces and 1.4.0 weakens: `DiagramMeta` refuses a `*_dropped`
+# count beside `"finitized_at"`, and
+# `test_drop_then_substitute_clears_the_stale_count` in
+# `tests/test_rfc0001_diagram_contract.py` asserts the count is removed. So
+# the markers are narrower than `_NOT_YET_1_4_0`, which tolerates an
+# `AssertionError` and would therefore keep xfailing against an implementation
+# that drops the count. The first tolerates only the `AttributeError` of a
+# missing `finitize_deaths`, so the moment that name exists, a kept 1.2.0
+# check (`ValueError`) or a dropped count (`AssertionError`) fails the build.
+# The second tolerates the 1.2.0 check's `ValueError` only while the writer is
+# held below the revision that weakened it, so it cannot be left behind when
+# `io._SPEC_VERSION` moves.
+# --------------------------------------------------------------------------
+
+_NO_FINITIZE_DEATHS_YET = pytest.mark.xfail(
+    strict=True,
+    raises=AttributeError,
+    reason="finitize_deaths does not exist until core.py implements RFC-0001 "
+    "D28; io._SPEC_VERSION_GAP says why the writer is held. Remove this marker "
+    "when core.py moves.",
+)
+
+
+def _implemented_version() -> tuple[int, ...]:
+    return tuple(int(part) for part in diagrams_io._SPEC_VERSION.split("."))
+
+
+_TALLY_CHECK_NOT_YET_WEAKENED = pytest.mark.xfail(
+    condition=_implemented_version() < (1, 4, 0),
+    strict=True,
+    raises=ValueError,
+    reason="the writer enforces the revision io._SPEC_VERSION names, whose "
+    "DiagramMeta refuses a *_dropped count beside 'finitized_at'; RFC-0001 "
+    "§8's tally rule admits it from the revision that made the counts tallies.",
+)
+
+
+@_NO_FINITIZE_DEATHS_YET
+def test_the_1_4_0_substitution_leaves_a_count_standing() -> None:
+    """§5: a drop that left a bar on the mask, then a substitution over it.
+
+    The drop is the one `finitize_births(at="drop")` performs when it takes a
+    `(-inf, +inf)` bar off the `essential` mask and leaves a `(0, +inf)` one;
+    no bar born at -inf constructs at 1.2.0, so its record is built directly.
+    """
+    d = diagram(
+        dims=[0, 0],
+        births=[0.0, 0.25],
+        deaths=[math.inf, 0.75],
+        meta=DiagramMeta(
+            provenance={
+                "essential_bars": "finitized_dropped",
+                "essential_bars_dropped": 1,
+            }
+        ),
+    )
+    substituted = d.finitize_deaths(at=2.0)
+    provenance = substituted.meta.provenance
+    assert provenance["essential_bars"] == "finitized_at"
+    assert provenance["essential_bars_finitized_at"] == 2.0
+    assert provenance["essential_bars_dropped"] == 1
+
+
+@_TALLY_CHECK_NOT_YET_WEAKENED
+def test_the_1_4_0_tally_may_stand_beside_finitized_at() -> None:
+    """§8: "the one value it may legitimately sit beside other than its own is
+    `"finitized_at"`, the drop-then-substitute order §5 admits"."""
+    meta = DiagramMeta(
+        provenance={
+            "essential_bars": "finitized_at",
+            "essential_bars_finitized_at": 2.0,
+            "essential_bars_dropped": 1,
+        }
+    )
+    assert meta.provenance["essential_bars_dropped"] == 1
 
 
 # --------------------------------------------------------------------------

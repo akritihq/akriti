@@ -664,8 +664,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     # One diagram per class of RFC-0001 §9.1's partition, each carrying the
     # same finite bar so the classes are what differ between rows.
     ess_d = np.array([[0.0, np.inf], [0.1, 0.5]])  # (finite, +inf)
-    pri_d = np.array([[-np.inf, 0.5], [0.1, 0.5]])  # (-inf, finite)
-    pri_e = np.array([[-np.inf, 2.0], [0.1, 0.5]])  # (-inf, finite), moved
+    neg_d = np.array([[-np.inf, 0.5], [0.1, 0.5]])  # (-inf, finite)
+    neg_e = np.array([[-np.inf, 2.0], [0.1, 0.5]])  # (-inf, finite), moved
     both_d = np.array([[-np.inf, np.inf], [0.1, 0.5]])  # (-inf, +inf)
     top_d = np.array([[np.inf, np.inf], [0.1, 0.5]])  # (+inf, +inf), D27
     fin_d = np.array([[0.0, 1.0], [0.1, 0.5]])  # (finite, finite)
@@ -768,9 +768,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "inf",
         ),
         A4Case(
-            "pri vs itself",
-            pri_d,
-            pri_d,
+            "neg vs itself",
+            neg_d,
+            neg_d,
             NAN,
             subtracted,
             ValueError,
@@ -778,9 +778,9 @@ def main(argv: Sequence[str] | None = None) -> int:
             "0.0",
         ),
         A4Case(
-            "pri vs pri'",
-            pri_d,
-            pri_e,
+            "neg vs neg'",
+            neg_d,
+            neg_e,
             NAN,
             subtracted,
             ValueError,
@@ -788,8 +788,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             "1.5",
         ),
         A4Case(
-            "pri vs finite",
-            pri_d,
+            "neg vs finite",
+            neg_d,
             fin_d,
             np.inf,
             silent,

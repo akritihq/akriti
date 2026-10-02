@@ -417,6 +417,17 @@ def test_metadata_accepts_ordinary_non_ascii() -> None:
 
 
 # -- §5 finitize keeps provenance consistent across calls -----------------
+#
+# `test_drop_then_substitute_clears_the_stale_count` pins the 1.2.0 writer
+# (`io._SPEC_VERSION_GAP`), and 1.4.0 reverses it: the `*_dropped` keys are
+# tallies there, and "A substitution MUST leave a count it finds standing"
+# (§5, §8). Its replacement is
+# `test_the_1_4_0_substitution_leaves_a_count_standing` in
+# `tests/test_rfc0001_review_clauses.py`, whose marker is narrow enough that a
+# 1.4.0 `core.py` keeping this test's behaviour fails the build. The other
+# tests here state rules 1.4.0 keeps for `finitize_deaths`, and move to that
+# name when `core.py` does, `finitize` then being a deprecated alias that
+# warns (§5).
 
 
 def test_drop_then_substitute_clears_the_stale_count(

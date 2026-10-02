@@ -39,6 +39,10 @@ them fails this script rather than reaching a reviewer.
      dies and one that died when the +inf cell entered, which
      `cofaces_of_persistence_pairs()` still tells apart and the bars do not.
      Its pair structure is gated against the finite wall `[0, 5, 0]`'s.
+     A `SimplexTree` with one vertex entering at +inf beside a finite
+     component returns `(inf, inf)` next to a finite death, and the rank of
+     H_0(K_t) at a finite t is measured on it: the bar is in no finite K_t,
+     which is what §5's statement of the essential count has to account for.
   B. Whether any Python backend RFC-0001 adapts offers a sublevel/superlevel
      switch, which is what decides how narrowly §11's `filtration_direction`
      argument has to be scoped. Every entry point §11 names is inspected, not
@@ -61,7 +65,8 @@ conclusion. The all-+inf and all--inf grids, ripser's `lower_star_img` rows and
 the giotto row were added and measured 2026-09-13 with gudhi 3.13.0, ripser
 0.6.15, numpy 2.5.1, Python 3.14.6, and the sklearn `CubicalPersistence` batch
 row, `peak`'s pair structure and `lower_star_img` row, and the `persistence()`
-parameter sweep on 2026-09-16 in that environment; the giotto row in the
+parameter sweep on 2026-09-16 in that environment, and the `SimplexTree` row
+on 2026-10-01 in that environment; the giotto row in the
 environment CI's `rfc-evidence` job builds -- giotto-tda 0.6.2, scikit-learn
 1.9.1, numpy 2.5.3, Python 3.12.13.
 
@@ -183,6 +188,24 @@ READING_GRIDS: dict[str, tuple[list[float], dict[float, Bars]]] = {
         {0.0: [(0, -INF, INF)], -1.0: [(0, -INF, INF), (0, 0.0, 0.0)]},
     ),
 }
+
+# A complex that takes +inf without being *only* +inf: two vertices at 0.0
+# joined by an edge at 1.0, and a third vertex entering at +inf, built through
+# `SimplexTree`, one of `from_gudhi`'s input forms. Its `(inf, inf)` bar sits
+# beside a finite death, which is what §11.2 needs to reach §5's bound in
+# `at="max_finite_death"` mode; and its two essential bars exceed the rank of
+# H_0(K_t) at a finite t past the last finite value, which is one -- the case
+# §5's statement of what the essential count is the rank of is written against.
+SIMPLEX_TREE_TOP: list[tuple[list[int], float]] = [
+    ([0], 0.0),
+    ([1], 0.0),
+    ([0, 1], 1.0),
+    ([2], INF),
+]
+EXPECTED_SIMPLEX_TREE_TOP: Bars = [(0, 0.0, INF), (0, 0.0, 1.0), (0, INF, INF)]
+# Past the last finite value, so K_t is everything but the +inf vertex.
+SIMPLEX_TREE_FINITE_T = 1.5
+EXPECTED_RANK_AT_FINITE_T = 1
 
 # What a level-set orientation switch would be called. Fragments are matched
 # as substrings; the short words only as a whole `_`-separated token, because
@@ -346,6 +369,46 @@ def section_a() -> None:
     print("   => the same one paired class and one essential cell either way: on")
     print("      peak, one of the two (0.0, inf) bars died when the +inf cell")
     print("      entered, and is written like the class that never dies.\n")
+
+    print("   GUDHI SimplexTree, a +inf vertex beside a finite component (§5)\n")
+    tree = gudhi.SimplexTree()
+    for simplex, value in SIMPLEX_TREE_TOP:
+        tree.insert(simplex, filtration=value)
+    bars = [
+        (int(dim), float(birth), float(death))
+        for dim, (birth, death) in tree.persistence(homology_coeff_field=2)
+    ]
+    _require(
+        bars == EXPECTED_SIMPLEX_TREE_TOP,
+        "A.12",
+        f"GUDHI's SimplexTree bars changed: {bars!r}, "
+        f"expected {EXPECTED_SIMPLEX_TREE_TOP!r}",
+    )
+    # K_t itself, built rather than read off the bars, so the rank is measured.
+    k_t = gudhi.SimplexTree()
+    for simplex, value in SIMPLEX_TREE_TOP:
+        if value <= SIMPLEX_TREE_FINITE_T:
+            k_t.insert(simplex, filtration=value)
+    k_t.compute_persistence(homology_coeff_field=2)
+    rank = k_t.betti_numbers()[0]
+    essential_count = sum(1 for _, _, death in bars if death == INF)
+    _require(
+        rank == EXPECTED_RANK_AT_FINITE_T,
+        "A.12",
+        f"rank of H_0(K_t) at t = {SIMPLEX_TREE_FINITE_T} changed: {rank}, "
+        f"expected {EXPECTED_RANK_AT_FINITE_T}",
+    )
+    print(f"   {SIMPLEX_TREE_TOP}")
+    for dim, birth, death in bars:
+        print(
+            f"      dim {dim}  birth {birth!r:>7}  death {death!r:>7}  "
+            f"{shape(birth, death):<18} {verdict_as_of_1_2_x(birth, death)}"
+        )
+    print(
+        f"   => {essential_count} bars with death == +inf; rank of H_0(K_t) at "
+        f"t = {SIMPLEX_TREE_FINITE_T} is {rank}. The (inf, inf) bar is in no"
+    )
+    print("      K_t with finite t, so the essential count is that rank plus one.\n")
 
     try:
         import ripser

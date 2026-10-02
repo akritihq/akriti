@@ -26,8 +26,8 @@ only what transfers to the next document.
   admits, and the way to check one is to name an object the evidence base does
   not contain.** Ask what the evidence base is made of, then name something it
   is not made of; the object need not exist yet. RFC-0001's I4 is the worked
-  case (D27, #44), and the revision that fixed it failed the same check on its
-  first review (changelog entry 79).
+  case (D27, #44), and the revision that fixed it failed the same check, which
+  its fourth review pass caught (commit 455d39b).
 
 ## Writing
 

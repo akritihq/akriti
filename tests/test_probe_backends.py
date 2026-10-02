@@ -228,7 +228,7 @@ def test_warning_gate_fails_diagnostically_before_indexing_an_empty_list() -> No
 
 
 def test_warning_gate_requires_silence_where_silence_was_measured() -> None:
-    """RFC-0001 A.4's `pri vs finite` row measures no warning at all.
+    """RFC-0001 A.4's `neg vs finite` row measures no warning at all.
 
     An unexpected warning is drift in the same way a missing one is: it would
     mean persim had started diagnosing a class it currently passes over.
