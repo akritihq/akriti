@@ -23,6 +23,7 @@ import hashlib
 import json
 import math
 import struct
+import warnings
 import zipfile
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+import akriti.diagrams.io as diagrams_io
 from akriti.diagrams import (
     DiagramBatch,
     DiagramMeta,
@@ -49,13 +51,13 @@ RFC_PATH = (
 )
 
 #: The document version: RFC-0001's Version row. The review pass landed
-#: 1.1.0; #48 moved the patch and #54 the minor. This literal is the
-#: independent witness the tests below compare the document against, so it
-#: moves by hand with every bump, and tests/test_rfc0001_spec_version_pins.py
-#: fails until it does. It is not necessarily what ``save`` writes: §10.2's
-#: ``spec_version`` is the revision the writer implemented, which may trail
-#: this one.
-SPEC_VERSION = "1.2.0"
+#: 1.1.0; #48 moved the patch, #54 the minor, #44 the minor again and D28 the
+#: minor once more. This literal is the independent witness the tests below
+#: compare the document against, so it moves by hand with every bump, and
+#: tests/test_rfc0001_spec_version_pins.py fails until it does. It is not
+#: necessarily what ``save`` writes: §10.2's ``spec_version`` is the revision
+#: the writer implemented, which may trail this one.
+SPEC_VERSION = "1.3.0"
 
 
 def diagram(
@@ -410,7 +412,11 @@ def test_s3_2_batch_item_carries_the_members_own_meta() -> None:
 
 
 # --------------------------------------------------------------------------
-# §3.2 -- N3.2-2, N3.2-3: ``d.finite`` MUST record the drop it performs
+# §3.2 at 1.2.0 -- ``d.finite`` MUST record the drop it performs
+#
+# **Every test from here to the 1.3.0 block below pins the 1.2.0 writer**
+# (``io._SPEC_VERSION_GAP``), not the document. The clauses quoted are
+# 1.2.0's, under the ids 1.2.0's Appendix C gave them:
 #
 #   N3.2-2: "`d.finite` MUST record the drop it performs, on exactly the terms
 #    §5 sets for `finitize(at="drop")`: `provenance["essential_bars"] =
@@ -419,6 +425,12 @@ def test_s3_2_batch_item_carries_the_members_own_meta() -> None:
 #    untouched."
 #   N3.2-3: "The two produce the same diagram bar for bar, so they MUST produce
 #    the same provenance."
+#
+# RFC-0001 1.3.0 (D28) retires every one of them: ``d.finite`` is a bool mask,
+# ``finitize`` is ``finitize_deaths``, and what the diagram-valued drop
+# records is §5's, under the record-follows-the-bars rule. When ``core.py``
+# moves, this block goes and the strict xfails in
+# ``test_the_1_3_0_surface_does_not_yet_exist`` below flip first.
 # --------------------------------------------------------------------------
 
 
@@ -524,15 +536,19 @@ def test_s3_2_finite_is_idempotent_without_a_false_second_claim() -> None:
 
 
 # --------------------------------------------------------------------------
-# §3.2 -- ``d.essential`` and ``d.finite`` are not complements
+# §3.2 at 1.2.0 -- ``d.essential`` and ``d.finite`` are not complements
 #
-# Entry 74: "§3.2 states that `d.essential` and `d.finite` are not
-# complements."
+# Still the 1.2.0 writer. Entry 74: "§3.2 states that `d.essential` and
+# `d.finite` are not complements."
 #
 #   "`d.essential` is a **mask** over bars, shape `(n_bars,)`; `d.finite` is a
 #    **diagram**. The complement of `d.essential` is `~d.essential`, another
 #    mask, and that is the mask `d.finite` selects on".
 #   "There is no `d.finite_mask` and none is needed".
+#
+# 1.3.0 keeps the first sentence's *fact* -- `~d.essential` is not the finite
+# mask -- and reverses the type: `d.finite` is the mask, and there is no
+# `finite_mask` because `finite` is one (D28).
 # --------------------------------------------------------------------------
 
 
@@ -560,6 +576,172 @@ def test_s3_2_finite_selects_on_the_complement_of_essential() -> None:
 def test_s3_2_there_is_no_finite_mask_accessor() -> None:
     """ "There is no `d.finite_mask` and none is needed"."""
     assert not hasattr(PersistenceDiagram, "finite_mask")
+
+
+# --------------------------------------------------------------------------
+# §3.2, §4.3, §5 at 1.3.0 -- the surface D28 specifies, as strict xfails
+#
+#   N3.2-1: "`d.essential`, `d.neginf_birth` and `d.finite` are three masks
+#    over bars with shape `(n_bars,)`, and `d.finite` MUST be the complement
+#    of the other two's union".
+#   §4.3: "b.finite  # -> bool mask, shape (total_bars,), ~(essential | neginf_birth)".
+#   §5: "d.finitize_deaths(at="max_finite_death")   # or at=<float>, or at="drop"
+#        d.finitize_births(at="min_finite_birth")   # or at=<float>, or at="drop"",
+#    and "`finitize` is `finitize_deaths`'s former name, and an implementation
+#    MUST keep it as an alias that emits a `DeprecationWarning`".
+#
+# The declared gap between document and writer, as failing tests rather than
+# only as a string in `io.py`: a green suite must not read as conformance to
+# a revision it does not implement. Each is built on the 1.2.0-constructible
+# surface -- no bar born at -inf, so I5 admits every fixture -- because what is
+# being pinned is the *type* of the accessor and the *names* of the two
+# functions, which the 1.2.0 writer gets wrong on any diagram at all.
+# --------------------------------------------------------------------------
+
+_NOT_YET_1_3_0 = pytest.mark.xfail(
+    strict=True,
+    raises=(AssertionError, AttributeError),
+    reason="RFC-0001's current revision (D28) makes d.finite a bool mask, adds "
+    "b.finite and splits finitize into finitize_deaths and finitize_births; "
+    "the writer is "
+    "held at the revision io._SPEC_VERSION names, and io._SPEC_VERSION_GAP "
+    "says why. Remove this marker when core.py moves.",
+)
+
+
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_finite_is_a_mask() -> None:
+    d = sample()
+    mask = np.asarray(d.finite)
+    assert mask.dtype == np.bool_
+    assert mask.shape == (d.n_bars,)
+    expected = ~(np.asarray(d.essential) | ~np.isfinite(np.asarray(d.births)))
+    np.testing.assert_array_equal(mask, expected)
+
+
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_batch_finite() -> None:
+    b = batch_of(sample(), sample())
+    mask = np.asarray(b.finite)
+    assert mask.dtype == np.bool_
+    assert mask.shape == (int(b.dims.shape[0]),)
+
+
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_finitize_deaths() -> None:
+    d = tagged()
+    dropped = d.finitize_deaths(at="drop")
+    assert dropped.meta.provenance["essential_bars"] == "finitized_dropped"
+
+
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_finitize_births() -> None:
+    d = sample()
+    # No bar born at -inf is constructible at 1.2.0, so the one 1.3.0 behaviour
+    # reachable here is §5's return-unchanged rule.
+    assert d.finitize_births(at="drop") == d
+
+
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_finitize_is_a_deprecated_alias() -> None:
+    """§5: "`finitize` is `finitize_deaths`'s former name, and an
+    implementation MUST keep it as an alias that emits a `DeprecationWarning`
+    naming `finitize_deaths` on every call"."""
+    d = tagged()
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always")
+        via_alias = d.finitize(at="drop")
+    deprecations = [w for w in caught if issubclass(w.category, DeprecationWarning)]
+    assert deprecations, "finitize must warn that it is deprecated"
+    assert "finitize_deaths" in str(deprecations[0].message)
+    via_name = d.finitize_deaths(at="drop")
+    assert via_alias == via_name
+    assert via_alias.same_provenance(via_name)
+
+
+# --------------------------------------------------------------------------
+# §5 and §8 at 1.3.0 -- the tally rule, which reverses a check
+#
+#   §5: "A substitution MUST leave a count it finds standing".
+#   §8: "a key that tallies is not a qualifier and MUST NOT be dropped with
+#    one".
+#
+# Unlike the block above, this is not a name the 1.2.0 writer lacks but a
+# check it enforces and 1.3.0 weakens: `DiagramMeta` refuses a `*_dropped`
+# count beside `"finitized_at"`, and
+# `test_drop_then_substitute_clears_the_stale_count` in
+# `tests/test_rfc0001_diagram_contract.py` asserts the count is removed. So
+# the markers are narrower than `_NOT_YET_1_3_0`, which tolerates an
+# `AssertionError` and would therefore keep xfailing against an implementation
+# that drops the count. The first tolerates only the `AttributeError` of a
+# missing `finitize_deaths`, so the moment that name exists, a kept 1.2.0
+# check (`ValueError`) or a dropped count (`AssertionError`) fails the build.
+# The second tolerates the 1.2.0 check's `ValueError` only while the writer is
+# held below the revision that weakened it, so it cannot be left behind when
+# `io._SPEC_VERSION` moves.
+# --------------------------------------------------------------------------
+
+_NO_FINITIZE_DEATHS_YET = pytest.mark.xfail(
+    strict=True,
+    raises=AttributeError,
+    reason="finitize_deaths does not exist until core.py implements RFC-0001 "
+    "D28; io._SPEC_VERSION_GAP says why the writer is held. Remove this marker "
+    "when core.py moves.",
+)
+
+
+def _implemented_version() -> tuple[int, ...]:
+    return tuple(int(part) for part in diagrams_io._SPEC_VERSION.split("."))
+
+
+_TALLY_CHECK_NOT_YET_WEAKENED = pytest.mark.xfail(
+    condition=_implemented_version() < (1, 4, 0),
+    strict=True,
+    raises=ValueError,
+    reason="the writer enforces the revision io._SPEC_VERSION names, whose "
+    "DiagramMeta refuses a *_dropped count beside 'finitized_at'; RFC-0001 "
+    "§8's tally rule admits it from the revision that made the counts tallies.",
+)
+
+
+@_NO_FINITIZE_DEATHS_YET
+def test_the_1_3_0_substitution_leaves_a_count_standing() -> None:
+    """§5: a drop that left a bar on the mask, then a substitution over it.
+
+    The drop is the one `finitize_births(at="drop")` performs when it takes a
+    `(-inf, +inf)` bar off the `essential` mask and leaves a `(0, +inf)` one;
+    no bar born at -inf constructs at 1.2.0, so its record is built directly.
+    """
+    d = diagram(
+        dims=[0, 0],
+        births=[0.0, 0.25],
+        deaths=[math.inf, 0.75],
+        meta=DiagramMeta(
+            provenance={
+                "essential_bars": "finitized_dropped",
+                "essential_bars_dropped": 1,
+            }
+        ),
+    )
+    substituted = d.finitize_deaths(at=2.0)
+    provenance = substituted.meta.provenance
+    assert provenance["essential_bars"] == "finitized_at"
+    assert provenance["essential_bars_finitized_at"] == 2.0
+    assert provenance["essential_bars_dropped"] == 1
+
+
+@_TALLY_CHECK_NOT_YET_WEAKENED
+def test_the_1_3_0_tally_may_stand_beside_finitized_at() -> None:
+    """§8: "the one value it may legitimately sit beside other than its own is
+    `"finitized_at"`, the drop-then-substitute order §5 admits"."""
+    meta = DiagramMeta(
+        provenance={
+            "essential_bars": "finitized_at",
+            "essential_bars_finitized_at": 2.0,
+            "essential_bars_dropped": 1,
+        }
+    )
+    assert meta.provenance["essential_bars_dropped"] == 1
 
 
 # --------------------------------------------------------------------------
@@ -937,9 +1119,7 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 # --------------------------------------------------------------------------
 # §10.2 -- the document is SPEC_VERSION, and ``save`` writes no later one
 #
-# Entry 76: "the document becomes 1.1.0 ... `io.py`'s `_SPEC_VERSION` and the
-# four `spec_version` pins in the I/O tests follow." Quoted as written; the
-# document has moved twice since, and entry 78 records the minor.
+# §10.2 defines `spec_version` as which revision *the writer implemented*.
 #
 #   "`spec_version` | `str` | Which revision of that specification the writer
 #   implemented, ... `"x.y.z"` at time of writing."
@@ -1654,7 +1834,8 @@ def test_appendix_c_ids_are_unique() -> None:
 # §12 -- the header loses the clause contradicting the same sentence
 #
 # Entry 68: "§12's header loses a clause contradicting the same sentence."
-# Entry 71 opened D24; entry 75 closed it, so §12.1 now carries one row.
+# Entry 71 opened D24; entry 75 closed it. Entry 79 settled D27 and entry 80
+# D28 without opening anything, so §12.1 still carries one row.
 # --------------------------------------------------------------------------
 
 

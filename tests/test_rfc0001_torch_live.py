@@ -76,6 +76,8 @@ def test_torch_from_array_and_d18_accessors_use_the_resolved_namespace() -> None
         == ([0, 0], [0.0, 0.1], [float("inf"), 0.4])
     )
 
+    # Pins the 1.2.0 writer (`io._SPEC_VERSION_GAP`): at 1.3.0 `finite` is a
+    # mask (D28) and the comparison below is over the masked arrays instead.
     finite = diagram.finite
     reference_finite = reference.finite
     assert (

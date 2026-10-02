@@ -22,6 +22,12 @@ only what transfers to the next document.
 - **A wrong figure inside a review finding is the one least likely to be
   recomputed before it is written down.** Re-measure the findings, not just the
   document.
+- **A rationale reading "definitional" is a claim about every object the type
+  admits, and the way to check one is to name an object the evidence base does
+  not contain.** Ask what the evidence base is made of, then name something it
+  is not made of; the object need not exist yet. RFC-0001's I4 is the worked
+  case (D27, #44), and the revision that fixed it failed the same check, which
+  its fourth review pass caught.
 
 ## Writing
 
@@ -31,6 +37,38 @@ only what transfers to the next document.
   passing by the branch that depends on it.
 - **Fix the class a finding belongs to, not the instance it named.**
 - **A trap a reader cannot see becomes a standing regression test, not prose.**
+- **A name is not a place to put a caveat.** Where an accessor's name promises
+  something its result no longer delivers, widen the operation or rename it;
+  documenting the exception leaves the trap in place and puts the warning where
+  a reader who trusts the name will never look. RFC-0001's `d.finite` is the
+  worked case (D26, then D28).
+- **A term the field does not use is described, not defined.** Before a word
+  gets a bold definition, search the literature for it; if it is not there,
+  write what the object is and name identifiers after that description. A
+  coined noun defined beside an established one reads as borrowed vocabulary,
+  and the first reader to look it up finds nothing. RFC-0001 coined
+  "primordial" for a bar born at `-inf`; it reached §2 and 67 lines of the RFC
+  in #69 before anyone searched for it.
+- **When one member of a name-family differs in type from the others, the
+  prose spent warning readers is the cost of the type, not of the name.**
+  `d.essential` and `d.neginf_birth` were masks and `d.finite` a diagram; §3.2
+  needed two paragraphs saying the three were not the same kind of thing,
+  §3.3 a caveat that a layer could not call it, and §4.3 a stated gap. Ask
+  which consumers actually want the odd type out before paying to explain it
+  (D28).
+- **"None is needed: that expression is two operators" is a claim about the
+  current width of the type.** RFC-0001 §3.2 refused a `finite_mask` on that
+  ground when the expression was `~d.essential`; in a draft of the next
+  revision it was `~(d.essential | d.neginf_birth)` and the sentence had been
+  edited to say "two operators" instead of one. Test a "trivially derivable"
+  refusal against the next widening, not the current one.
+- **A specification states what holds, not how it came to hold.** Which
+  commit refused a key, what the writer implemented first, what closed a
+  window from when: that is process narrative, and it goes stale the moment
+  the next version lands, when the reader has no earlier one to compare
+  against. It belongs in the changelog, the commit or a code comment; the body
+  carries the rule and the residual. RFC-0001 §8's reserved-key paragraph is
+  the worked case.
 - **Tables are for genuinely short, structured data.**
 - **D-numbers are stable identifiers, not a dense sequence.** Do not renumber
   to close a gap.

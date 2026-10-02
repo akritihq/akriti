@@ -28,7 +28,29 @@ _SPEC_VERSION = "1.2.0"
 # document's: when a revision widens a requirement core.py does not yet
 # enforce, _SPEC_VERSION stays behind and this says why. Checked by
 # tests/test_rfc0001_spec_version_pins.py.
-_SPEC_VERSION_GAP: str | None = None
+_SPEC_VERSION_GAP: str | None = (
+    "RFC-0001 1.3.0 (D25, D27, D28) is not implemented, and core.py still "
+    "enforces 1.2.0. Two of the differences are checks this writer enforces "
+    "and 1.3.0 weakens, not names it lacks: I4 "
+    "and I5 refuse every infinite birth where 1.3.0 admits -inf births and "
+    "(+inf, +inf) (pinned by tests/test_rfc0001_adapters.py::"
+    "test_the_1_3_0_surface_is_not_yet_constructible), and DiagramMeta "
+    "refuses a *_dropped count beside 'finitized_at' where 1.3.0 makes those "
+    "counts tallies (pinned by the tally xfails in "
+    "tests/test_rfc0001_review_clauses.py). The rest is surface that does "
+    "not exist yet: d.neginf_birth and d.source_coordinates(); "
+    "filtration_direction, taken by from_persim and from_array, recorded by "
+    "every adapter and validated by DiagramMeta; to_csv/to_parquet's "
+    "coordinates=; exact -inf matching in allclose; d.finite as a bool mask "
+    "and b.finite; and finitize split into finitize_deaths and "
+    "finitize_births, finitize kept as a deprecated alias, with a drop in "
+    "either recording under both key sets. Stamping 1.3.0 would claim a "
+    "conformance this writer does not have. The adapters already refuse the "
+    "1.3.0 provenance keys from callers "
+    "(adapters._ADAPTER_OWNED_PROVENANCE); the constructor does not, so a "
+    "hand-built diagram can still carry any of them into a file this writer "
+    "stamps."
+)
 _FORMAT_VERSION = 0
 _META_FIELDS = (
     "filtration",
