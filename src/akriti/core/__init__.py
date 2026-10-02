@@ -5,8 +5,10 @@ and PALACE lives here rather than in per-paper modules because `akriti.inference
 consumes it and does not define it, and `core/distances.py` — specified by
 RFC-0001 §9.1 and not yet written — is the other resident.
 
-Holding a :class:`Configuration` and embedding with it needs numpy alone.
-Fitting one needs `akriti[core]`.
+Holding a :class:`Configuration` and embedding with it needs `akriti[numpy]`.
+Fitting one additionally needs `akriti[core]`. The default install fetches
+nothing, so neither is present on it; this package still imports there, and
+``tests/test_core_import_boundary.py`` pins that.
 """
 
 from __future__ import annotations

@@ -147,13 +147,18 @@ jax = ["jax>=0.8.0"]
 parquet = ["pyarrow>=25.0.0"]
 
 # The landmark embedding (PLACE, PALACE) and what fits one. Holding a
-# `Configuration` and embedding with it needs numpy alone and stays in the
-# default install; *fitting* one needs scipy -- `cdist` for the class-aware
-# farthest-point sampling, and nothing heavier. Every scipy use is a lazy,
-# function-scoped import on §10.1 requirement 2's terms.
+# `Configuration` and embedding with it needs `akriti[numpy]`; *fitting* one
+# additionally needs scipy -- `cdist` for the class-aware farthest-point
+# sampling, and nothing heavier. Every scipy use is a lazy, function-scoped
+# import on §10.1 requirement 2's terms.
+#
+# Neither is the default install, which fetches nothing at all: `dependencies`
+# is empty by design, so numpy arrives with `akriti[numpy]` and scipy with this
+# extra. `akriti.core` *imports* with neither present, which is a narrower
+# promise than embedding and the one tests/test_core_import_boundary.py pins.
 #
 # A caller who receives a fitted configuration -- from a collaborator, or from
-# a file -- can embed with it without installing this.
+# a file -- can embed with it under `akriti[numpy]`, without installing this.
 core = ["scipy>=1.10"]
 
 # Domain integration.

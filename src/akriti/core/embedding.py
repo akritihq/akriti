@@ -7,14 +7,19 @@ diagram space through the additive interface (Paper III,
 ``prop:mean-embedding-transfer``).
 
 **The split in this module is between holding a configuration and fitting one.**
-:meth:`Configuration.embed` needs numpy alone. :func:`fit_configuration` needs
-scipy, so it lives behind ``akriti[core]`` and imports it lazily, on RFC-0001
+Embedding needs ``akriti[numpy]``. :func:`fit_configuration` needs scipy as
+well, so it lives behind ``akriti[core]`` and imports it lazily, on RFC-0001
 §10.1 requirement 2's terms. A caller handed a fitted configuration — by a
-collaborator, or out of a file — can embed with it on a default install.
+collaborator, or out of a file — can embed with it under ``akriti[numpy]``
+alone. Neither extra is the default install, which fetches nothing; this
+module imports with neither present, and
+``tests/test_core_import_boundary.py`` pins that.
 
 **The numerics are not written here yet.** This module defines the type and the
 boundary; the bodies port from ``PESOSE-27/stat-papers/embedding/nonuniform.py``
-and are human-derived tier under onboarding §10.
+and are human-derived tier under §10 of the development handbook
+(``akritihq/handbook``, ``akriti-dev-onboarding.md``, "Use of AI assistance") —
+a separate repository, so the reference is named rather than cited as §10.
 
 Papers: PLACE (arXiv:2605.02836), PALACE (arXiv:2605.04046), and Paper III
 (arXiv:2609.07691) for what the embedding is required to satisfy.
@@ -71,8 +76,16 @@ class Configuration:
     truncation: int
     fitted_on: str
 
-    def embed(self, diagram: Any) -> Any:
-        """Embed one diagram, returning a ``(K,)`` vector. NumPy only.
+    def _embed(self, diagram: Any) -> Any:
+        """Embed one diagram, returning a ``(K,)`` vector.
+
+        Private, and deliberately. RFC-0001 §4 requires a function consuming
+        diagrams to take a leading batch dimension rather than expect a Python
+        loop over them, and `CLAUDE.md` notes that a looping public API is very
+        hard to withdraw once released. :meth:`embed_batch` is the public entry
+        point; this stays only because the upstream has a single-diagram
+        function to port. If the port turns out not to need it, deleting a
+        private method costs nothing.
 
         Ports from ``NonUniformEmbedding.embed``.
         """
