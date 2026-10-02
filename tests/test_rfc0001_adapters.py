@@ -4059,9 +4059,9 @@ _RESERVED_PROVENANCE_KEYS = (
     "source_dtype",
     "clamped_rows",
     "padding_removed",
-    # Reserved by 1.3.0 and 1.4.0 and refused ahead of the writer implementing
-    # either: a caller-stamped `filtration_direction` is exactly the file a
-    # 1.3.0 `source_coordinates()` would negate wrongly (§8, §11), and a
+    # Reserved by 1.3.0 and refused ahead of the writer implementing it: a
+    # caller-stamped `filtration_direction` is exactly the file a 1.3.0
+    # `source_coordinates()` would negate wrongly (§8, §11), and a
     # caller-stamped `neginf_birth_bars*` is a finitization claim no
     # `finitize_births` made (§5, §8).
     "filtration_direction",

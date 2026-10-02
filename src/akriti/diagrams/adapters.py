@@ -128,13 +128,12 @@ _INT32_MAX = 2**31 - 1
 # (`essential_bars_source`, `coeff_field_source`), the three remaining
 # `essential_bars*` keys whose writers §8 lists by name, `filtration_direction`
 # (reserved by RFC-0001 1.3.0, written by every adapter), and the three
-# `neginf_birth_bars*` keys -- `neginf_birth_bars_dropped` reserved by 1.3.0,
-# the other two by 1.4.0 -- which §5 has the two `finitize_*` functions alone
-# write. None of those writers is a caller. They
+# `neginf_birth_bars*` keys, also reserved by 1.3.0, which §5 has the two
+# `finitize_*` functions alone write. None of those writers is a caller. They
 # are refused in `_build_meta` on exactly the ground `backend` and
 # `backend_version` already are.
 #
-# The 1.3.0 and 1.4.0 keys are refused before this writer implements either
+# The 1.3.0 keys are refused before this writer implements that revision
 # (`io._SPEC_VERSION_GAP`), deliberately: a 1.3.0 reader's
 # `source_coordinates()` negates on `filtration_direction == "superlevel"`
 # and `load` MUST NOT branch on `spec_version` (§10.2), so a file an adapter

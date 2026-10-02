@@ -57,7 +57,7 @@ RFC_PATH = (
 #: tests/test_rfc0001_spec_version_pins.py fails until it does. It is not
 #: necessarily what ``save`` writes: §10.2's ``spec_version`` is the revision
 #: the writer implemented, which may trail this one.
-SPEC_VERSION = "1.4.0"
+SPEC_VERSION = "1.3.0"
 
 
 def diagram(
@@ -414,7 +414,7 @@ def test_s3_2_batch_item_carries_the_members_own_meta() -> None:
 # --------------------------------------------------------------------------
 # §3.2 at 1.2.0 -- ``d.finite`` MUST record the drop it performs
 #
-# **Every test from here to the 1.4.0 block below pins the 1.2.0 writer**
+# **Every test from here to the 1.3.0 block below pins the 1.2.0 writer**
 # (``io._SPEC_VERSION_GAP``), not the document. The clauses quoted are
 # 1.2.0's, under the ids 1.2.0's Appendix C gave them:
 #
@@ -426,11 +426,11 @@ def test_s3_2_batch_item_carries_the_members_own_meta() -> None:
 #   N3.2-3: "The two produce the same diagram bar for bar, so they MUST produce
 #    the same provenance."
 #
-# RFC-0001 1.4.0 (D28) retires every one of them: ``d.finite`` is a bool mask,
+# RFC-0001 1.3.0 (D28) retires every one of them: ``d.finite`` is a bool mask,
 # ``finitize`` is ``finitize_deaths``, and what the diagram-valued drop
 # records is §5's, under the record-follows-the-bars rule. When ``core.py``
 # moves, this block goes and the strict xfails in
-# ``test_the_1_4_0_surface_does_not_yet_exist`` below flip first.
+# ``test_the_1_3_0_surface_does_not_yet_exist`` below flip first.
 # --------------------------------------------------------------------------
 
 
@@ -546,7 +546,7 @@ def test_s3_2_finite_is_idempotent_without_a_false_second_claim() -> None:
 #    mask, and that is the mask `d.finite` selects on".
 #   "There is no `d.finite_mask` and none is needed".
 #
-# 1.4.0 keeps the first sentence's *fact* -- `~d.essential` is not the finite
+# 1.3.0 keeps the first sentence's *fact* -- `~d.essential` is not the finite
 # mask -- and reverses the type: `d.finite` is the mask, and there is no
 # `finite_mask` because `finite` is one (D28).
 # --------------------------------------------------------------------------
@@ -579,7 +579,7 @@ def test_s3_2_there_is_no_finite_mask_accessor() -> None:
 
 
 # --------------------------------------------------------------------------
-# §3.2, §4.3, §5 at 1.4.0 -- the surface D28 specifies, as strict xfails
+# §3.2, §4.3, §5 at 1.3.0 -- the surface D28 specifies, as strict xfails
 #
 #   N3.2-1: "`d.essential`, `d.neginf_birth` and `d.finite` are three masks
 #    over bars with shape `(n_bars,)`, and `d.finite` MUST be the complement
@@ -598,7 +598,7 @@ def test_s3_2_there_is_no_finite_mask_accessor() -> None:
 # functions, which the 1.2.0 writer gets wrong on any diagram at all.
 # --------------------------------------------------------------------------
 
-_NOT_YET_1_4_0 = pytest.mark.xfail(
+_NOT_YET_1_3_0 = pytest.mark.xfail(
     strict=True,
     raises=(AssertionError, AttributeError),
     reason="RFC-0001's current revision (D28) makes d.finite a bool mask, adds "
@@ -609,8 +609,8 @@ _NOT_YET_1_4_0 = pytest.mark.xfail(
 )
 
 
-@_NOT_YET_1_4_0
-def test_the_1_4_0_surface_does_not_yet_exist_finite_is_a_mask() -> None:
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_finite_is_a_mask() -> None:
     d = sample()
     mask = np.asarray(d.finite)
     assert mask.dtype == np.bool_
@@ -619,31 +619,31 @@ def test_the_1_4_0_surface_does_not_yet_exist_finite_is_a_mask() -> None:
     np.testing.assert_array_equal(mask, expected)
 
 
-@_NOT_YET_1_4_0
-def test_the_1_4_0_surface_does_not_yet_exist_batch_finite() -> None:
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_batch_finite() -> None:
     b = batch_of(sample(), sample())
     mask = np.asarray(b.finite)
     assert mask.dtype == np.bool_
     assert mask.shape == (int(b.dims.shape[0]),)
 
 
-@_NOT_YET_1_4_0
-def test_the_1_4_0_surface_does_not_yet_exist_finitize_deaths() -> None:
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_finitize_deaths() -> None:
     d = tagged()
     dropped = d.finitize_deaths(at="drop")
     assert dropped.meta.provenance["essential_bars"] == "finitized_dropped"
 
 
-@_NOT_YET_1_4_0
-def test_the_1_4_0_surface_does_not_yet_exist_finitize_births() -> None:
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_finitize_births() -> None:
     d = sample()
-    # No bar born at -inf is constructible at 1.2.0, so the one 1.4.0 behaviour
+    # No bar born at -inf is constructible at 1.2.0, so the one 1.3.0 behaviour
     # reachable here is §5's return-unchanged rule.
     assert d.finitize_births(at="drop") == d
 
 
-@_NOT_YET_1_4_0
-def test_the_1_4_0_surface_does_not_yet_exist_finitize_is_a_deprecated_alias() -> None:
+@_NOT_YET_1_3_0
+def test_the_1_3_0_surface_does_not_yet_exist_finitize_is_a_deprecated_alias() -> None:
     """§5: "`finitize` is `finitize_deaths`'s former name, and an
     implementation MUST keep it as an alias that emits a `DeprecationWarning`
     naming `finitize_deaths` on every call"."""
@@ -660,18 +660,18 @@ def test_the_1_4_0_surface_does_not_yet_exist_finitize_is_a_deprecated_alias() -
 
 
 # --------------------------------------------------------------------------
-# §5 and §8 at 1.4.0 -- the tally rule, which reverses a check
+# §5 and §8 at 1.3.0 -- the tally rule, which reverses a check
 #
 #   §5: "A substitution MUST leave a count it finds standing".
 #   §8: "a key that tallies is not a qualifier and MUST NOT be dropped with
 #    one".
 #
 # Unlike the block above, this is not a name the 1.2.0 writer lacks but a
-# check it enforces and 1.4.0 weakens: `DiagramMeta` refuses a `*_dropped`
+# check it enforces and 1.3.0 weakens: `DiagramMeta` refuses a `*_dropped`
 # count beside `"finitized_at"`, and
 # `test_drop_then_substitute_clears_the_stale_count` in
 # `tests/test_rfc0001_diagram_contract.py` asserts the count is removed. So
-# the markers are narrower than `_NOT_YET_1_4_0`, which tolerates an
+# the markers are narrower than `_NOT_YET_1_3_0`, which tolerates an
 # `AssertionError` and would therefore keep xfailing against an implementation
 # that drops the count. The first tolerates only the `AttributeError` of a
 # missing `finitize_deaths`, so the moment that name exists, a kept 1.2.0
@@ -705,7 +705,7 @@ _TALLY_CHECK_NOT_YET_WEAKENED = pytest.mark.xfail(
 
 
 @_NO_FINITIZE_DEATHS_YET
-def test_the_1_4_0_substitution_leaves_a_count_standing() -> None:
+def test_the_1_3_0_substitution_leaves_a_count_standing() -> None:
     """§5: a drop that left a bar on the mask, then a substitution over it.
 
     The drop is the one `finitize_births(at="drop")` performs when it takes a
@@ -731,7 +731,7 @@ def test_the_1_4_0_substitution_leaves_a_count_standing() -> None:
 
 
 @_TALLY_CHECK_NOT_YET_WEAKENED
-def test_the_1_4_0_tally_may_stand_beside_finitized_at() -> None:
+def test_the_1_3_0_tally_may_stand_beside_finitized_at() -> None:
     """§8: "the one value it may legitimately sit beside other than its own is
     `"finitized_at"`, the drop-then-substitute order §5 admits"."""
     meta = DiagramMeta(

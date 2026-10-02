@@ -27,7 +27,7 @@ only what transfers to the next document.
   not contain.** Ask what the evidence base is made of, then name something it
   is not made of; the object need not exist yet. RFC-0001's I4 is the worked
   case (D27, #44), and the revision that fixed it failed the same check, which
-  its fourth review pass caught (commit 455d39b).
+  its fourth review pass caught.
 
 ## Writing
 
@@ -58,10 +58,10 @@ only what transfers to the next document.
   (D28).
 - **"None is needed: that expression is two operators" is a claim about the
   current width of the type.** RFC-0001 §3.2 refused a `finite_mask` on that
-  ground when the expression was `~d.essential`; one revision later it was
-  `~(d.essential | d.neginf_birth)` and the sentence had been edited to say
-  "two operators" instead of one. Test a "trivially derivable" refusal against
-  the next widening, not the current one.
+  ground when the expression was `~d.essential`; in a draft of the next
+  revision it was `~(d.essential | d.neginf_birth)` and the sentence had been
+  edited to say "two operators" instead of one. Test a "trivially derivable"
+  refusal against the next widening, not the current one.
 - **A specification states what holds, not how it came to hold.** Which
   commit refused a key, what the writer implemented first, what closed a
   window from when: that is process narrative, and it goes stale the moment
