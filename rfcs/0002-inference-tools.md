@@ -3,11 +3,11 @@
 | Field | Value |
 |---|---|
 | **Status** | Draft |
-| **Version** | 0.3.0 — `major.minor.patch`, on RFC-0001 §10.2's bump condition |
+| **Version** | 0.3.1 — `major.minor.patch`, on RFC-0001 §10.2's bump condition |
 | **Authors** | Sushovan Majhi |
 | **Created** | 2026-09-08 |
-| **Last Edited** | 2026-09-16 |
-| **Target** | Tool 1 signature frozen 2026-09-21 (D1, moved from 2026-09-14); Tool 1 live for AMS 2026-10-03 |
+| **Last Edited** | 2026-10-02 |
+| **Target** | Tool 1 signature **not frozen**: 2026-09-14 and 2026-09-21 both passed with D8 open, and it freezes when D8 does. Tool 1 was **not** live for AMS 2026-10-03 — the embedding port never started, and the talk showed the interchange layer instead. Both dates are kept rather than removed, a Target row that quietly drops a missed commitment being the §9 shape this document is about |
 | **Implements** | `akriti.inference` |
 | **Rests on** | Paper III — [arXiv:2609.07691](https://arxiv.org/abs/2609.07691), posted 2026-09-07. Results are cited by label rather than by number, numbers moving with every revision; the labels are `\label`s in the source |
 
@@ -430,6 +430,7 @@ That direction is what inference needs and it was never in doubt.
 | D5 | Ship the fixed-direction statistic with $h$ pilot-estimated? | Tool 1 freeze | Option, not default |
 | D6 | Is structured exclusion (§3.6) exposed in v1? | Tool 1 freeze | Open. It needs $g_r(\tau)$'s constants to be defensible and numerically available, and where they are not the feature cannot be offered at all |
 | D7 | How is $K$ selected, and does the object expose $\epsilon_K$? | Tool 1 freeze | Open, and §4.1's side condition makes it consequential rather than presentational |
+| D8 | Where does `_is_informative`'s threshold come from? | Tool 1 freeze | **Open, and it is what holds the freeze.** §3.5 requires the transport bound to be reported with its caveat: Paper III states that a large cardinality bound or a conservative Lipschitz constant makes the certificate small, and that a small certificate is inconclusive rather than evidence of closeness. A constant chosen so results read as conclusive is the failure this module exists to prevent, so the candidates are a scale derived from the paper, a caller-supplied one, or dropping the boolean and leaving the raw bound to the reader. The third is the current lean, and its cost is that it moves the judgement onto the reader least equipped to make it |
 
 ---
 
