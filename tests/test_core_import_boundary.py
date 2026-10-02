@@ -18,6 +18,7 @@ imports numpy on its own behalf.
 from __future__ import annotations
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -82,13 +83,18 @@ def test_core_imports_in_a_process_where_both_are_unimportable() -> None:
     environment has both installed, so this is the only way the assertion runs
     where it matters. ``fit_configuration`` is reached as an attribute and not
     called -- calling it is what needs scipy.
+
+    The environment is **inherited** and only added to. A minimal ``env=``
+    aborts CPython on Windows before it runs a line -- ``_Py_HashRandomization_Init``
+    needs the real environment to seed itself -- so an env built from scratch
+    passes on Linux and macOS and fails the `windows-latest` rows.
     """
     result = subprocess.run(
         [sys.executable, "-c", _WITHOUT_NUMPY_OR_SCIPY],
         capture_output=True,
         text=True,
         cwd=ROOT,
-        env={"PYTHONPATH": str(ROOT / "src"), "PATH": "/usr/bin:/bin"},
+        env={**os.environ, "PYTHONPATH": str(ROOT / "src")},
     )
     assert result.returncode == 0, result.stderr
     assert result.stdout.strip().endswith("imported")
