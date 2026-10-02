@@ -25,6 +25,7 @@ from typing import Any
 import numpy as np
 import pytest
 
+from _rfc0001_writer import FINITE_IS_A_DIAGRAM
 from akriti.diagrams import DiagramBatch, DiagramMeta, PersistenceDiagram, core
 from akriti.diagrams.core import namespace_of
 
@@ -422,7 +423,7 @@ def test_metadata_accepts_ordinary_non_ascii() -> None:
 # (`io._SPEC_VERSION_GAP`), and 1.3.0 reverses it: the `*_dropped` keys are
 # tallies there, and "A substitution MUST leave a count it finds standing"
 # (§5, §8). Its replacement is
-# `test_the_1_3_0_substitution_leaves_a_count_standing` in
+# `test_1_3_0_substitution_leaves_a_count_standing` in
 # `tests/test_rfc0001_review_clauses.py`, whose marker is narrow enough that a
 # 1.3.0 `core.py` keeping this test's behaviour fails the build. The other
 # tests here state rules 1.3.0 keeps for `finitize_deaths`, and move to that
@@ -555,11 +556,12 @@ def test_no_essential_bars_returns_the_diagram_untouched() -> None:
 # The `d.finite` tests in this section pin the 1.2.0 writer
 # (`io._SPEC_VERSION_GAP`). At 1.3.0 `d.finite` is a mask and records nothing
 # (D28); the diagram-valued drop and its record are `finitize_deaths(at="drop")`
-# and `finitize_births(at="drop")` under §5. When `core.py` moves, these
-# become tests of those two functions and `tests/test_rfc0001_review_clauses.py`'s
-# strict xfails flip first.
+# and `finitize_births(at="drop")` under §5. When `io._SPEC_VERSION` reaches
+# 1.3.0 these fail and become tests of those two functions, and the
+# `test_1_3_0_*` tests in `tests/test_rfc0001_review_clauses.py` stop xfailing.
 
 
+@FINITE_IS_A_DIAGRAM
 def test_finite_records_the_drop_it_performs() -> None:
     """§3.2, §5: `d.finite` and `d.finitize(at="drop")` are the same result.
 
@@ -589,6 +591,7 @@ def test_finite_records_the_drop_it_performs() -> None:
     assert finite.same_provenance(dropped)
 
 
+@FINITE_IS_A_DIAGRAM
 def test_finite_leaves_the_adapter_source_alone() -> None:
     """§8: `essential_bars_source` has one writer and it is the adapter.
 
@@ -611,6 +614,7 @@ def test_finite_leaves_the_adapter_source_alone() -> None:
     assert finite.meta.provenance["essential_bars_source"] == "lost_upstream"
 
 
+@FINITE_IS_A_DIAGRAM
 def test_finite_clears_a_stale_substituted_death() -> None:
     """§8's iff, reached through `finite` rather than through `finitize`.
 
@@ -635,6 +639,7 @@ def test_finite_clears_a_stale_substituted_death() -> None:
     assert "essential_bars_finitized_at" not in finite.meta.provenance
 
 
+@FINITE_IS_A_DIAGRAM
 def test_finite_records_nothing_when_there_is_nothing_to_drop() -> None:
     """§3.2, §5: no essential bar means no cardinality change to record.
 
@@ -659,6 +664,7 @@ def test_finite_records_nothing_when_there_is_nothing_to_drop() -> None:
     assert "essential_bars_dropped" not in finite.meta.provenance
 
 
+@FINITE_IS_A_DIAGRAM
 def test_finite_of_finite_is_stable(essential: PersistenceDiagram) -> None:
     """§5's return-unchanged rule, applied to the record `finite` just wrote.
 
@@ -671,6 +677,7 @@ def test_finite_of_finite_is_stable(essential: PersistenceDiagram) -> None:
     assert twice.meta.provenance["essential_bars_dropped"] == 1
 
 
+@FINITE_IS_A_DIAGRAM
 def test_finite_then_finitize_drop_is_a_no_op(essential: PersistenceDiagram) -> None:
     """§5: the composition that used to launder `"faithful"` past both calls.
 

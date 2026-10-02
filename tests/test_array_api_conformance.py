@@ -23,6 +23,7 @@ import pytest
 
 xps = pytest.importorskip("array_api_strict")
 
+from _rfc0001_writer import FINITE_IS_A_DIAGRAM  # noqa: E402
 from akriti.diagrams import DiagramBatch, PersistenceDiagram  # noqa: E402
 from akriti.diagrams.core import namespace_of  # noqa: E402
 
@@ -207,6 +208,7 @@ def test_diagram_constructs_and_validates_under_strict() -> None:
         )
 
 
+@FINITE_IS_A_DIAGRAM
 def test_accessors_and_canonical_order_under_strict() -> None:
     d = strict([1, 0, 0], [0.5, 0.25, 0.0], [1.5, 0.75, xps.inf])
 

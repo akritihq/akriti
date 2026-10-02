@@ -42,6 +42,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 import akriti.diagrams.adapters as adapters_module
+from _rfc0001_writer import BELOW_1_3_0
 from akriti.diagrams import DiagramBatch, PersistenceDiagram
 from akriti.diagrams.adapters import (
     from_array,
@@ -4312,9 +4313,8 @@ _ADAPTER_NAMES = list(_one_bar_calls(0.0, 1.0))
         # adds I10: `(0, -inf)` is then refused by I6/I10 rather than I5, and
         # `(inf, inf)` and `(-inf, 1)` are admitted (D27). When the writer
         # moves, the first row's invariant name moves with it and the other
-        # two rows go, the strict xfails in
-        # `test_the_1_3_0_surface_is_not_yet_constructible` below flipping
-        # first.
+        # two rows go; `test_every_adapter_admits_the_1_3_0_infinite_shapes`
+        # below stops xfailing at the same moment.
         (0.0, -math.inf, "I5"),
         (math.inf, math.inf, "I4"),
         (-math.inf, 1.0, "I4"),
@@ -4341,19 +4341,21 @@ def test_every_adapter_refuses_invalid_coordinates(
     ],
 )
 @pytest.mark.xfail(
+    # Conditioned on the writer's claim, not removed by hand: once
+    # `io._SPEC_VERSION` reaches 1.3.0 this runs as an ordinary test, so a
+    # writer that claims the revision and still refuses these bars fails.
+    condition=BELOW_1_3_0,
     strict=True,
     raises=ValueError,
-    reason="RFC-0001's current revision admits bars born at -inf and a bar born "
-    "at +inf (I4, I10, D27); the "
-    "writer is held at the revision io._SPEC_VERSION names, and "
-    "io._SPEC_VERSION_GAP says why. Remove this marker when core.py moves.",
+    reason="RFC-0001's current revision admits bars born at -inf and a bar "
+    "born at +inf (I4, I10, D27); the writer is held at the revision "
+    "io._SPEC_VERSION names, and io._SPEC_VERSION_GAP says why.",
 )
-def test_the_1_3_0_surface_is_not_yet_constructible(
+def test_every_adapter_admits_the_1_3_0_infinite_shapes(
     adapter: str, birth: float, death: float
 ) -> None:
-    """The declared gap between document and writer, as a failing test rather
-    than only as a string in `io.py`: a green suite must not read as
-    conformance to a revision it does not implement (§3.1, D27)."""
+    """§3.1, D27: the declared gap between document and writer, as a test
+    rather than only as a string in `io.py`."""
     d = _one_bar_calls(birth, death)[adapter]()
     assert d.n_bars == 1
 

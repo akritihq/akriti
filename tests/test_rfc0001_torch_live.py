@@ -8,6 +8,7 @@ import pytest
 torch = pytest.importorskip("torch")
 array_api_compat = pytest.importorskip("array_api_compat")
 
+from _rfc0001_writer import FINITE_IS_A_DIAGRAM  # noqa: E402
 from akriti.diagrams.adapters import (  # noqa: E402
     from_array,
     from_giotto,
@@ -38,6 +39,7 @@ def test_torch_namespace_uses_array_api_compat_fallback() -> None:
     assert resolved is expected
 
 
+@FINITE_IS_A_DIAGRAM
 def test_torch_from_array_and_d18_accessors_use_the_resolved_namespace() -> None:
     """D18's five affected accessors match under torch and NumPy namespaces."""
     values = _diagram_table()

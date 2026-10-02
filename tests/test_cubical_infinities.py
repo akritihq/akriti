@@ -48,6 +48,9 @@ _mentions_direction = cubical_infinities._mentions_direction
         "super_level",
         "up",
         "top_down",
+        # The superlevel twin of `ripser.lower_star_img`, in both spellings.
+        "upper_star_img",
+        "upperstar",
     ],
 )
 def test_direction_like_names_fire(name: str) -> None:
@@ -94,6 +97,8 @@ def test_direction_like_names_fire(name: str) -> None:
         "supersample",
         "upper_bound",
         "download",
+        # Sublevel by name, and present in ripser today.
+        "lower_star_img",
     ],
 )
 def test_backend_parameter_names_stay_quiet(name: str) -> None:

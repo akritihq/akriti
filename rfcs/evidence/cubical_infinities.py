@@ -30,10 +30,13 @@ them fails this script rather than reaching a reviewer.
      images takes -- GUDHI's sklearn `CubicalPersistence` on a batch with one
      all-+inf member -- and from ripser's `lower_star_img`. Two grids hold
      only -inf, the mirror image, and neither GUDHI nor ripser reports a
-     `(-inf, -inf)` bar for them. GUDHI's own reading of the `(inf, inf)` bar
-     is measured through `min_persistence`: the default drops every
-     zero-persistence pair and keeps this one, so the backend calls it
-     essential rather than trivial -- the fact D27's resolution rests on.
+     `(-inf, -inf)` bar for them. GUDHI reports the `(inf, inf)` bar as an
+     unpaired cell, which every `min_persistence` keeps, while the
+     zero-persistence pairs that enter at an infinity are discarded at every
+     threshold, `-inf` included, where the same pair at a finite value is
+     kept. So neither `(-inf, -inf)` nor a paired `(inf, inf)` reaches an
+     adapter, and the `(inf, inf)` that does is essential -- the reading D27
+     rests on.
      The `peak` grid, `[0, +inf, 0]`, is what §2's definition of `essential`
      is written against: its two `(0.0, inf)` bars are one class that never
      dies and one that died when the +inf cell entered, which
@@ -65,10 +68,10 @@ conclusion. The all-+inf and all--inf grids, ripser's `lower_star_img` rows and
 the giotto row were added and measured 2026-09-13 with gudhi 3.13.0, ripser
 0.6.15, numpy 2.5.1, Python 3.14.6, and the sklearn `CubicalPersistence` batch
 row, `peak`'s pair structure and `lower_star_img` row, and the `persistence()`
-parameter sweep on 2026-09-16 in that environment, and the `SimplexTree` row
-on 2026-10-01 in that environment; the giotto row in the
-environment CI's `rfc-evidence` job builds -- giotto-tda 0.6.2, scikit-learn
-1.9.1, numpy 2.5.3, Python 3.12.13.
+parameter sweep on 2026-09-16 in that environment, the `SimplexTree` row
+on 2026-10-01 and the zero-persistence-pair row on 2026-10-02, likewise; the
+giotto row in the environment CI's `rfc-evidence` job builds -- giotto-tda
+0.6.2, scikit-learn 1.9.1, numpy 2.5.3, Python 3.12.13.
 
 Clean-room note: giotto-tda is AGPLv3. This script inspects the signatures of
 giotto's public estimators and calls nothing on them. No giotto source is
@@ -173,11 +176,10 @@ EXPECTED_SKLEARN_BATCH: list[list[tuple[float, float]]] = [
     [(INF, INF)],
 ]
 
-# GUDHI's reading of the D27 bar, through the one knob that separates trivial
-# from essential. `min_persistence=0.0` (the default) drops every pair of zero
-# persistence and keeps every essential class; `-1.0` keeps the zero-persistence
-# pairs too. `(inf, inf)` survives the default, where the second grid's
-# `(0.0, 0.0)` does not -- and no `(-inf, -inf)` appears under either.
+# GUDHI's reading of the D27 bar, through `min_persistence`. The default `0.0`
+# drops every pair of zero persistence and keeps every essential class; `-1.0`
+# keeps zero-persistence pairs at finite values -- the second grid's
+# `(0.0, 0.0)` -- but not at an infinity (ZERO_PAIR_VALUES below).
 READING_GRIDS: dict[str, tuple[list[float], dict[float, Bars]]] = {
     "all_pos_inf": (
         [INF, INF],
@@ -188,6 +190,18 @@ READING_GRIDS: dict[str, tuple[list[float], dict[float, Bars]]] = {
         {0.0: [(0, -INF, INF)], -1.0: [(0, -INF, INF), (0, 0.0, 0.0)]},
     ),
 }
+
+# Two vertices joined by an edge, all three at one value `v`: one
+# zero-persistence pair at `v`. At `min_persistence` `-1.0` and `-inf` GUDHI
+# reports it for finite `v` and drops it -- from `persistence()` and
+# `persistence_pairs()` alike -- for `v = +-inf`. `-inf` is the most
+# permissive threshold there is, so a pair it drops is dropped at every one;
+# `inf - inf` is `nan`, which clears none. So no `(-inf, -inf)` and no
+# *paired* `(inf, inf)` reaches an adapter from GUDHI at any threshold, and
+# the `(inf, inf)` of an all-+inf grid is an unpaired cell (D27).
+ZERO_PAIR_VALUES = (0.0, -INF, INF)
+ZERO_PAIR_THRESHOLDS = (-1.0, -INF)
+ALL_POS_INF_CELLS = [INF, INF]
 
 # A complex that takes +inf without being *only* +inf: two vertices at 0.0
 # joined by an edge at 1.0, and a third vertex entering at +inf, built through
@@ -210,10 +224,15 @@ EXPECTED_RANK_AT_FINITE_T = 1
 # What a level-set orientation switch would be called. Fragments are matched
 # as substrings; the short words only as a whole `_`-separated token, because
 # `sub` and `sign` as substrings match `subsample` and `design` and nothing
-# this document is looking for. A switch spelled outside both lists is what
-# this gate cannot see, and A.12 says so.
+# this document is looking for. `upper_star` / `upperstar` is the lower-star
+# vocabulary's name for the superlevel case -- the twin `ripser.lower_star_img`
+# would gain -- and `upper` alone cannot stand in for it, `upper_bound` being a
+# threshold. A switch spelled outside both lists is what this gate cannot see,
+# and A.12 says so.
 DIRECTION_FRAGMENTS = (
     "level",
+    "upper_star",
+    "upperstar",
     "direction",
     "orientation",
     "revers",
@@ -340,8 +359,52 @@ def section_a() -> None:
                 f"{bars!r}, expected {expected!r}",
             )
             print(f"   {name} {cells} min_persistence={threshold:>4}: {bars}")
-    print("   => (inf, inf) is kept where (0.0, 0.0) is dropped: essential, not")
-    print("      trivial, by GUDHI's own filter.\n")
+    print("   => (inf, inf) is kept where (0.0, 0.0) is dropped.\n")
+
+    print("   A zero-persistence pair at v, at min_persistence -1.0 and -inf (D27)\n")
+    for threshold in ZERO_PAIR_THRESHOLDS:
+        for value in ZERO_PAIR_VALUES:
+            tree = gudhi.SimplexTree()
+            for simplex in ([0], [1], [0, 1]):
+                tree.insert(simplex, filtration=value)
+            bars = [
+                (int(dim), float(birth), float(death))
+                for dim, (birth, death) in tree.persistence(
+                    homology_coeff_field=2, min_persistence=threshold
+                )
+            ]
+            paired = [pair for pair in tree.persistence_pairs() if len(pair[1]) > 0]
+            finite = value not in (INF, -INF)
+            # The essential bar is always there, written `(v, inf)`; the zero
+            # pair `(v, v)` joins it only at a finite `v`.
+            expected = [(0, value, INF)] + ([(0, value, value)] if finite else [])
+            _require(
+                bars == expected and bool(paired) == finite,
+                "A.12",
+                f"GUDHI's zero-persistence pair at {value!r}, min_persistence="
+                f"{threshold!r}, changed: bars={bars!r}, pairs={paired!r}; "
+                f"expected {expected!r}, paired iff finite",
+            )
+            print(
+                f"   min_persistence={threshold!r:>5} v = {value!r:>5}: {bars}  "
+                f"paired simplices: {len(paired)}"
+            )
+    cc = gudhi.CubicalComplex(
+        top_dimensional_cells=np.asarray(ALL_POS_INF_CELLS, dtype=np.float64)
+    )
+    cc.compute_persistence(homology_coeff_field=2, min_persistence=-1.0)
+    regular, essential = cc.cofaces_of_persistence_pairs()
+    pairs = [[int(b), int(d)] for b, d in regular[0]] if regular else []
+    unpaired = [int(c) for c in essential[0]] if essential else []
+    _require(
+        pairs == [] and unpaired == [1],
+        "A.12",
+        f"GUDHI's pair structure for {ALL_POS_INF_CELLS} changed: "
+        f"paired={pairs!r}, essential={unpaired!r}",
+    )
+    print(f"   {ALL_POS_INF_CELLS}: paired {pairs}  essential cells {unpaired}")
+    print("   => pairs at an infinity are discarded at every threshold; the")
+    print("      (inf, inf) that remains is an unpaired, essential cell.\n")
 
     print("   GUDHI's pair structure on peak, against a finite wall (§2)\n")
     for name, (cells, expected_pairs, expected_essential) in PAIRING_GRIDS.items():
