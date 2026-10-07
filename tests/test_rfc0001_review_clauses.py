@@ -22,6 +22,7 @@ import dataclasses
 import hashlib
 import json
 import math
+import re
 import struct
 import warnings
 import zipfile
@@ -632,10 +633,16 @@ def test_s3_2_finite_warns_that_it_becomes_a_mask() -> None:
 # `io._SPEC_VERSION`: while the writer is held below 1.3.0 these xfail
 # strictly, and the moment it claims 1.3.0 they run as ordinary conformance
 # tests, so a writer that claims the revision without implementing it fails
-# the build rather than staying green. Each is built on the
-# 1.2.0-constructible surface -- no bar born at -inf -- because what is pinned
-# is the type of the accessor, the names of the two functions and the tally
-# rule, which the 1.2.0 writer gets wrong on any diagram at all.
+# the build rather than staying green.
+#
+# Two markers, because a test can only catch a wrong implementation on bars
+# that tell it from the right one. `~d.essential` agrees with `d.finite`, and
+# a `finitize_births` that returns `self` agrees with the real one, on every
+# diagram the 1.2.0 writer can build. So the tests of values are built on
+# bars born at -inf and xfail on the `ValueError` I4 raises constructing them
+# -- that and nothing else, so a writer that admits the shapes and gets the
+# accessor or the record wrong fails. The tests of names, the alias and the
+# return-unchanged rule need no such bar, and xfail on the missing name.
 # --------------------------------------------------------------------------
 
 
@@ -650,24 +657,54 @@ _NOT_YET_1_3_0 = pytest.mark.xfail(
     "says why.",
 )
 
+_NOT_YET_1_3_0_SHAPES = pytest.mark.xfail(
+    condition=BELOW_1_3_0,
+    strict=True,
+    raises=ValueError,
+    reason="RFC-0001's current revision admits bars born at -inf and at +inf "
+    "(I4, I10, D27), and these tests need them to tell a right "
+    "implementation of D28 from a wrong one; the writer is held at the "
+    "revision io._SPEC_VERSION names, and io._SPEC_VERSION_GAP says why.",
+)
 
-@FINITE_IS_A_DIAGRAM
-@_NOT_YET_1_3_0
+
+def mixed() -> PersistenceDiagram:
+    """A.12's `mixed` grid as GUDHI returns it: `(-inf, 0.0)`, `(-inf, +inf)`
+    and `(0.0, 1.0)`, all in degree 0.
+
+    Written from A.12's measured bars rather than computed, so these xfails
+    need no backend. §11.2's tests against the committed GUDHI fixture are
+    still owed when the writer moves.
+    """
+    return diagram(
+        dims=[0, 0, 0],
+        births=[-math.inf, -math.inf, 0.0],
+        deaths=[0.0, math.inf, 1.0],
+    )
+
+
+@_NOT_YET_1_3_0_SHAPES
 def test_1_3_0_finite_is_a_mask() -> None:
-    d = sample()
+    """§3.2: the complement of `essential | neginf_birth`, over all five
+    shapes. `~d.essential`, the partition §9.1 calls a bug, is `True` on the
+    `(-inf, 0.0)` bar, so it cannot pass."""
+    d = diagram(
+        dims=[0, 0, 0, 0, 0],
+        births=[-math.inf, -math.inf, 0.0, 0.25, math.inf],
+        deaths=[0.0, math.inf, 1.0, math.inf, math.inf],
+    )
     mask = np.asarray(d.finite)
     assert mask.dtype == np.bool_
-    assert mask.shape == (d.n_bars,)
-    expected = ~(np.asarray(d.essential) | ~np.isfinite(np.asarray(d.births)))
-    np.testing.assert_array_equal(mask, expected)
+    assert mask.tolist() == [False, False, True, False, False]
 
 
-@_NOT_YET_1_3_0
+@_NOT_YET_1_3_0_SHAPES
 def test_1_3_0_batch_finite_is_a_mask() -> None:
-    b = batch_of(sample(), sample())
+    """§4.3: elementwise over the concatenated buffer, in batch order."""
+    b = batch_of(mixed(), sample())
     mask = np.asarray(b.finite)
     assert mask.dtype == np.bool_
-    assert mask.shape == (int(b.dims.shape[0]),)
+    assert mask.tolist() == [False, False, True, True, False, True, False, True]
 
 
 @_NOT_YET_1_3_0
@@ -679,10 +716,51 @@ def test_1_3_0_finitize_deaths_drop_records_the_drop() -> None:
 
 @_NOT_YET_1_3_0
 def test_1_3_0_finitize_births_returns_unchanged_without_neginf_births() -> None:
-    d = sample()
-    # No bar born at -inf is constructible at 1.2.0, so the one 1.3.0 behaviour
-    # reachable here is §5's return-unchanged rule.
-    assert d.finitize_births(at="drop") == d
+    """§5: no bar born at -inf, so nothing is substituted or dropped, and
+    `provenance` -- which `==` does not compare -- is left as it was, in
+    every mode."""
+    d = tagged()
+    for at in ("drop", "min_finite_birth", -1.0):
+        result = d.finitize_births(at=at)
+        assert result == d
+        assert result.same_provenance(d)
+
+
+@_NOT_YET_1_3_0_SHAPES
+def test_1_3_0_finitize_births_substitutes_the_smallest_finite_birth() -> None:
+    """§5, §11.2: on `mixed`, `(-inf, 0.0)` becomes `(0.0, 0.0)` and
+    `(-inf, +inf)` becomes `(0.0, +inf)`. The value is recorded under the
+    birth keys, no death is written, and `essential_bars` is not touched: a
+    substitution is not one of its writers (§8)."""
+    d = mixed().finitize_births(at="min_finite_birth")
+    births, deaths = np.asarray(d.births).tolist(), np.asarray(d.deaths).tolist()
+    bars = sorted(zip(births, deaths, strict=True))
+    assert bars == [(0.0, 0.0), (0.0, 1.0), (0.0, math.inf)]
+    provenance = d.meta.provenance
+    assert provenance["neginf_birth_bars"] == "finitized_at"
+    assert provenance["neginf_birth_bars_finitized_at"] == 0.0
+    assert "essential_bars" not in provenance
+
+
+@_NOT_YET_1_3_0_SHAPES
+def test_1_3_0_a_drop_records_against_every_mask_its_bars_lie_on() -> None:
+    """§5: "The record follows the bars removed, not the function that
+    removed them", so the two orders of the composition agree.
+
+    `mixed`'s `(-inf, +inf)` bar is on both masks and is counted under both
+    keys, never summed: one essential, two born at -inf, one bar of three
+    surviving. A check of either count alone would pass against a sum."""
+    births_first = mixed().finitize_births(at="drop").finitize_deaths(at="drop")
+    deaths_first = mixed().finitize_deaths(at="drop").finitize_births(at="drop")
+    for d in (births_first, deaths_first):
+        provenance = d.meta.provenance
+        assert d.n_bars == 1
+        assert provenance["essential_bars"] == "finitized_dropped"
+        assert provenance["essential_bars_dropped"] == 1
+        assert provenance["neginf_birth_bars"] == "finitized_dropped"
+        assert provenance["neginf_birth_bars_dropped"] == 2
+    assert births_first == deaths_first
+    assert births_first.same_provenance(deaths_first)
 
 
 @_NOT_YET_1_3_0
@@ -1222,6 +1300,143 @@ def test_s10_2_load_does_not_branch_on_spec_version(tmp_path: Path) -> None:
         assert back.content_hash == sample().content_hash
 
 
+# --------------------------------------------------------------------------
+# §10.2 -- a reserved key in a file stamped before its reservation
+#
+#   "refuse a file whose `meta`, or any `metas[i]`, carries in `provenance` a
+#    key §8's table reserves at a revision later than the file's
+#    `spec_version`, by raising `ValueError` naming the key ... and refuse a
+#    file carrying any reserved key whose `spec_version` does not parse that
+#    way".
+#   "A revision that reserves a `provenance` key is not one [a
+#    `format_version` bump]".
+#
+# The refusals move with the writer (`io._SPEC_VERSION_GAP`): they xfail
+# strictly while `load` ignores `spec_version`, and run as ordinary tests once
+# the writer claims the revision. What must load holds at both, and runs now.
+# --------------------------------------------------------------------------
+
+
+def documented_format_version() -> int:
+    match = re.search(
+        r"^\| `format_version` \| `int` \| The version of \*this layout\*, "
+        r"currently `(\d+)`",
+        rfc_text(),
+        re.MULTILINE,
+    )
+    assert match is not None, "§10.2's table no longer states format_version"
+    return int(match.group(1))
+
+
+def test_s10_2_schema_example_carries_the_documented_format_version() -> None:
+    examples = re.findall(r'"format_version":\s*(\d+)', rfc_text())
+    assert examples, "§10.2's example block no longer names format_version"
+    assert set(examples) == {str(documented_format_version())}
+
+
+def reserved_at(key: str) -> tuple[int, int, int]:
+    """The revision §8's table reserves `key` at, read from its Reserved column."""
+    match = re.search(
+        rf"^\| `{key}` \| (\d+)\.(\d+)\.(\d+) \|", rfc_text(), re.MULTILINE
+    )
+    assert match is not None, f"§8's table has no Reserved cell for {key}"
+    major, minor, patch = (int(part) for part in match.groups())
+    return major, minor, patch
+
+
+#: One provenance per family of key the current revision reserves, each valid
+#: under §8's vocabulary so that the refusal, not `DiagramMeta`, is what raises.
+_RESERVED_BY_THE_CURRENT_REVISION = (
+    {"filtration_direction": "superlevel"},
+    {"neginf_birth_bars": "finitized_dropped", "neginf_birth_bars_dropped": 1},
+    {"neginf_birth_bars": "finitized_at", "neginf_birth_bars_finitized_at": -1.0},
+)
+
+#: A revision below the one that reserved them, and not a current pin.
+_BEFORE_THE_RESERVATION = "1.1.0"
+
+
+def _saved_stamped(
+    tmp_path: Path, provenance: dict[str, Any], spec_version: str
+) -> tuple[PersistenceDiagram, Path]:
+    d = diagram([0], [0.0], [1.0], meta=DiagramMeta(provenance=provenance))
+    original = tmp_path / "original.akd"
+    save(d, original)
+    patched = tmp_path / "stamped.akd"
+    meta = read_meta_json(original)
+    rewrite_meta_json(original, patched, {**meta, "spec_version": spec_version})
+    return d, patched
+
+
+def _load_refusal(path: Path) -> str:
+    """The `ValueError` message `load` raises on `path`, or "" if it loads."""
+    try:
+        load(path)
+    except ValueError as error:
+        return str(error)
+    return ""
+
+
+def test_s10_2_the_stamp_used_below_predates_every_reservation_it_tests() -> None:
+    stamp = version_key(_BEFORE_THE_RESERVATION)
+    for provenance in _RESERVED_BY_THE_CURRENT_REVISION:
+        for key in provenance:
+            assert stamp < reserved_at(key)
+
+
+_NOT_YET_REFUSED = pytest.mark.xfail(
+    condition=BELOW_1_3_0,
+    strict=True,
+    raises=AssertionError,
+    reason="the writer's load ignores spec_version until it implements "
+    "RFC-0001's current revision; io._SPEC_VERSION_GAP says why it is held.",
+)
+
+
+@_NOT_YET_REFUSED
+@pytest.mark.parametrize(
+    "provenance", _RESERVED_BY_THE_CURRENT_REVISION, ids=lambda p: list(p)[-1]
+)
+def test_1_3_0_load_refuses_a_key_stamped_before_its_reservation(
+    tmp_path: Path, provenance: dict[str, Any]
+) -> None:
+    _, path = _saved_stamped(tmp_path, provenance, _BEFORE_THE_RESERVATION)
+    message = _load_refusal(path)
+    assert next(iter(provenance)) in message
+    assert _BEFORE_THE_RESERVATION in message
+
+
+@_NOT_YET_REFUSED
+def test_1_3_0_load_refuses_a_reserved_key_under_an_unparseable_stamp(
+    tmp_path: Path,
+) -> None:
+    _, path = _saved_stamped(tmp_path, {"source_dtype": "float64"}, "draft")
+    assert "spec_version" in _load_refusal(path)
+
+
+@pytest.mark.parametrize(
+    "provenance", _RESERVED_BY_THE_CURRENT_REVISION, ids=lambda p: list(p)[-1]
+)
+def test_s10_2_load_reads_a_reserved_key_stamped_at_its_reservation(
+    tmp_path: Path, provenance: dict[str, Any]
+) -> None:
+    """Holds under the writer's revision, where `load` ignores the stamp, and
+    under the current one, where the stamp is not below the reservation."""
+    d, path = _saved_stamped(tmp_path, provenance, SPEC_VERSION)
+    back = load(path)
+    assert back == d
+    assert back.same_provenance(d)
+
+
+def test_s10_2_an_unparseable_stamp_is_refused_only_with_a_key_to_compare(
+    tmp_path: Path,
+) -> None:
+    """The comparison is the only reason `load` reads `spec_version`, so a file
+    with no reserved key loads whatever its stamp says."""
+    _, path = _saved_stamped(tmp_path, {}, "draft")
+    assert load(path) == diagram([0], [0.0], [1.0])
+
+
 def test_s10_2_archive_holds_exactly_two_named_entries_in_order(
     tmp_path: Path,
 ) -> None:
@@ -1384,30 +1599,39 @@ def test_s8_1_both_byte_paths_agree(
 
 
 # --------------------------------------------------------------------------
-# §9.1 -- the bottleneck convention `inf - inf = 0`
+# §9.1 -- the count rule, and D19's interim refusal
 #
-#   "by convention, here, $\infty-\infty = 0$. Note: an implementation MUST NOT
-#    reach that value by subtracting the deaths; by an opposing convention,
-#    Python returns `NaN`."
+#   "If the counts differ in any of the four non-finite classes in any
+#    dimension, the distance is `+inf` and MUST be returned as such".
+#   "If the four agree and any of them is non-empty in any dimension, it MUST
+#    raise `ValueError` naming that class as written above and its dimension
+#    ... it MUST NOT return a number."
+#
+# Until D19 closes, a matched essential bar has no specified cost: these
+# replace tests of Appendix B.5's formulas, which bind only if D19 closes on
+# computing them.
 # --------------------------------------------------------------------------
 
 
+@pytest.mark.backend
 @pytest.mark.distances
-def test_s9_1_two_identical_essential_bars_are_zero_apart() -> None:
+def test_s9_1_unequal_essential_counts_are_infinitely_far() -> None:
     distances = pytest.importorskip("akriti.core.distances")
-    left = diagram([0], [0.0], [math.inf])
-    right = diagram([0], [0.0], [math.inf])
-    result = float(distances.bottleneck(left, right))
-    assert not math.isnan(result), "reached by subtracting the deaths"
-    assert result == 0.0
+    left = diagram([0, 0], [0.0, 0.1], [math.inf, 0.5])
+    right = diagram([0], [0.1], [0.5])
+    assert float(distances.bottleneck(left, right)) == math.inf
 
 
+@pytest.mark.backend
 @pytest.mark.distances
-def test_s9_1_essential_bars_cost_their_birth_difference() -> None:
+def test_s9_1_refuses_to_match_essential_bars_rather_than_return_a_number() -> None:
+    """Identical diagrams included: `0.0` is option (1)'s answer, and a
+    refusal is the only interim that a later answer cannot contradict."""
     distances = pytest.importorskip("akriti.core.distances")
-    left = diagram([0], [0.0], [math.inf])
-    right = diagram([0], [0.5], [math.inf])
-    assert float(distances.bottleneck(left, right)) == pytest.approx(0.5)
+    d = diagram([0], [0.0], [math.inf])
+    with pytest.raises(ValueError, match=r"\(finite, \+inf\)") as caught:
+        distances.bottleneck(d, d)
+    assert "finitize" in str(caught.value)
 
 
 # --------------------------------------------------------------------------

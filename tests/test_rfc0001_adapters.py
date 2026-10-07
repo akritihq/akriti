@@ -4060,16 +4060,15 @@ _RESERVED_PROVENANCE_KEYS = (
     "source_dtype",
     "clamped_rows",
     "padding_removed",
-    # Reserved by 1.3.0 and refused ahead of the writer implementing it: a
-    # caller-stamped `filtration_direction` is exactly the file a 1.3.0
-    # `source_coordinates()` would negate wrongly (§8, §11), and a
-    # caller-stamped `neginf_birth_bars*` is a finitization claim no
-    # `finitize_births` made (§5, §8).
-    "filtration_direction",
-    "neginf_birth_bars",
-    "neginf_birth_bars_dropped",
-    "neginf_birth_bars_finitized_at",
 )
+
+# The four keys RFC-0001's current revision reserves (§8's Reserved column).
+_RESERVED_BY_THE_CURRENT_REVISION = {
+    "filtration_direction": "superlevel",
+    "neginf_birth_bars": "finitized_dropped",
+    "neginf_birth_bars_dropped": 1,
+    "neginf_birth_bars_finitized_at": -1.0,
+}
 
 
 def _call_every_adapter(**meta: Any) -> dict[str, Any]:
@@ -4079,8 +4078,10 @@ def _call_every_adapter(**meta: Any) -> dict[str, Any]:
         "from_ripser": lambda: from_ripser([np.array([[0.0, 1.0]])], **meta),
         "from_persim": lambda: from_persim([np.array([[0.0, 1.0]])], **meta),
         "from_array": lambda: from_array(np.array([[0.0, 1.0]]), dim=0, **meta),
+        # The essential H0 class `reduced_homology=False` promises, so the input
+        # is valid and a refusal comes from `**meta` alone (§11).
         "from_giotto": lambda: from_giotto(
-            np.array([[[0.0, 1.0, 0.0]]]),
+            np.array([[[0.0, math.inf, 0.0]]]),
             reduced_homology=False,
             infinity_values=math.inf,
             **meta,
@@ -4098,14 +4099,14 @@ def test_no_adapter_lets_a_caller_write_a_reserved_provenance_key(
 
     `backend` and `backend_version` are already refused on exactly this
     ground -- "a caller who could set them could produce a diagram that lies
-    about where it came from". §8's `provenance` table is twelve more facts of
-    the same kind, each with a named writer that is not the caller:
+    about where it came from". §8's `provenance` table holds more facts of the
+    same kind, each with a named writer that is not the caller:
     `essential_bars` is `from_giotto`'s and the two `finitize_*` functions'
     ("Those MUST be the only places that set this key");
     `essential_bars_source` is "Written only by `from_*`"; the other
-    `essential_bars*` keys and the three `neginf_birth_bars*` keys are the
-    `finitize_*` functions'; the rest are facts the adapter recorded while
-    reading the backend's output.
+    `essential_bars*` keys are the `finitize_*` functions'; the rest are facts
+    the adapter recorded while reading the backend's output. The four keys
+    the current revision adds are pinned separately, below.
 
     Parametrised over every adapter and every key, because the defect this
     replaces was that protection depended on which keys an adapter happened to
@@ -4116,6 +4117,32 @@ def test_no_adapter_lets_a_caller_write_a_reserved_provenance_key(
 
     with pytest.raises(TypeError, match=key):
         _call_every_adapter(provenance={key: value})[adapter]()
+
+
+@pytest.mark.parametrize("key", list(_RESERVED_BY_THE_CURRENT_REVISION))
+@pytest.mark.parametrize("adapter", list(_call_every_adapter()))
+@pytest.mark.xfail(
+    condition=BELOW_1_3_0,
+    strict=True,
+    raises=AssertionError,
+    reason="RFC-0001's current revision reserves these keys and §11 has every "
+    "adapter refuse them; the writer is held at the revision "
+    "io._SPEC_VERSION names, under which they pass through, and "
+    "io._SPEC_VERSION_GAP says why.",
+)
+def test_1_3_0_no_adapter_lets_a_caller_write_a_key_the_revision_reserves(
+    key: str, adapter: str
+) -> None:
+    """§8, §11: refused like the eight above once the writer claims the
+    revision that reserves them, and not before."""
+    value = _RESERVED_BY_THE_CURRENT_REVISION[key]
+    try:
+        _call_every_adapter(provenance={key: value})[adapter]()
+    except TypeError as error:
+        refused = key in str(error)
+    else:
+        refused = False
+    assert refused
 
 
 @pytest.mark.parametrize("adapter", ["from_persim", "from_array"])
@@ -4310,7 +4337,7 @@ _ADAPTER_NAMES = list(_one_bar_calls(0.0, 1.0))
         (math.nan, 1.0, "I4"),
         # The three rows below pin the **1.2.0 writer** (`io._SPEC_VERSION_GAP`),
         # not the document. RFC-0001 1.3.0 reduces I4 and I5 to non-`NaN` and
-        # adds I10: `(0, -inf)` is then refused by I6/I10 rather than I5, and
+        # adds I10: `(0, -inf)` is then refused by I6 rather than I5, and
         # `(inf, inf)` and `(-inf, 1)` are admitted (D27). When the writer
         # moves, the first row's invariant name moves with it and the other
         # two rows go; `test_every_adapter_admits_the_1_3_0_infinite_shapes`

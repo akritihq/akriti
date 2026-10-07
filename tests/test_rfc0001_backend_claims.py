@@ -265,7 +265,7 @@ def test_persim_returns_nan_between_identical_neginf_birth_diagrams() -> None:
         "the spec, A.4, and simplify core/distances.py."
     )
     # The correct answer is |0.5 - 2.0| = 1.5: bars born at -inf pair by sorted
-    # death, their births agreeing at -inf (RFC-0001 §9.1).
+    # death, their births agreeing at -inf (RFC-0001 Appendix B.5).
     assert np.isnan(against_moved)
 
 

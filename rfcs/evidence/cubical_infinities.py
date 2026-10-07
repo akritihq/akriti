@@ -104,7 +104,8 @@ warnings.simplefilter("always")
 INF = float("inf")
 
 # 1-D top-dimensional cells unless noted. `mixed` is the one to test against:
-# it carries all three admissible non-finite shapes plus a finite bar at once.
+# it carries both shapes born at -inf, `(-inf, finite)` and `(-inf, +inf)`,
+# beside a finite bar.
 # `all_pos_inf*` and `all_neg_inf*` are D27's: a grid whose every cell is at
 # one infinity, so the whole complex is one component born there.
 GRIDS: dict[str, Any] = {
