@@ -26,13 +26,14 @@ import re
 import struct
 import warnings
 import zipfile
+from io import BytesIO
 from pathlib import Path
 from typing import Any
 
 import numpy as np
 import pytest
 
-from _rfc0001_writer import BELOW_1_3_0, FINITE_IS_A_DIAGRAM
+from _rfc0001_writer import BELOW_1_3_0, FINITE_IS_A_DIAGRAM, IMPLEMENTED_VERSION
 from akriti.diagrams import (
     DiagramBatch,
     DiagramMeta,
@@ -124,6 +125,21 @@ def rewrite_meta_json(src: Path, dst: Path, meta: dict[str, Any]) -> None:
     with zipfile.ZipFile(dst, "w") as archive:
         archive.writestr("meta.json", json.dumps(meta).encode("utf-8"))
         archive.writestr("bars.npz", bars)
+
+
+def rewrite_bars_npz(src: Path, dst: Path, **arrays: Any) -> None:
+    """Rewrite an ``.akd`` with the named ``bars.npz`` arrays replaced, member
+    order kept, as ``rewrite_meta_json`` keeps it."""
+    with zipfile.ZipFile(src) as archive:
+        meta = archive.read("meta.json")
+        with np.load(BytesIO(archive.read("bars.npz"))) as npz:
+            bars = {name: npz[name] for name in npz.files}
+    bars.update(arrays)
+    payload = BytesIO()
+    np.savez(payload, **bars)
+    with zipfile.ZipFile(dst, "w") as archive:
+        archive.writestr("meta.json", meta)
+        archive.writestr("bars.npz", payload.getvalue())
 
 
 # --------------------------------------------------------------------------
@@ -848,6 +864,71 @@ def test_1_3_0_tally_may_stand_beside_finitized_at() -> None:
     assert meta.provenance["essential_bars_dropped"] == 1
 
 
+@_NO_FINITIZE_DEATHS_YET
+def test_1_3_0_a_drop_adds_to_the_count_it_finds() -> None:
+    """§5: "A count already present under a `*_dropped` key MUST be added to
+    rather than replaced: it counts over the diagram's life."
+
+    The writer's `finitize(at="drop")` replaces the count, which is why this
+    is a 1.3.0 test and not a check of the existing name. The record is what
+    `finitize_births(at="drop")` leaves after removing three `(-inf, +inf)`
+    bars beside a `(0, +inf)` one; no bar born at -inf constructs at the
+    writer's revision, so it is built directly.
+    """
+    d = diagram(
+        dims=[0, 0],
+        births=[0.0, 0.25],
+        deaths=[math.inf, 0.75],
+        meta=DiagramMeta(
+            provenance={
+                "essential_bars": "finitized_dropped",
+                "essential_bars_dropped": 3,
+            }
+        ),
+    )
+    dropped = d.finitize_deaths(at="drop")
+    assert dropped.n_bars == 1
+    assert dropped.meta.provenance["essential_bars"] == "finitized_dropped"
+    assert dropped.meta.provenance["essential_bars_dropped"] == 4
+
+
+_COUNT_NOT_YET_VALIDATED = pytest.mark.xfail(
+    condition=BELOW_1_3_0,
+    strict=True,
+    raises=AssertionError,
+    reason="the writer's DiagramMeta checks neither *_dropped count's value "
+    "nor any neginf_birth_bars* key; RFC-0001's current revision requires a "
+    "positive int (§8), and io._SPEC_VERSION_GAP says why the writer is held.",
+)
+
+
+@pytest.mark.parametrize("prefix", ["essential_bars", "neginf_birth_bars"])
+def test_s8_a_positive_dropped_count_is_accepted(prefix: str) -> None:
+    """The control for the refusals below: a valid count constructs, at the
+    writer's revision and the current one, so they cannot pass by refusing
+    every count."""
+    key = f"{prefix}_dropped"
+    meta = DiagramMeta(provenance={prefix: "finitized_dropped", key: 1})
+    assert meta.provenance[key] == 1
+
+
+@_COUNT_NOT_YET_VALIDATED
+@pytest.mark.parametrize("count", [0, -1, 2.5, "three", True, None], ids=repr)
+@pytest.mark.parametrize("prefix", ["essential_bars", "neginf_birth_bars"])
+def test_1_3_0_a_dropped_count_is_a_positive_int(prefix: str, count: Any) -> None:
+    """§8: `DiagramMeta` MUST raise `ValueError` on a `*_dropped` count
+    "present and not a positive `int`, a `bool` not being one and `0`
+    recording a drop that removed nothing (§5)"."""
+    key = f"{prefix}_dropped"
+    try:
+        DiagramMeta(provenance={prefix: "finitized_dropped", key: count})
+    except ValueError as error:
+        refused = key in str(error)
+    else:
+        refused = False
+    assert refused
+
+
 # --------------------------------------------------------------------------
 # §3.2 -- N3.2-1: ``d.dim(k)`` for an absent ``k``
 #
@@ -1421,11 +1502,81 @@ def test_s10_2_load_reads_a_reserved_key_stamped_at_its_reservation(
     tmp_path: Path, provenance: dict[str, Any]
 ) -> None:
     """Holds under the writer's revision, where `load` ignores the stamp, and
-    under the current one, where the stamp is not below the reservation."""
-    d, path = _saved_stamped(tmp_path, provenance, SPEC_VERSION)
+    under the current one, where the stamp *is* the reservation: the
+    boundary, so a `load` refusing at equality fails here. Stamped from §8's
+    Reserved column rather than from `SPEC_VERSION`, which moves past the
+    reservation on the next bump."""
+    (reservation,) = {reserved_at(key) for key in provenance}
+    stamp = ".".join(str(part) for part in reservation)
+    d, path = _saved_stamped(tmp_path, provenance, stamp)
     back = load(path)
     assert back == d
     assert back.same_provenance(d)
+
+
+def test_s10_2_a_file_from_the_first_writer_loads(tmp_path: Path) -> None:
+    """§8 dates the keys the first writer carried to the revision it stamped,
+    `0.1.0`, so the reservation check refuses none of them in its files
+    (§10.2's note). Holds under the writer's revision, where `load` ignores
+    the stamp, and under the current one, where it compares."""
+    provenance = {
+        "essential_bars": "faithful",
+        "essential_bars_source": "faithful",
+        "source_dtype": "float64",
+        "clamped_rows": 0,
+        "padding_removed": 0,
+    }
+    d, path = _saved_stamped(tmp_path, provenance, "0.1.0")
+    back = load(path)
+    assert back == d
+    assert back.same_provenance(d)
+
+
+# --------------------------------------------------------------------------
+# §10.2 -- a construction error names both revisions
+#
+#   "An error `load` raises constructing the diagram or batch a file
+#    describes — §3.1's, §4.2's or §8's — MUST therefore name both the file's
+#    `spec_version`, as written, and the revision the reader implements".
+#
+# Each file breaks a rule every revision holds, so it fails construction
+# whichever revision the reader implements; the stamp is a later one, standing
+# for the file of a newer writer.
+# --------------------------------------------------------------------------
+
+_A_LATER_REVISION = "9.0.0"
+
+_READER_REVISION = ".".join(str(part) for part in IMPLEMENTED_VERSION)
+
+_NOT_YET_NAMING_BOTH_REVISIONS = pytest.mark.xfail(
+    condition=BELOW_1_3_0,
+    strict=True,
+    raises=AssertionError,
+    reason="the writer's load raises the invariant's own message, which names "
+    "neither spec_version; io._SPEC_VERSION_GAP says why the writer is held.",
+)
+
+
+@_NOT_YET_NAMING_BOTH_REVISIONS
+@pytest.mark.parametrize("broken", ["bars", "meta"])
+def test_1_3_0_a_construction_error_names_both_revisions(
+    tmp_path: Path, broken: str
+) -> None:
+    original = tmp_path / "original.akd"
+    save(diagram([0], [0.0], [1.0]), original)
+    stamped = tmp_path / "stamped.akd"
+    meta = read_meta_json(original)
+    meta["spec_version"] = _A_LATER_REVISION
+    if broken == "meta":
+        # §8: "finitized_dropped" with no count beside it.
+        meta["meta"]["provenance"] = {"essential_bars": "finitized_dropped"}
+    rewrite_meta_json(original, stamped, meta)
+    if broken == "bars":
+        # I4 and I5 are non-NaN at every revision.
+        rewrite_bars_npz(stamped, stamped, deaths=np.array([math.nan]))
+    message = _load_refusal(stamped)
+    assert _A_LATER_REVISION in message
+    assert _READER_REVISION in message
 
 
 def test_s10_2_an_unparseable_stamp_is_refused_only_with_a_key_to_compare(
