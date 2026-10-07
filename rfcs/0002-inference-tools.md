@@ -3,11 +3,11 @@
 | Field | Value |
 |---|---|
 | **Status** | Draft |
-| **Version** | 0.3.1 — `major.minor.patch`, on RFC-0001 §10.2's bump condition |
+| **Version** | 0.3.2 — `major.minor.patch`, on RFC-0001 §10.2's bump condition |
 | **Authors** | Sushovan Majhi |
 | **Created** | 2026-09-08 |
-| **Last Edited** | 2026-10-02 |
-| **Target** | Tool 1 signature **not frozen**: 2026-09-14 and 2026-09-21 both passed with D8 open, and it freezes when D8 does. Tool 1 was **not** live for AMS 2026-10-03 — the embedding port never started, and the talk showed the interchange layer instead. Both dates are kept rather than removed, a Target row that quietly drops a missed commitment being the §9 shape this document is about |
+| **Last Edited** | 2026-10-07 |
+| **Target** | D8 is **resolved**: there is no informative boolean. Tool 1 signature remains **not frozen**. 2026-09-14 and 2026-09-21 both passed without the freeze; Tool 1 was **not** live for AMS 2026-10-03 — the embedding port never started, and the talk showed the interchange layer instead. All three missed targets remain recorded, including the reason for the missed live talk |
 | **Implements** | `akriti.inference` |
 | **Rests on** | Paper III — [arXiv:2609.07691](https://arxiv.org/abs/2609.07691), posted 2026-09-07. Results are cited by label rather than by number, numbers moving with every revision; the labels are `\label`s in the source |
 
@@ -135,9 +135,9 @@ rather than an instruction the caller is trusted to follow. The intended spellin
 is a content hash of the pilot diagrams, RFC-0001 §8's instrument.
 
 **Holding a configuration and fitting one are separate.** Embedding through a
-`Configuration` needs numpy alone; `fit_configuration` needs `akriti[core]`. A
-caller handed a fitted configuration — by a collaborator, or out of a file —
-uses it on a default install.
+fitted `Configuration` requires `akriti[numpy]`; `fit_configuration` additionally
+uses scipy via `akriti[core]`. A caller handed a fitted configuration — by a
+collaborator, or out of a file — installs `akriti[numpy]` to embed with it.
 
 Serialisation of a `Configuration` is not specified here and is RFC-0001 §10's
 territory. It is not needed for Tool 1 and it is needed before anyone publishes a
@@ -386,10 +386,11 @@ not implement.
 **`inference` depends on `core`.** The embedding this module's statistics are
 computed in — `Configuration` (§2.4) — is defined in `akriti.core`, and so is
 the fitting that produces one. That is the structure rather than a convenience:
-this module consumes an embedding and does not define it. Holding a configuration
-and embedding with it needs numpy alone; fitting one needs `akriti[core]`, so
-`two_sample` with `nu=None` requires that extra and `two_sample` handed a fitted
-configuration does not.
+this module consumes an embedding and does not define it. The default install
+closure remains empty: embedding with a fitted configuration requires
+`akriti[numpy]`, while fitting one additionally uses scipy via `akriti[core]`.
+Thus `two_sample` with `nu=None` requires `akriti[core]`, and `two_sample` handed
+a fitted configuration requires `akriti[numpy]`.
 
 `inference/` is NumPy-backed by the dated deviation of 2026-08-09; `diagrams/`
 remains array-API-pure.
@@ -430,7 +431,7 @@ That direction is what inference needs and it was never in doubt.
 | D5 | Ship the fixed-direction statistic with $h$ pilot-estimated? | Tool 1 freeze | Option, not default |
 | D6 | Is structured exclusion (§3.6) exposed in v1? | Tool 1 freeze | Open. It needs $g_r(\tau)$'s constants to be defensible and numerically available, and where they are not the feature cannot be offered at all |
 | D7 | How is $K$ selected, and does the object expose $\epsilon_K$? | Tool 1 freeze | Open, and §4.1's side condition makes it consequential rather than presentational |
-| D8 | Where does `_is_informative`'s threshold come from? | Tool 1 freeze | **Open, and it is what holds the freeze.** §3.5 requires the transport bound to be reported with its caveat: Paper III states that a large cardinality bound or a conservative Lipschitz constant makes the certificate small, and that a small certificate is inconclusive rather than evidence of closeness. A constant chosen so results read as conclusive is the failure this module exists to prevent, so the candidates are a scale derived from the paper, a caller-supplied one, or dropping the boolean and leaving the raw bound to the reader. The third is the current lean, and its cost is that it moves the judgement onto the reader least equipped to make it |
+| D8 | Where does `_is_informative`'s threshold come from? | Tool 1 freeze | **Resolved: drop the informative boolean and report the raw transport bound with its caveat, leaving the judgement to the reader.** This records the human decision in the [17 September 2026 author comment](https://github.com/akritihq/akriti/pull/58#issuecomment-5706678066); §3.5 continues to require the bound's caveat, since a small certificate is inconclusive rather than evidence of closeness |
 
 ---
 
