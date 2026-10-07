@@ -1226,7 +1226,7 @@ def test_s10_1_save_refuses_a_non_host_resident_array(tmp_path: Path) -> None:
 # §10.2 defines `spec_version` as which revision *the writer implemented*.
 #
 #   "`spec_version` | `str` | Which revision of that specification the writer
-#   implemented, ... `"x.y.z"` at time of writing."
+#   implemented, ...: `"x.y.z"` for a writer implementing this one."
 # --------------------------------------------------------------------------
 
 
@@ -1247,7 +1247,7 @@ def test_s10_2_schema_example_carries_the_same_version() -> None:
 
 
 def test_s10_2_schema_table_carries_the_same_version() -> None:
-    assert f'`"{SPEC_VERSION}"` at time of writing' in rfc_text()
+    assert f'`"{SPEC_VERSION}"` for a writer implementing this one' in rfc_text()
 
 
 def test_s10_2_no_stale_version_survives_the_bump() -> None:
@@ -1256,7 +1256,7 @@ def test_s10_2_no_stale_version_survives_the_bump() -> None:
     """
     text = rfc_text()
     assert '"spec_version": "0.3.0"' not in text
-    assert '`"0.3.0"` at time of writing' not in text
+    assert '`"0.3.0"` for a writer implementing this one' not in text
 
 
 def version_key(version: str) -> tuple[int, int, int]:

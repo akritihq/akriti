@@ -85,7 +85,7 @@ class Pin:
 REGISTERED_PINS = (
     Pin(RFC, r"^\| \*\*Version\*\* \| (\d+\.\d+\.\d+) — ", "document"),
     Pin(RFC, r'^  "spec_version": "(\d+\.\d+\.\d+)",$', "document"),
-    Pin(RFC, r'`"(\d+\.\d+\.\d+)"` at time of writing', "document"),
+    Pin(RFC, r'`"(\d+\.\d+\.\d+)"` for a writer implementing this one', "document"),
     # Hand-written on purpose: the independent witness. Deriving it from the
     # header would make every comparison against it tautological.
     Pin(REVIEW_CLAUSES, r'^SPEC_VERSION = "(\d+\.\d+\.\d+)"$', "document"),
@@ -261,7 +261,8 @@ def synthetic_tree(
         RFC: (
             f"| **Version** | {document} — `major.minor.patch` |\n"
             f'  "spec_version": "{document}",\n'
-            f'| `spec_version` | `str` | `"{document}"` at time of writing |\n'
+            f'| `spec_version` | `str` | `"{document}"` for a writer implementing '
+            "this one |\n"
             f"{CHANGELOG_HEADING}\n"
             "- **(1)** — the document becomes 0.1.0.\n"
             f"- **(2)** — The document becomes {document}.\n"
