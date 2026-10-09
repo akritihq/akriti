@@ -3,10 +3,10 @@
 | Field | Value |
 |---|---|
 | **Status** | Draft |
-| **Version** | 0.3.2 — `major.minor.patch`, on RFC-0001 §10.2's bump condition |
+| **Version** | 0.3.3 — `major.minor.patch`, on RFC-0001 §10.2's bump condition |
 | **Authors** | Sushovan Majhi |
 | **Created** | 2026-09-08 |
-| **Last Edited** | 2026-10-07 |
+| **Last Edited** | 2026-10-09 |
 | **Target** | D8 is **resolved**: there is no informative boolean. Tool 1 signature remains **not frozen**. 2026-09-14 and 2026-09-21 both passed without the freeze; Tool 1 was **not** live for AMS 2026-10-03 — the embedding port never started, and the talk showed the interchange layer instead. All three missed targets remain recorded, including the reason for the missed live talk |
 | **Implements** | `akriti.inference` |
 | **Rests on** | Paper III — [arXiv:2609.07691](https://arxiv.org/abs/2609.07691), posted 2026-09-07. Results are cited by label rather than by number, numbers moving with every revision; the labels are `\label`s in the source |
@@ -44,7 +44,7 @@ place to land.
 ### 1.2 Non-goals
 
 **Selecting the configuration $\nu$.** Every tool takes $\nu$ as fixed on a
-pilot split. §2.2 states why fitting it on the inference sample is prohibited
+pilot split. §2.3 states why fitting it on the inference sample is prohibited
 rather than discouraged.
 
 **Covariates and $k$-sample designs.** Two groups, no adjustment.
@@ -104,7 +104,7 @@ at all.
 
 ### 2.4 `Configuration` is the object ν denotes
 
-§3.1 takes one as its first keyword argument, so this section defines it rather
+§3.1 takes one as its `nu` keyword argument, so this section defines it rather
 than leaving the freeze to fix a type nothing specifies. Defined in
 `akriti.core` (§8).
 
@@ -392,7 +392,9 @@ closure remains empty: embedding with a fitted configuration requires
 Thus `two_sample` with `nu=None` requires `akriti[core]`, and `two_sample` handed
 a fitted configuration requires `akriti[numpy]`.
 
-`inference/` is NumPy-backed by the dated deviation of 2026-08-09; `diagrams/`
+`inference/` is NumPy-backed by the deviation dated 2026-08-09 in the
+development handbook (`akritihq/handbook`, `akriti-dev-onboarding.md` §9) — a
+separate repository, so the reference is named rather than linked. `diagrams/`
 remains array-API-pure.
 
 ---
