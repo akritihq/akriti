@@ -17,7 +17,7 @@
 
 # Correctness-critical statistical core. Every function here traces to an
 # equation in Papers I-III, and someone has to defend it to a referee.
-# See CLAUDE.md, "AI assistance -- three tiers".
+# See AGENTS.md, "AI assistance -- three tiers".
 /src/akriti/core/       @sushovan4
 /src/akriti/inference/  @sushovan4
 

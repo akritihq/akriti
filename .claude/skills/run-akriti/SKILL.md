@@ -211,7 +211,7 @@ python rfcs/evidence/probe_backends.py --require-giotto   # exit 1 wherever giot
   giotto, with `--no-deps`. Do not read giotto source.
 - **`repro/`, `akriti.core` and `akriti.castle` do not exist yet**; only
   `diagrams/` is implemented. `probe` prints all three so you do not go
-  looking. Do not create any of them to satisfy a line in CLAUDE.md: each has
+  looking. Do not create any of them to satisfy a line in AGENTS.md: each has
   an issue or PR that owns it, and what state those are in lives on GitHub,
   not here.
 - **`ZIP_ZSTANDARD` exists only on Python 3.14+.** The `.akd` zstd branch
