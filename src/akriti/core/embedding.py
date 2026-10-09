@@ -33,7 +33,7 @@ from typing import Any
 __all__ = ["Configuration", "fit_configuration"]
 
 
-@dataclass(frozen=True)
+@dataclass(frozen=True, eq=False)
 class Configuration:
     """A fixed landmark configuration, and the provenance of how it was fixed.
 
@@ -42,6 +42,20 @@ class Configuration:
     after a diagram has been embedded through it silently invalidates the
     interval computed from those embeddings, and nothing would report it —
     which is I8's argument in RFC-0001 §3.1, reaching this layer unchanged.
+
+    **Frozen stops a field being rebound, and nothing more.** Construction does
+    not yet copy the arrays it is given, so the caller's own references alias
+    them, and a write such as ``cfg.positions[0, 0] = x`` runs on every backend
+    in scope. I8 has the same remainder and requires it stated rather than
+    implied: the copy is owed with the port, and the in-place write stays a
+    caller contract the type cannot enforce.
+
+    ``eq=False`` because the generated ``__eq__`` and ``__hash__`` would
+    compare and hash the array fields as a tuple — ``==`` then raises
+    ``ValueError`` and ``hash`` raises ``TypeError``. Equality is identity
+    until one is specified. RFC-0001 §6.3 requires exact and approximate
+    equality as separate, named methods, and a dataclass default should not
+    pick one of them silently.
 
     Attributes
     ----------
@@ -65,7 +79,7 @@ class Configuration:
         implementation to **raise** when a configuration would be fitted on the
         inference sample, and a bare bundle of arrays cannot answer the
         question that rule asks. A content hash of the pilot diagrams is the
-        intended spelling — the same instrument §8 uses — so that the check is
+        intended spelling — RFC-0001 §8.1's instrument — so that the check is
         mechanical rather than a matter of the caller remembering.
     """
 

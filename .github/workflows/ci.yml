@@ -147,7 +147,7 @@ jobs:
       # The torch and jax wheel closures are intentionally report-only: both are
       # large, platform-specific binary wheels that may contain transitive
       # packages whose licence metadata is not suitable for the strict
-      # default/io/parquet gates. This reuses the row's install rather than
+      # default/io/parquet/core gates. This reuses the row's install rather than
       # making a second multi-gigabyte one. The profile name is the row name in
       # both cases, so this stays one step rather than two that can drift.
       - name: Audit ${{ matrix.name }} closure (report only)
@@ -194,6 +194,16 @@ jobs:
           .venv-parquet-closure/bin/pip install --quiet ".[parquet]"
           .venv-parquet-closure/bin/python tools/check_license_closure.py \
             --profile parquet
+
+      # akriti[core] is scipy alone, and DEPENDENCIES.md calls its profile
+      # strict. Registering the profile does not make it strict; this step
+      # does. Its own clean venv on the same grounds as parquet's.
+      - name: Enforce permissive-only akriti[core] closure
+        run: |
+          python -m venv .venv-core-closure
+          .venv-core-closure/bin/pip install --quiet ".[core]"
+          .venv-core-closure/bin/python tools/check_license_closure.py \
+            --profile core
 
       # Extras are expected to contain copyleft; report so a change is visible
       # in the log, but do not fail on it.
