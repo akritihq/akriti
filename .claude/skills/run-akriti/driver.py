@@ -229,7 +229,7 @@ def cmd_probe(args: argparse.Namespace) -> int:
             )
 
     print()
-    print(f"{BOLD}also named in CLAUDE.md{OFF}")
+    print(f"{BOLD}also named in AGENTS.md{OFF}")
     for sub in ("akriti.core", "akriti.castle"):
         # find_spec, not have(): these subpackages carry no __version__, so
         # have() would call them absent on the day they land.

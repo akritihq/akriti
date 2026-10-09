@@ -104,9 +104,13 @@ scikit-learn ≥ 1.8; use the committed fixture arrays instead.
 
 ## Using AI assistance
 
-We use it, by policy — capacity is our binding constraint. `CLAUDE.md` at the
+We use it, by policy — capacity is our binding constraint. `AGENTS.md` at the
 repository root holds the conventions and is read automatically by agentic
-tools. Two things we ask of contributors who use it:
+tools, Claude Code included (v2.1.277 or later). There is deliberately no
+`CLAUDE.md`: Claude Code reads `AGENTS.md` only when no `CLAUDE.md` or
+`CLAUDE.local.md` sits in or above the working directory, so adding either —
+`/init` writes the first — silently stops Claude reading the conventions. Two
+things we ask of contributors who use it:
 
 - **Verify numerical output against the cited equation by hand.** Do not let a
   model derive a formula, and do not let one session write both a numerical

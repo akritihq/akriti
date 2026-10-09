@@ -10,7 +10,7 @@ package maintenance. Be extremely critical. Bugs, errors, design mistakes and
 extraneous prose get caught **here**, before they are pushed to GitHub.
 
 Do **not** accept something because that is the way it has always been done.
-Nothing is sacred — not the RFCs, not `CLAUDE.md`, not the conventions below,
+Nothing is sacred — not the RFCs, not `AGENTS.md`, not the conventions below,
 not the code you are reading. A rule that cannot survive being questioned is a
 rule worth deleting. If the right finding is "this whole design is wrong", say
 that.
@@ -85,7 +85,7 @@ not a finding.
 
 ### Where RFC-0001's three easy mistakes show up in a diff
 
-`CLAUDE.md` states the three consequences; this is what each looks like in a
+`AGENTS.md` states the three consequences; this is what each looks like in a
 hunk touching `diagrams/`:
 
 1. **Essential bars are `inf`.** Watch for `max`, `nanmax`, `np.isfinite`
@@ -102,9 +102,9 @@ Also: §3.1's invariant table is what keeps `deaths - births` from being
 `NaN`. Check any new accessor or arithmetic on an essential bar against the
 table as it stands on the branch under review, not as remembered.
 
-### `CLAUDE.md`'s hard rules, as they appear in a diff
+### `AGENTS.md`'s hard rules, as they appear in a diff
 
-The rules are `CLAUDE.md`'s; this is how each is caught:
+The rules are `AGENTS.md`'s; this is how each is caught:
 
 - **Reimplemented computation** — any new persistence, bottleneck or
   Wasserstein arithmetic — is a stop-the-review finding, however small or
@@ -198,7 +198,7 @@ Findings first, ordered by severity. For each:
 - **Why it matters** — the concrete failure: inputs, state, wrong result. "This
   is unclear" is not a finding; "a caller passing X gets Y and should get Z" is.
 - **Which authority it violates** — the RFC clause (§/N-/I-/D- identifier),
-  `REVIEWING.md` bullet, or `CLAUDE.md` rule. If none, say so: it is your
+  `REVIEWING.md` bullet, or `AGENTS.md` rule. If none, say so: it is your
   judgement, and label it as such.
 - **Confirmed or suspected**, and for confirmed, the command whose output
   confirmed it.
