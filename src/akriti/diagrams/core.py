@@ -55,6 +55,7 @@ import operator
 import re
 import struct
 import sys
+import warnings
 from collections.abc import Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from importlib import import_module, metadata
@@ -1087,7 +1088,26 @@ class PersistenceDiagram:
         (§8), the same prohibition `finitize` carries.
 
         Eager-only (§3.3): boolean-mask selection.
+
+        Warns `FutureWarning` on every call: RFC-0001 1.3.0 makes `d.finite` a
+        boolean mask (D28), and on two one-bar diagrams `d.finite == e.finite`
+        would then compare masks, silently, rather than bars. The warning names
+        both replacements available now -- `finitize(at="drop")` for this
+        diagram, and for the mask `isfinite` over both coordinates, which is
+        1.3.0's `d.finite` on every shape it admits (§3.2) -- so every use
+        warns before any changes meaning. It does not name `~d.essential`:
+        that agrees only while no bar is born at `-inf`, and once one is, a
+        caller who wrote it partitions on `essential` alone, the bug §9.1
+        names.
         """
+        warnings.warn(
+            "d.finite will return a boolean mask over bars instead of a diagram "
+            "(RFC-0001 D28). For the diagram it returns now, call "
+            "d.finitize(at='drop'), which gives the same bars and provenance; "
+            "for the mask, use d.xp.isfinite(d.births) & d.xp.isfinite(d.deaths).",
+            FutureWarning,
+            stacklevel=2,
+        )
         return self._dropping_essential(self.essential)
 
     @property

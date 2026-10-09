@@ -28,6 +28,9 @@ Assumptions:
 - Appendix D is the RFC's last section and lists its entries in order. Only its
   last "the document becomes x.y.z" is a current claim; every earlier entry is
   history, and Appendix D is not scanned.
+- A version the RFC quotes as a fixed fact is not a pin: §8's reserved-key
+  table records the revision that reserved each key, which must not move on a
+  bump. That cell, and only that cell, is blanked before the row is scanned.
 - A pin lives in the RFC, or in a ``*.py`` or ``*.json`` file under ``src/`` or
   ``tests/``. In Python only string literals can be pins: comments, docstrings
   and the text of ``_SPEC_VERSION_GAP`` are prose, and during a gap the
@@ -60,6 +63,11 @@ SCANNED_SUFFIXES = (".py", ".json")
 
 Kind = Literal["document", "implemented"]
 
+# §8's reserved-key table: `| `key` | <revision reserved> | meaning |`. The
+# revision is history, so it is blanked rather than scanned; the meaning cell
+# is still checked.
+RESERVED_CELL = re.compile(r"^(\| `[a-z_]+` \| )\d+\.\d+\.\d+( \|)")
+
 
 @dataclass(frozen=True)
 class Pin:
@@ -77,7 +85,7 @@ class Pin:
 REGISTERED_PINS = (
     Pin(RFC, r"^\| \*\*Version\*\* \| (\d+\.\d+\.\d+) — ", "document"),
     Pin(RFC, r'^  "spec_version": "(\d+\.\d+\.\d+)",$', "document"),
-    Pin(RFC, r'`"(\d+\.\d+\.\d+)"` at time of writing', "document"),
+    Pin(RFC, r'`"(\d+\.\d+\.\d+)"` for a writer implementing this one', "document"),
     # Hand-written on purpose: the independent witness. Deriving it from the
     # header would make every comparison against it tautological.
     Pin(REVIEW_CLAUSES, r'^SPEC_VERSION = "(\d+\.\d+\.\d+)"$', "document"),
@@ -187,6 +195,8 @@ def pin_problems(texts: dict[str, str]) -> list[str]:
         for number, line in enumerate(text.splitlines(), start=1):
             if (path, number) in registered:
                 continue
+            if path == RFC:
+                line = RESERVED_CELL.sub(r"\1\2", line)
             if scanned is not None and number not in scanned:
                 continue
             match = occurrence.search(line) if current else None
@@ -251,7 +261,8 @@ def synthetic_tree(
         RFC: (
             f"| **Version** | {document} — `major.minor.patch` |\n"
             f'  "spec_version": "{document}",\n'
-            f'| `spec_version` | `str` | `"{document}"` at time of writing |\n'
+            f'| `spec_version` | `str` | `"{document}"` for a writer implementing '
+            "this one |\n"
             f"{CHANGELOG_HEADING}\n"
             "- **(1)** — the document becomes 0.1.0.\n"
             f"- **(2)** — The document becomes {document}.\n"
@@ -276,6 +287,15 @@ def test_a_new_pin_site_is_found_the_first_time_it_appears() -> None:
 def test_a_new_pin_site_in_the_rfc_body_is_found() -> None:
     tree = synthetic_tree()
     tree[RFC] = "Files written today say 3.4.5.\n" + tree[RFC]
+    problems = pin_problems(tree)
+    assert any(p.startswith(f"{RFC}:1: 3.4.5 is a current") for p in problems)
+
+
+def test_a_reserved_cell_is_history_and_the_rest_of_its_row_is_not() -> None:
+    tree = synthetic_tree()
+    tree[RFC] = "| `some_key` | 3.4.5 | written by the adapter |\n" + tree[RFC]
+    assert pin_problems(tree) == []
+    tree[RFC] = "| `some_key` | 3.4.5 | since 3.4.5 |\n" + tree[RFC]
     problems = pin_problems(tree)
     assert any(p.startswith(f"{RFC}:1: 3.4.5 is a current") for p in problems)
 

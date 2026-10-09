@@ -42,6 +42,7 @@ from hypothesis import given
 from hypothesis import strategies as st
 
 import akriti.diagrams.adapters as adapters_module
+from _rfc0001_writer import BELOW_1_3_0
 from akriti.diagrams import DiagramBatch, PersistenceDiagram
 from akriti.diagrams.adapters import (
     from_array,
@@ -4061,6 +4062,14 @@ _RESERVED_PROVENANCE_KEYS = (
     "padding_removed",
 )
 
+# The four keys RFC-0001's current revision reserves (§8's Reserved column).
+_RESERVED_BY_THE_CURRENT_REVISION = {
+    "filtration_direction": "superlevel",
+    "neginf_birth_bars": "finitized_dropped",
+    "neginf_birth_bars_dropped": 1,
+    "neginf_birth_bars_finitized_at": -1.0,
+}
+
 
 def _call_every_adapter(**meta: Any) -> dict[str, Any]:
     """Every adapter, on its smallest valid input, with `**meta` passed on."""
@@ -4069,8 +4078,10 @@ def _call_every_adapter(**meta: Any) -> dict[str, Any]:
         "from_ripser": lambda: from_ripser([np.array([[0.0, 1.0]])], **meta),
         "from_persim": lambda: from_persim([np.array([[0.0, 1.0]])], **meta),
         "from_array": lambda: from_array(np.array([[0.0, 1.0]]), dim=0, **meta),
+        # The essential H0 class `reduced_homology=False` promises, so the input
+        # is valid and a refusal comes from `**meta` alone (§11).
         "from_giotto": lambda: from_giotto(
-            np.array([[[0.0, 1.0, 0.0]]]),
+            np.array([[[0.0, math.inf, 0.0]]]),
             reduced_homology=False,
             infinity_values=math.inf,
             **meta,
@@ -4088,12 +4099,14 @@ def test_no_adapter_lets_a_caller_write_a_reserved_provenance_key(
 
     `backend` and `backend_version` are already refused on exactly this
     ground -- "a caller who could set them could produce a diagram that lies
-    about where it came from". §8's `provenance` table is seven more facts of
-    the same kind: `essential_bars` has two named writers and neither is a
-    caller ("Both writers, `from_giotto` at construction and `finitize()`
-    later, MUST be the only places that set this key"); `essential_bars_source`
-    is "Written only by `from_*`"; the rest are counts and dtypes the adapter
-    measured while reading the backend's output.
+    about where it came from". §8's `provenance` table holds more facts of the
+    same kind, each with a named writer that is not the caller:
+    `essential_bars` is `from_giotto`'s and the two `finitize_*` functions'
+    ("Those MUST be the only places that set this key");
+    `essential_bars_source` is "Written only by `from_*`"; the other
+    `essential_bars*` keys are the `finitize_*` functions'; the rest are facts
+    the adapter recorded while reading the backend's output. The four keys
+    the current revision adds are pinned separately, below.
 
     Parametrised over every adapter and every key, because the defect this
     replaces was that protection depended on which keys an adapter happened to
@@ -4104,6 +4117,32 @@ def test_no_adapter_lets_a_caller_write_a_reserved_provenance_key(
 
     with pytest.raises(TypeError, match=key):
         _call_every_adapter(provenance={key: value})[adapter]()
+
+
+@pytest.mark.parametrize("key", list(_RESERVED_BY_THE_CURRENT_REVISION))
+@pytest.mark.parametrize("adapter", list(_call_every_adapter()))
+@pytest.mark.xfail(
+    condition=BELOW_1_3_0,
+    strict=True,
+    raises=AssertionError,
+    reason="RFC-0001's current revision reserves these keys and §11 has every "
+    "adapter refuse them; the writer is held at the revision "
+    "io._SPEC_VERSION names, under which they pass through, and "
+    "io._SPEC_VERSION_GAP says why.",
+)
+def test_1_3_0_no_adapter_lets_a_caller_write_a_key_the_revision_reserves(
+    key: str, adapter: str
+) -> None:
+    """§8, §11: refused like the eight above once the writer claims the
+    revision that reserves them, and not before."""
+    value = _RESERVED_BY_THE_CURRENT_REVISION[key]
+    try:
+        _call_every_adapter(provenance={key: value})[adapter]()
+    except TypeError as error:
+        refused = key in str(error)
+    else:
+        refused = False
+    assert refused
 
 
 @pytest.mark.parametrize("adapter", ["from_persim", "from_array"])
@@ -4256,8 +4295,13 @@ def test_a_columns_argument_is_still_refused_on_its_own_terms_first() -> None:
 # a suite that looks fully covered.
 
 
-def _one_bar_calls(birth: float, death: float, degree: int = 0) -> dict[str, Any]:
+def _one_bar_calls(
+    birth: float, death: float, degree: int = 0, **direction: str
+) -> dict[str, Any]:
     """The same single bar, spelled the way each backend spells it.
+
+    `**direction` reaches only `from_persim` and `from_array`, the two
+    adapters that take `filtration_direction` (§11).
 
     **`from_giotto`'s arm declares `reduced_homology=True`, and alone among
     the five it has to.** The bar is degree 0 with a finite death, and §11's
@@ -4277,8 +4321,8 @@ def _one_bar_calls(birth: float, death: float, degree: int = 0) -> dict[str, Any
     return {
         "from_gudhi": lambda: from_gudhi([(degree, (birth, death))]),
         "from_ripser": lambda: from_ripser(blocks),
-        "from_persim": lambda: from_persim(blocks),
-        "from_array": lambda: from_array(block, dim=degree),
+        "from_persim": lambda: from_persim(blocks, **direction),
+        "from_array": lambda: from_array(block, dim=degree, **direction),
         "from_giotto": lambda: from_giotto(
             np.array([[[birth, death, float(degree)]]]),
             reduced_homology=True,
@@ -4288,6 +4332,7 @@ def _one_bar_calls(birth: float, death: float, degree: int = 0) -> dict[str, Any
 
 
 _ADAPTER_NAMES = list(_one_bar_calls(0.0, 1.0))
+_DIRECTION_ADAPTERS = ("from_persim", "from_array")
 
 
 @pytest.mark.parametrize("adapter", _ADAPTER_NAMES)
@@ -4296,11 +4341,17 @@ _ADAPTER_NAMES = list(_one_bar_calls(0.0, 1.0))
     [
         (0.0, math.nan, "I5"),
         (math.nan, 1.0, "I4"),
+        # The three rows below pin the **1.2.0 writer** (`io._SPEC_VERSION_GAP`),
+        # not the document. RFC-0001 1.3.0 reduces I4 and I5 to non-`NaN` and
+        # adds I10: `(0, -inf)` is then refused under I6 rather than I5 --
+        # naming the omitted `filtration_direction` on the two adapters that
+        # take it, its superlevel reading `(0, +inf)` being valid (§3.1, §11)
+        # -- and `(inf, inf)` and `(-inf, 1)` are admitted (D27). When the writer
+        # moves, the first row's invariant name moves with it and the other
+        # two rows go; `test_every_adapter_admits_the_1_3_0_infinite_shapes`
+        # below stops xfailing at the same moment.
         (0.0, -math.inf, "I5"),
         (math.inf, math.inf, "I4"),
-        # I4 is two claims -- finite *and* non-`NaN` -- and the rows above
-        # reach the finiteness half only through `inf`. `-inf` is the other
-        # spelling, and the one an underflowing filtration produces.
         (-math.inf, 1.0, "I4"),
     ],
 )
@@ -4310,6 +4361,111 @@ def test_every_adapter_refuses_invalid_coordinates(
     """§3.1/§11: an invalid diagram MUST NOT be constructible by any route."""
     with pytest.raises(ValueError, match=invariant):
         _one_bar_calls(birth, death)[adapter]()
+
+
+# §3.1's two shapes born at -inf, `(-inf, finite)` and `(-inf, +inf)`, and
+# D27's `(+inf, +inf)`, each of which GUDHI's cubical complex returns from an
+# ordinary call (A.12).
+_INFINITE_SHAPES = [(-math.inf, 1.0), (-math.inf, math.inf), (math.inf, math.inf)]
+
+# The two whose superlevel reading is also valid and differs -- `(-inf, +inf)`
+# reads as `(+inf, +inf)` and back -- so on the two adapters that take
+# `filtration_direction`, an omitted one cannot be decided from these bars and
+# is refused (§3.1's residual, §11). `(-inf, 1)` reads as `(+inf, -1)`, which
+# fails I6, so the bars decide it.
+_UNDECIDABLE_SHAPES = [(-math.inf, math.inf), (math.inf, math.inf)]
+
+
+def _assert_admitted_as_handed_in(
+    result: PersistenceDiagram | DiagramBatch, birth: float, death: float
+) -> None:
+    """One bar, stored as handed in rather than negated, and recorded as read
+    sublevel (§11). `from_giotto` returns a batch of one (§11)."""
+    if isinstance(result, DiagramBatch):
+        assert len(result) == 1
+        result = result[0]
+    assert result.n_bars == 1
+    assert (float(result.births[0]), float(result.deaths[0])) == (birth, death)
+    assert result.meta.provenance["filtration_direction"] == "sublevel"
+
+
+@pytest.mark.parametrize(
+    ("adapter", "birth", "death"),
+    [
+        (adapter, birth, death)
+        for adapter in _ADAPTER_NAMES
+        for birth, death in _INFINITE_SHAPES
+        if not (
+            adapter in _DIRECTION_ADAPTERS and (birth, death) in _UNDECIDABLE_SHAPES
+        )
+    ],
+)
+@pytest.mark.xfail(
+    # Conditioned on the writer's claim, not removed by hand: once
+    # `io._SPEC_VERSION` reaches 1.3.0 this runs as an ordinary test, so a
+    # writer that claims the revision and still refuses these bars fails.
+    condition=BELOW_1_3_0,
+    strict=True,
+    raises=ValueError,
+    reason="RFC-0001's current revision admits bars born at -inf and a bar "
+    "born at +inf (I4, I10, D27); the writer is held at the revision "
+    "io._SPEC_VERSION names, and io._SPEC_VERSION_GAP says why.",
+)
+def test_every_adapter_admits_the_1_3_0_infinite_shapes(
+    adapter: str, birth: float, death: float
+) -> None:
+    """§3.1, D27: the declared gap between document and writer, as a test
+    rather than only as a string in `io.py`.
+
+    `from_persim` and `from_array` are called without `filtration_direction`,
+    so they are left out on `_UNDECIDABLE_SHAPES`, where §11 refuses the
+    omission; the two tests below cover them there."""
+    _assert_admitted_as_handed_in(_one_bar_calls(birth, death)[adapter](), birth, death)
+
+
+@pytest.mark.parametrize(("birth", "death"), _UNDECIDABLE_SHAPES)
+@pytest.mark.parametrize("adapter", _DIRECTION_ADAPTERS)
+@pytest.mark.xfail(
+    condition=BELOW_1_3_0,
+    strict=True,
+    raises=TypeError,
+    reason="filtration_direction is not an argument until the writer "
+    "implements RFC-0001's current revision (D25), so it reaches DiagramMeta "
+    "through **meta and is refused there; io._SPEC_VERSION_GAP says why the "
+    "writer is held.",
+)
+def test_1_3_0_a_sublevel_declaration_admits_the_shapes_the_bars_cannot_decide(
+    adapter: str, birth: float, death: float
+) -> None:
+    """§11: "An adapter handed `"sublevel"` MUST record that and MUST NOT
+    negate"."""
+    call = _one_bar_calls(birth, death, filtration_direction="sublevel")[adapter]
+    _assert_admitted_as_handed_in(call(), birth, death)
+
+
+@pytest.mark.parametrize(("birth", "death"), _UNDECIDABLE_SHAPES)
+@pytest.mark.parametrize("adapter", _DIRECTION_ADAPTERS)
+@pytest.mark.xfail(
+    condition=BELOW_1_3_0,
+    strict=True,
+    raises=AssertionError,
+    reason="the writer refuses these bars on I4, not on the omitted "
+    "filtration_direction RFC-0001's current revision refuses (§11); "
+    "io._SPEC_VERSION_GAP says why the writer is held.",
+)
+def test_1_3_0_an_omitted_direction_is_refused_on_the_shapes_the_bars_cannot_decide(
+    adapter: str, birth: float, death: float
+) -> None:
+    """§11: "the adapter MUST raise `ValueError` naming `filtration_direction`
+    and both values rather than choose one"."""
+    try:
+        _one_bar_calls(birth, death)[adapter]()
+    except ValueError as error:
+        message = str(error)
+    else:
+        message = ""
+    for word in ("filtration_direction", "sublevel", "superlevel"):
+        assert word in message
 
 
 @pytest.mark.parametrize("adapter", _ADAPTER_NAMES)
