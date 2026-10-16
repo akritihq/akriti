@@ -60,6 +60,10 @@ SUPPORTED_PROFILES = (
     # asserted equal by tests/test_license_closure.py, so an extra
     # declared without a profile here fails rather than going unaudited.
     "parquet",
+    # The landmark embedding's fitting path (PLACE, PALACE). scipy alone, and
+    # scipy is BSD-3-Clause with a permissive transitive closure -- so unlike
+    # `torch` and `jax` this is a strict profile rather than report-only.
+    "core",
     "bio",
     "test",
     "lint",

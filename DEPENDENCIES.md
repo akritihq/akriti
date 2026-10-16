@@ -205,6 +205,7 @@ relevant extra on failure.
 | `torch` | `torch`, `array-api-compat>=1.15.0` | Torch is BSD-3-Clause and multi-gigabyte; array-api-compat is MIT; both are optional and never hard dependencies |
 | `jax` | `jax>=0.8.0` | Apache-2.0; pulls `jaxlib` (Apache-2.0), `ml_dtypes` (Apache-2.0), `opt_einsum` (MIT), `scipy` (BSD-3) and `numpy` (BSD-3). No `array-api-compat`: JAX exposes the namespace natively |
 | `parquet` | `pyarrow>=25.0.0` | Apache-2.0; Apache Arrow Developers; strict permissive-only closure audited separately |
+| `core` | `scipy>=1.10` | BSD-3-Clause, pulling `numpy` (BSD-3). A **strict** permissive-only profile rather than report-only, unlike `torch` and `jax`: the closure is small and entirely permissive |
 | `bio` | `anndata` | BSD-3-Clause |
 | `test` | `pytest`, `pytest-cov`, `hypothesis`, `packaging>=22`, `array_api_strict`, → `akriti[numpy]` | `hypothesis` is **MPL-2.0** — weak, file-level, test-only, never shipped |
 | `lint` | `ruff`, `mypy` | MIT |

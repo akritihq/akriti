@@ -62,6 +62,7 @@ EXTRAS = {
     "alpha": ("gudhi", "GUDHI (Rips/Alpha)"),
     "distances": ("persim", "diagram distances"),
     "parquet": ("pyarrow", "to_parquet()"),
+    "core": ("scipy", "fitting a landmark configuration (PLACE, PALACE)"),
     "torch": ("torch", "tensor namespace, via array-api-compat"),
     "jax": ("jax", "JAX namespace, under a caller-set x64 config (D23)"),
     "bio": ("anndata", "anndata interop"),
