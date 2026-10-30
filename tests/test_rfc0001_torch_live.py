@@ -8,6 +8,7 @@ import pytest
 torch = pytest.importorskip("torch")
 array_api_compat = pytest.importorskip("array_api_compat")
 
+from _rfc0001_writer import FINITE_IS_A_DIAGRAM  # noqa: E402
 from akriti.diagrams.adapters import (  # noqa: E402
     from_array,
     from_giotto,
@@ -38,6 +39,7 @@ def test_torch_namespace_uses_array_api_compat_fallback() -> None:
     assert resolved is expected
 
 
+@FINITE_IS_A_DIAGRAM
 def test_torch_from_array_and_d18_accessors_use_the_resolved_namespace() -> None:
     """D18's five affected accessors match under torch and NumPy namespaces."""
     values = _diagram_table()
@@ -76,6 +78,8 @@ def test_torch_from_array_and_d18_accessors_use_the_resolved_namespace() -> None
         == ([0, 0], [0.0, 0.1], [float("inf"), 0.4])
     )
 
+    # Pins the 1.2.0 writer (`io._SPEC_VERSION_GAP`): at 1.3.0 `finite` is a
+    # mask (D28) and the comparison below is over the masked arrays instead.
     finite = diagram.finite
     reference_finite = reference.finite
     assert (
