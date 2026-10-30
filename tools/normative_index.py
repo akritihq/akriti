@@ -41,6 +41,7 @@ RFC = (
 
 APPENDIX_HEADING = "## Appendix C — Normative requirements index"
 CHANGELOG_HEADING = "## Appendix D — Changelog"
+SUBJECT_HEADING = "### Clauses grouped by subject"
 _END_MARKER = "\n<!-- end normative index -->\n"
 
 # All-capitals only, per the document's preamble. `MUST NOT` and `SHOULD NOT`
@@ -97,10 +98,11 @@ def _strip_code_blocks(lines: list[str]) -> list[str]:
         if not in_fence and re.match(r"^\s*[-*] ", line):
             # A list item is its own clause. Without this, a bulleted
             # requirement is glued to the paragraph above it and the row
-            # reports two obligations under the first one's wording.
+            # reports two obligations under the first one's wording. Only the
+            # item's start is marked: its continuation lines join it, and it
+            # ends at the next blank line or the next marker (#62).
             out.append("")
             out.append(line)
-            out.append("")
             continue
         out.append("" if in_fence else line)
     return out
@@ -175,17 +177,49 @@ def _label(section: str) -> str:
     return match.group(1) if match else section
 
 
-def render(requirements: list[Requirement]) -> str:
-    """The appendix, as markdown."""
+def _ids(requirements: list[Requirement]) -> list[str]:
+    """`N3.1-4` for each clause: its section's label, then its position there."""
     counts: dict[str, int] = {}
-    rows = []
+    ids: list[str] = []
     for requirement in requirements:
         label = _label(requirement.section)
         counts[label] = counts.get(label, 0) + 1
-        rows.append(
-            f"| `N{label}-{counts[label]}` | §{label} | **{requirement.keyword}** "
+        ids.append(f"N{label}-{counts[label]}")
+    return ids
+
+
+def _by_subject(requirements: list[Requirement], ids: list[str]) -> list[str]:
+    """Rows for every subject with two or more clauses, grouped by subject.
+
+    Subjects sort case-insensitively; within one, clauses keep document order.
+    A clause with no subject is left out -- there is nothing to group it by --
+    and so is a subject with one clause, which has nothing to be read against.
+    """
+    groups: dict[str, list[tuple[str, Requirement]]] = {}
+    for ident, requirement in zip(ids, requirements, strict=True):
+        if requirement.subject:
+            groups.setdefault(requirement.subject, []).append((ident, requirement))
+    rows: list[str] = []
+    for subject in sorted(groups, key=lambda s: (s.casefold(), s)):
+        members = groups[subject]
+        if len(members) < 2:
+            continue
+        rows.extend(
+            f"| `{subject}` | `{ident}` | **{requirement.keyword}** "
             f"| {requirement.text} |"
+            for ident, requirement in members
         )
+    return rows
+
+
+def render(requirements: list[Requirement]) -> str:
+    """The appendix, as markdown."""
+    ids = _ids(requirements)
+    rows = [
+        f"| `{ident}` | §{_label(requirement.section)} "
+        f"| **{requirement.keyword}** | {requirement.text} |"
+        for ident, requirement in zip(ids, requirements, strict=True)
+    ]
 
     totals = {}
     for requirement in requirements:
@@ -206,9 +240,10 @@ def render(requirements: list[Requirement]) -> str:
             "**What this is for.** The body carries the argument for each",
             "obligation; this carries the obligations. A reader can check what",
             "conforming means without reading the whole document, and every",
-            "clause about one subject can be read together — which is where a",
-            "rule stated in one section and contradicted in another shows up",
-            "as two adjacent rows that disagree.",
+            "clause about one subject can be read together, in the second",
+            "table — which is where a rule stated in one section and",
+            "contradicted in another shows up as two adjacent rows that",
+            "disagree.",
             "",
             "**What it is not.** It is not normative. Where a row and the body",
             "differ, the body governs and the generator has a bug. Rows are",
@@ -223,6 +258,21 @@ def render(requirements: list[Requirement]) -> str:
             "| # | Section | Keyword | Clause |",
             "|---|---|---|---|",
             *rows,
+            "",
+            SUBJECT_HEADING,
+            "",
+            "The clauses above again, for every subject that has more than",
+            "one, in document order within each subject. A clause's subject is",
+            "the first identifier it puts in backticks. That is a heuristic",
+            "and it reads no further: a clause naming an identifier in passing",
+            "is filed under it, and a clause naming none is not repeated here.",
+            "Adjacent rows share a word, not necessarily a meaning, so",
+            "disagreement between them is a question for the body, which",
+            "governs.",
+            "",
+            "| Subject | # | Keyword | Clause |",
+            "|---|---|---|---|",
+            *_by_subject(requirements, ids),
             "",
             _END_MARKER.strip(),
         ]
