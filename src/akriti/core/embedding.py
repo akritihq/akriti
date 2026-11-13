@@ -16,8 +16,12 @@ module imports with neither present, and
 ``tests/test_core_import_boundary.py`` pins that.
 
 **The numerics are not written here yet.** This module defines the type and the
-boundary; the bodies port from ``PESOSE-27/stat-papers/embedding/nonuniform.py``
-and are human-derived tier under §10 of the development handbook
+boundary; the bodies port from the public artifact ``akritihq/place-palace`` at
+tag ``v2.0.0-rc1`` (``embedding/nonuniform.py``, ``utils/bottleneck.py``), the
+definition-faithful release of 2026-11-13 -- not from the earlier
+``PESOSE-27/stat-papers`` copy, which predates the radius cap, the bottleneck
+FPS metric and the certificate corrections recorded in that release's
+``CHANGELOG.md`` -- and are human-derived tier under §10 of the development handbook
 (``akritihq/handbook``, ``akriti-dev-onboarding.md``, "Use of AI assistance") —
 a separate repository, so the reference is named rather than cited as §10.
 
